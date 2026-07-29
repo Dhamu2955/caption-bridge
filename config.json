@@ -18,6 +18,13 @@
     "pollIntervalMs": 3000,
     "pollTimeoutMs": 3600000
   },
+  "search": {
+    "model": "Xenova/multilingual-e5-small",
+    "dimensions": 384,
+    "chunkTargetMs": 120000,
+    "chunkMaxMs": 180000,
+    "chunkOverlapMs": 30000
+  },
   "paths": { "media": "./media", "recordings": "./recordings" },
   "database": { "urlEnv": "DATABASE_URL" },
   "server": { "host": "127.0.0.1", "port": 3000 },

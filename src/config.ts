@@ -42,9 +42,21 @@ export interface IngestConfig {
   pollTimeoutMs: number;
 }
 
+export interface SearchConfig {
+  /** Multilingual so a Gujarati query can reach English text (§3). Changing
+   *  this invalidates every stored vector — re-index after. */
+  model: string;
+  dimensions: number;
+  /** §3: chunk above segment level, 1–3 minute passages with overlap. */
+  chunkTargetMs: number;
+  chunkMaxMs: number;
+  chunkOverlapMs: number;
+}
+
 export interface AppConfig {
   soniox: SonioxConfig;
   ingest: IngestConfig;
+  search: SearchConfig;
   paths: { media: string; recordings: string };
   database: { urlEnv: string };
   server: { host: string; port: number };
@@ -75,6 +87,13 @@ const DEFAULTS = {
     maxLines: 2,
     pollIntervalMs: 3000,
     pollTimeoutMs: 3_600_000,
+  },
+  search: {
+    model: 'Xenova/multilingual-e5-small',
+    dimensions: 384,
+    chunkTargetMs: 120_000,
+    chunkMaxMs: 180_000,
+    chunkOverlapMs: 30_000,
   },
   paths: { media: './media', recordings: './recordings' },
   database: { urlEnv: 'DATABASE_URL' },
@@ -141,6 +160,7 @@ export function parseConfig(raw: unknown): AppConfig {
 
   const soniox = isRecord(raw['soniox']) ? raw['soniox'] : {};
   const ingest = isRecord(raw['ingest']) ? raw['ingest'] : {};
+  const searchRaw = isRecord(raw['search']) ? raw['search'] : {};
   const paths = isRecord(raw['paths']) ? raw['paths'] : {};
   const database = isRecord(raw['database']) ? raw['database'] : {};
   const server = isRecord(raw['server']) ? raw['server'] : {};
@@ -166,6 +186,13 @@ export function parseConfig(raw: unknown): AppConfig {
       pollIntervalMs: num(ingest['pollIntervalMs'], 'ingest.pollIntervalMs', DEFAULTS.ingest.pollIntervalMs),
       pollTimeoutMs: num(ingest['pollTimeoutMs'], 'ingest.pollTimeoutMs', DEFAULTS.ingest.pollTimeoutMs),
     },
+    search: {
+      model: str(searchRaw['model'], 'search.model', DEFAULTS.search.model),
+      dimensions: num(searchRaw['dimensions'], 'search.dimensions', DEFAULTS.search.dimensions),
+      chunkTargetMs: num(searchRaw['chunkTargetMs'], 'search.chunkTargetMs', DEFAULTS.search.chunkTargetMs),
+      chunkMaxMs: num(searchRaw['chunkMaxMs'], 'search.chunkMaxMs', DEFAULTS.search.chunkMaxMs),
+      chunkOverlapMs: num(searchRaw['chunkOverlapMs'], 'search.chunkOverlapMs', DEFAULTS.search.chunkOverlapMs),
+    },
     paths: {
       media: str(paths['media'], 'paths.media', DEFAULTS.paths.media),
       recordings: str(paths['recordings'], 'paths.recordings', DEFAULTS.paths.recordings),
@@ -187,6 +214,9 @@ export function parseConfig(raw: unknown): AppConfig {
 
   if (config.ingest.maxSegmentMs < config.ingest.minDisplayMs) {
     throw new ConfigError('ingest.maxSegmentMs must be >= ingest.minDisplayMs');
+  }
+  if (config.search.chunkMaxMs < config.search.chunkTargetMs) {
+    throw new ConfigError('search.chunkMaxMs must be >= search.chunkTargetMs');
   }
   if (config.soniox.sourceLanguages.length === 0) {
     throw new ConfigError('soniox.sourceLanguages must list at least one language');

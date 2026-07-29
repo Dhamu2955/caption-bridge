@@ -9,6 +9,8 @@ import type { PrismaClient } from './generated/prisma/client.js';
 import { ingest } from './commands/ingest.js';
 import { exportSrt } from './commands/export.js';
 import { editTranslation, listAllServices, showSegments } from './commands/edit.js';
+import { backfill } from './commands/backfill.js';
+import { formatHit, runIndex, runSearch } from './commands/search.js';
 import { fail, info, warn } from './util/log.js';
 
 const USAGE = `sermon-captions — Gujarati→English sermon subtitles
@@ -19,6 +21,9 @@ Usage:
   sermon-captions edit   <video|service-id> --cue <n> --text "corrected text"
   sermon-captions show   <video|service-id> [--from <n>] [--limit <n>]
   sermon-captions list
+  sermon-captions backfill <dir> --speaker <name> [--limit n] [--only <substr>]
+  sermon-captions index  [<video|service-id>]
+  sermon-captions search "<query>" [--limit n]
 
 ingest options:
   --speaker <name>    Who is speaking. Required.
@@ -35,7 +40,15 @@ Common:
 Subtitles are generated artifacts — correct them with \`edit\`, then re-run
 \`export\`. Never hand-edit an SRT; the next export overwrites it.
 
+backfill options:
+  --limit <n>         Stop after n files. Use it to trial the worst recordings.
+  --only <substr>     Only files whose name contains this.
+  --retry-failed      Retry files that failed on a previous run.
+  --redo              Re-ingest files already in the database.
+  --date <date>       Fallback when a filename carries no YYYY-MM-DD.
+
 Needs SONIOX_API_KEY to ingest, and DATABASE_URL for everything else.
+\`index\` downloads a local embedding model on first use; nothing leaves the machine.
 `;
 
 interface ParsedArgs {
@@ -44,7 +57,14 @@ interface ParsedArgs {
   flags: Map<string, string | true>;
 }
 
-const BOOLEAN_FLAGS = new Set(['force', 'help', 'no-db', 'replace-edited']);
+const BOOLEAN_FLAGS = new Set([
+  'force',
+  'help',
+  'no-db',
+  'replace-edited',
+  'retry-failed',
+  'redo',
+]);
 
 export function parseArgv(argv: string[]): ParsedArgs {
   const positional: string[] = [];
@@ -215,6 +235,47 @@ async function runList(config: AppConfig) {
   }
 }
 
+async function runBackfill(positional: string[], flags: ParsedArgs['flags'], config: AppConfig) {
+  const dir = firstPositional(positional, 'directory');
+  const results = await withDb(config, (prisma) =>
+    backfill(
+      {
+        dir,
+        speaker: requireString(flags, 'speaker'),
+        date: optionalString(flags, 'date'),
+        limit: optionalNumber(flags, 'limit'),
+        only: optionalString(flags, 'only'),
+        retryFailed: flags.get('retry-failed') === true,
+        redo: flags.get('redo') === true,
+      },
+      config,
+      prisma,
+    ),
+  );
+  // A batch with failures must not report success — phase 4 runs unattended.
+  if (results.some((entry) => entry.outcome === 'failed')) throw new Error('some files failed');
+}
+
+async function runIndexCommand(positional: string[], config: AppConfig) {
+  await withDb(config, (prisma) => runIndex({ ref: positional[0] }, config, prisma));
+}
+
+async function runSearchCommand(
+  positional: string[],
+  flags: ParsedArgs['flags'],
+  config: AppConfig,
+) {
+  const query = firstPositional(positional, 'search query');
+  const hits = await withDb(config, (prisma) =>
+    runSearch({ query, limit: optionalNumber(flags, 'limit') }, config, prisma),
+  );
+  if (hits.length === 0) {
+    info('no matches — has `index` been run?');
+    return;
+  }
+  for (const hit of hits) process.stdout.write(`${formatHit(hit)}\n`);
+}
+
 async function main(argv: string[]): Promise<number> {
   loadDotEnv();
   const { command, positional, flags } = parseArgv(argv);
@@ -242,6 +303,15 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case 'list':
       await runList(config);
+      return 0;
+    case 'backfill':
+      await runBackfill(positional, flags, config);
+      return 0;
+    case 'index':
+      await runIndexCommand(positional, config);
+      return 0;
+    case 'search':
+      await runSearchCommand(positional, flags, config);
       return 0;
     default:
       fail(`unknown command "${command}"`);

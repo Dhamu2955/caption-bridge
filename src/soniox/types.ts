@@ -22,6 +22,8 @@ export interface SonioxToken {
   /** Present on translated tokens only. */
   source_language?: string;
   translation_status?: TranslationStatus;
+  /** Real-time only. INVARIANT 4: only `true` may ever be displayed. */
+  is_final?: boolean;
 }
 
 export type TranscriptionStatus = 'queued' | 'processing' | 'completed' | 'error';

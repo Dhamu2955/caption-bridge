@@ -2,8 +2,17 @@
 
 Translated subtitles for live and recorded video — Soniox speech translation, SRT export, vMix and OBS output.
 
-See [SPEC.md](SPEC.md) for the full build specification. **Phases 1–2 are built
-(async ingest, Postgres persistence); phases 3–5 are not.**
+See [SPEC.md](SPEC.md) for the full build specification.
+
+**Built:** phase 1 (async ingest), phase 2 (Postgres persistence), phase 3
+(search), phase 4 (backfill), and phase 5's bridge core — capture, real-time
+client, line builder, caption queue, stub and vMix adapters.
+
+**Not built:** the phase 5 UI. `operator.html` and the `/overlay` page do not
+exist. The adapters that would feed them do.
+
+See [docs/vmix-routing.md](docs/vmix-routing.md) for how audio reaches the
+bridge and captions get back to air.
 
 ## Setup
 
@@ -53,6 +62,36 @@ sermon-2026-08-16.soniox.json     raw transcript cache; delete or --force to re-
 | `--no-db` | write files only, skip the database |
 | `--replace-edited` | overwrite segments even if they carry human corrections |
 | `--config <path>` | defaults to `config.json` |
+
+### Search
+
+```sh
+sermon-captions index                  # all services, or pass one
+sermon-captions search "what does devotion require" --limit 5
+```
+
+Embeddings run locally (`Xenova/multilingual-e5-small`, 384 dims) — no API key,
+nothing leaves the machine. The model downloads on first use. Both languages
+are indexed per chunk, so a Gujarati query can hit English text and vice versa.
+Hits print a `video.mp4#t=<seconds>` deep link.
+
+**§3 says to ingest ~20 sermons before tuning retrieval**, and that still
+stands: chunk size, overlap and cross-language behaviour cannot be judged
+against one service.
+
+### Backfill
+
+```sh
+# §4: push the three WORST recordings through first — it can rescope the project
+sermon-captions backfill ./archive --speaker "Swami Ji" --only worst --limit 3
+
+sermon-captions backfill ./archive --speaker "Swami Ji"
+sermon-captions backfill ./archive --speaker "Swami Ji" --retry-failed
+```
+
+Dates are read from filenames (`sermon-2026-08-16.mp4`); `--date` is the
+fallback. State is written to `.backfill-state.json` after every file, so an
+interrupted run resumes and a failure never stops the batch.
 
 ### Corrections
 
