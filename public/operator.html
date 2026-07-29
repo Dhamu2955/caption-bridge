@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Captions — reviewer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23171210'/%3E%3Crect x='3' y='6' width='10' height='1.6' rx='.8' fill='%23F0A92C'/%3E%3Crect x='3' y='9' width='7' height='1.6' rx='.8' fill='%23F7F1E8'/%3E%3C/svg%3E">
+<style>
+  /*
+    Reviewer surface. The people using this are dharma team volunteers, not
+    engineers, and they are using it for ninety minutes in a dim room beside a
+    switcher (§7).
+
+    Two decisions follow from that:
+      · dark and warm, not dark and clinical — this sits next to a lit shrine,
+        and a cold grey panel glares in peripheral vision
+      · the Gujarati/English pairing is the largest thing on the page, because
+        judging a translation without its source is guesswork
+
+    Fonts are system stacks: the page is served off the bridge on a LAN that
+    may have no route to the internet.
+  */
+  :root {
+    --ink:        #171210;
+    --ink-raised: #221A15;
+    --ink-sunk:   #100C0A;
+    --hairline:   #3A2E25;
+
+    --marble:     #F7F1E8;
+    --marble-dim: #A99C8C;
+
+    /* Lamp flame. Live status and the draining bar — nothing else. */
+    --flame:      #F0A92C;
+    /* Kumkum. Spent once, on the only destructive action on the page. */
+    --kumkum:     #C33A52;
+
+    --gujarati: 'Nirmala UI', 'Gujarati Sangam MN', 'Noto Sans Gujarati',
+                'Shruti', system-ui, sans-serif;
+    --english:  'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia,
+                'Times New Roman', serif;
+    --utility:  ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--ink);
+    color: var(--marble);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: var(--english);
+    padding: 0 0 env(safe-area-inset-bottom);
+  }
+
+  .shell {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 20px 40px;
+  }
+
+  /* ---- status strip ------------------------------------------------- */
+
+  .status {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 0 16px;
+    background: linear-gradient(var(--ink) 78%, transparent);
+  }
+
+  .dot {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--marble-dim);
+  }
+  .dot[data-state="live"]  { background: var(--flame); }
+  .dot[data-state="retry"] { background: var(--flame); animation: breathe 1.4s ease-in-out infinite; }
+  .dot[data-state="off"]   { background: var(--kumkum); }
+
+  @keyframes breathe { 50% { opacity: 0.25; } }
+
+  .status-text {
+    font-family: var(--english);
+    font-size: 1.06rem;
+    letter-spacing: 0.01em;
+  }
+
+  .status-spacer { flex: 1 1 auto; }
+
+  /* ---- reviewer video ----------------------------------------------- */
+
+  .feed {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--ink-sunk);
+    border: 1px solid var(--hairline);
+  }
+
+  /* With no feed wired up this collapses to a strip. The caption pairing is
+     the interface (§7) and must not be pushed down the page by an empty box. */
+  .feed[data-empty="true"] {
+    aspect-ratio: auto;
+    min-height: 0;
+    border-style: dashed;
+  }
+
+  .feed video { width: 100%; height: 100%; display: block; object-fit: contain; }
+  /* The rule above out-specifies the UA stylesheet's [hidden] { display: none },
+     which would otherwise leave an empty video box holding open the layout. */
+  .feed video[hidden] { display: none; }
+
+  .feed-empty {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: center;
+    gap: 6px 12px;
+    padding: 16px 20px;
+    text-align: center;
+    color: var(--marble-dim);
+    font-size: 0.95rem;
+  }
+
+  .feed-empty p { margin: 0; line-height: 1.5; }
+
+  .feed-empty code {
+    font-family: var(--utility);
+    font-size: 0.82rem;
+    color: var(--marble);
+  }
+
+  /* ---- the pairing: the whole point of the page ---------------------- */
+
+  .live {
+    display: grid;
+    grid-template-columns: 14px 1fr;
+    gap: 22px;
+    margin-top: 22px;
+    padding: 26px 24px;
+    border-radius: 12px;
+    background: var(--ink-raised);
+    border: 1px solid var(--hairline);
+  }
+
+  /*
+    Signature: the countdown drains downward beside the text, like oil going
+    out of a lamp. §7 asks for a bar rather than a number, and putting it
+    alongside the pairing means the reviewer never looks away from the words
+    they are judging to check how long they have.
+  */
+  .drain {
+    position: relative;
+    border-radius: 7px;
+    background: rgba(240, 169, 44, 0.16);
+    overflow: hidden;
+  }
+
+  .drain-fill {
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 100%;
+    border-radius: 7px;
+    background: var(--flame);
+    transform-origin: top;
+  }
+
+  .gu {
+    margin: 0;
+    font-family: var(--gujarati);
+    font-size: 1.9rem;
+    font-weight: 400;
+    /* Gujarati matras sit well above and below the baseline. */
+    line-height: 1.6;
+  }
+
+  .rule {
+    height: 0;
+    margin: 18px 0;
+    border: 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .en {
+    margin: 0;
+    font-family: var(--english);
+    font-size: 1.6rem;
+    line-height: 1.45;
+  }
+
+  .live[data-empty="true"] .rule,
+  .live[data-empty="true"] .gu { display: none; }
+
+  .live[data-empty="true"] .en {
+    color: var(--marble-dim);
+    font-size: 1.15rem;
+  }
+
+  .live[data-hidden="true"] .gu,
+  .live[data-hidden="true"] .en { opacity: 0.32; text-decoration: line-through; }
+
+  .hidden-note {
+    display: none;
+    margin: 14px 0 0;
+    font-family: var(--utility);
+    font-size: 0.76rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--kumkum);
+  }
+
+  .live[data-hidden="true"] .hidden-note { display: block; }
+
+  /* ---- actions -------------------------------------------------------- */
+
+  .drop {
+    display: block;
+    width: 100%;
+    margin-top: 18px;
+    padding: 26px 20px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--kumkum);
+    color: #FFF6F2;
+    font-family: var(--english);
+    font-size: 1.4rem;
+    cursor: pointer;
+    /* Comfortably past the 44px touch minimum — this gets pressed in a hurry. */
+    min-height: 76px;
+  }
+
+  .drop:hover:not(:disabled) { filter: brightness(1.08); }
+  .drop:disabled { background: var(--ink-raised); color: var(--marble-dim); cursor: default; }
+
+  .ghost {
+    padding: 14px 22px;
+    min-height: 48px;
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--marble);
+    font-family: var(--english);
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  .ghost:hover { border-color: var(--marble-dim); }
+
+  /* ---- coming up ------------------------------------------------------ */
+
+  .label {
+    margin: 34px 0 12px;
+    font-family: var(--utility);
+    font-size: 0.72rem;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--marble-dim);
+  }
+
+  .queue { margin: 0; padding: 0; list-style: none; }
+
+  .queue li {
+    padding: 14px 0;
+    border-top: 1px solid var(--hairline);
+    color: var(--marble-dim);
+  }
+
+  .queue .q-gu {
+    display: block;
+    font-family: var(--gujarati);
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  .queue .q-en {
+    display: block;
+    font-family: var(--english);
+    font-size: 1.05rem;
+    line-height: 1.4;
+    color: var(--marble);
+  }
+
+  .queue-empty { padding: 14px 0; border-top: 1px solid var(--hairline); color: var(--marble-dim); }
+
+  /* ---- panic ---------------------------------------------------------- */
+
+  .panic-zone {
+    margin-top: 48px;
+    padding-top: 26px;
+    border-top: 1px solid var(--hairline);
+    text-align: center;
+  }
+
+  .panic {
+    padding: 16px 30px;
+    min-height: 52px;
+    border: 1px solid var(--kumkum);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--kumkum);
+    font-family: var(--english);
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  .panic[data-off="true"] { background: var(--kumkum); color: #FFF6F2; }
+
+  .panic-hint {
+    margin: 12px 0 0;
+    font-size: 0.9rem;
+    color: var(--marble-dim);
+  }
+
+  :focus-visible { outline: 3px solid var(--flame); outline-offset: 3px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dot[data-state="retry"] { animation: none; opacity: 0.6; }
+    .drain-fill { transition: none !important; }
+  }
+
+  @media (max-width: 560px) {
+    .shell { padding: 0 14px 30px; }
+    .status { gap: 10px; }
+    .status-text { font-size: 0.95rem; }
+    .ghost { padding: 12px 14px; font-size: 0.92rem; }
+    .hidden-note { letter-spacing: 0.08em; font-size: 0.7rem; }
+    .live { padding: 20px 16px; gap: 16px; grid-template-columns: 10px 1fr; }
+    .gu { font-size: 1.5rem; }
+    .en { font-size: 1.3rem; }
+    .drop { font-size: 1.2rem; min-height: 68px; padding: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="status">
+    <span class="dot" id="dot" data-state="idle" aria-hidden="true"></span>
+    <span class="status-text" id="statusText" role="status">Connecting</span>
+    <span class="status-spacer"></span>
+    <button class="ghost" id="pause" type="button">Pause captions</button>
+  </header>
+
+  <section class="feed" id="feed" data-empty="true" aria-label="Reviewer video">
+    <video id="video" playsinline muted hidden></video>
+    <div class="feed-empty" id="feedEmpty">
+      <p>The reviewer video goes here — the picture with the caption already on
+         it, about four seconds behind the room.</p>
+      <p><code>?video=&lt;stream url&gt;</code></p>
+    </div>
+  </section>
+
+  <section class="live" id="live" data-empty="true" aria-label="Caption waiting to go out">
+    <div class="drain" role="progressbar" aria-label="Time left to act" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="drain-fill" id="drainFill" style="transform: scaleY(0)"></div>
+    </div>
+    <div>
+      <p class="gu" id="gu" lang="gu"></p>
+      <hr class="rule">
+      <p class="en" id="en" lang="en">Nothing yet. The first caption appears a few seconds after the speaker starts.</p>
+      <p class="hidden-note" id="hiddenNote">Hidden — this one will not go out</p>
+    </div>
+  </section>
+
+  <button class="drop" id="drop" type="button" disabled>Don't show this</button>
+
+  <h2 class="label">Coming up</h2>
+  <ol class="queue" id="queue"></ol>
+  <p class="queue-empty" id="queueEmpty">Nothing queued.</p>
+
+  <div class="panic-zone">
+    <button class="panic" id="panic" type="button" data-off="false">Turn captions off</button>
+    <p class="panic-hint" id="panicHint">Clears the screen and stops anything new going out.</p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(location.search);
+  var token = params.get('token') || '';
+  var videoUrl = params.get('video');
+  var demo = params.get('demo') === '1';
+
+  var el = {
+    dot: document.getElementById('dot'),
+    statusText: document.getElementById('statusText'),
+    pause: document.getElementById('pause'),
+    live: document.getElementById('live'),
+    gu: document.getElementById('gu'),
+    en: document.getElementById('en'),
+    drainFill: document.getElementById('drainFill'),
+    drain: document.querySelector('.drain'),
+    drop: document.getElementById('drop'),
+    hiddenNote: document.getElementById('hiddenNote'),
+    queue: document.getElementById('queue'),
+    queueEmpty: document.getElementById('queueEmpty'),
+    panic: document.getElementById('panic'),
+    panicHint: document.getElementById('panicHint'),
+    video: document.getElementById('video'),
+    feedEmpty: document.getElementById('feedEmpty')
+  };
+
+  if (videoUrl) {
+    el.video.src = videoUrl;
+    el.video.hidden = false;
+    el.video.autoplay = true;
+    el.feedEmpty.style.display = 'none';
+    document.getElementById('feed').setAttribute('data-empty', 'false');
+  }
+
+  var state = {
+    current: null,       // line the reviewer is judging
+    upcoming: [],
+    dropped: {},         // ids the reviewer has hidden, so the card can show it
+    paused: false,
+    captionsOff: false
+  };
+
+  // ---- rendering ------------------------------------------------------
+
+  function setStatus(kind, text) {
+    el.dot.setAttribute('data-state', kind);
+    el.statusText.textContent = text;
+  }
+
+  function renderStatus() {
+    if (state.captionsOff) return setStatus('off', 'Captions are off');
+    if (state.paused) return setStatus('idle', 'Captions are paused');
+    if (!connected) return setStatus('retry', 'Reconnecting');
+    setStatus('live', 'Captions are going out');
+  }
+
+  function renderCurrent() {
+    var line = state.current;
+    if (!line) {
+      el.live.setAttribute('data-empty', 'true');
+      el.live.setAttribute('data-hidden', 'false');
+      el.gu.textContent = '';
+      el.en.textContent = 'Nothing yet. The first caption appears a few seconds after the speaker starts.';
+      el.drop.disabled = true;
+      setDrain(0);
+      return;
+    }
+    el.live.setAttribute('data-empty', 'false');
+    el.live.setAttribute('data-hidden', state.dropped[line.id] ? 'true' : 'false');
+    el.gu.textContent = line.original || '';
+    el.en.textContent = line.translation || '';
+    el.drop.disabled = Boolean(state.dropped[line.id]);
+    el.drop.textContent = state.dropped[line.id] ? 'Hidden' : "Don't show this";
+  }
+
+  function setDrain(fraction) {
+    var clamped = Math.max(0, Math.min(1, fraction));
+    el.drainFill.style.transform = 'scaleY(' + clamped + ')';
+    el.drain.setAttribute('aria-valuenow', String(Math.round(clamped * 100)));
+  }
+
+  function renderQueue() {
+    el.queue.textContent = '';
+    var items = state.upcoming.slice(0, 4);
+    el.queueEmpty.style.display = items.length ? 'none' : '';
+    items.forEach(function (line) {
+      var li = document.createElement('li');
+      var gu = document.createElement('span');
+      gu.className = 'q-gu';
+      gu.lang = 'gu';
+      gu.textContent = line.original || '';
+      var en = document.createElement('span');
+      en.className = 'q-en';
+      en.lang = 'en';
+      en.textContent = line.translation || '';
+      li.appendChild(gu);
+      li.appendChild(en);
+      el.queue.appendChild(li);
+    });
+  }
+
+  // The bar drains against the line's own deadline, which the bridge sends as
+  // a wall-clock instant. The page never decides when anything goes out — it
+  // only shows how long is left (INVARIANT 10: the scheduler owns the clock).
+  function animateDrain() {
+    var line = state.current;
+    if (line && line.deadlineAt && line.windowMs) {
+      var left = line.deadlineAt - Date.now();
+      setDrain(left / line.windowMs);
+    }
+    requestAnimationFrame(animateDrain);
+  }
+  requestAnimationFrame(animateDrain);
+
+  // ---- actions --------------------------------------------------------
+
+  el.drop.addEventListener('click', function () {
+    if (!state.current || state.dropped[state.current.id]) return;
+    state.dropped[state.current.id] = true;
+    send({ type: 'drop', lineId: state.current.id });
+    renderCurrent();
+  });
+
+  el.pause.addEventListener('click', function () {
+    state.paused = !state.paused;
+    el.pause.textContent = state.paused ? 'Start captions' : 'Pause captions';
+    send({ type: state.paused ? 'hold' : 'resume' });
+    renderStatus();
+  });
+
+  el.panic.addEventListener('click', function () {
+    state.captionsOff = !state.captionsOff;
+    el.panic.setAttribute('data-off', String(state.captionsOff));
+    el.panic.textContent = state.captionsOff ? 'Turn captions back on' : 'Turn captions off';
+    el.panicHint.textContent = state.captionsOff
+      ? 'Nothing is going out. Press again when you are ready.'
+      : 'Clears the screen and stops anything new going out.';
+    send({ type: state.captionsOff ? 'captions-off' : 'captions-on' });
+    renderStatus();
+  });
+
+  // ---- transport ------------------------------------------------------
+
+  var socket = null;
+  var connected = false;
+  var retryMs = 500;
+
+  function send(message) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(message));
+    }
+  }
+
+  function apply(message) {
+    if (message.type === 'state') {
+      state.current = message.current || null;
+      state.upcoming = message.upcoming || [];
+      renderCurrent();
+      renderQueue();
+      renderStatus();
+    }
+  }
+
+  function connect() {
+    var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    socket = new WebSocket(
+      protocol + '//' + location.host + '/ws?role=operator' +
+      (token ? '&token=' + encodeURIComponent(token) : '')
+    );
+
+    socket.onopen = function () { connected = true; retryMs = 500; renderStatus(); };
+
+    socket.onmessage = function (event) {
+      var message;
+      try { message = JSON.parse(event.data); } catch (err) { return; }
+      apply(message);
+    };
+
+    // Losing the operator page must not stall anything (INVARIANT 10). This
+    // reconnects quietly; the bridge keeps releasing regardless.
+    socket.onclose = function () {
+      connected = false;
+      renderStatus();
+      setTimeout(connect, retryMs);
+      retryMs = Math.min(retryMs * 2, 10000);
+    };
+
+    socket.onerror = function () { if (socket) socket.close(); };
+  }
+
+  if (demo) {
+    // Lets the page be reviewed without the bridge running.
+    var samples = [
+      { id: 'd1', original: 'ભક્તિ એ માર્ગ છે, અને સેવા એ તેનું ફળ છે.',
+        translation: 'Devotion is the path, and service is its fruit.' },
+      { id: 'd2', original: 'આજે આપણે કથા વાર્તા વિશે વાત કરીશું.',
+        translation: 'Today we will speak about discourse and stories.' },
+      { id: 'd3', original: 'જય સ્વામિનારાયણ.', translation: 'Jai Swaminarayan.' }
+    ];
+    var at = 0;
+    connected = true;
+    (function cycle() {
+      var line = samples[at % samples.length];
+      at++;
+      state.current = {
+        id: line.id + '-' + at,
+        original: line.original,
+        translation: line.translation,
+        deadlineAt: Date.now() + 25000,
+        windowMs: 25000
+      };
+      state.upcoming = samples.slice(0, 2);
+      renderCurrent();
+      renderQueue();
+      renderStatus();
+      setTimeout(cycle, 25000);
+    }());
+  } else {
+    renderStatus();
+    connect();
+  }
+}());
+</script>
+</body>
+</html>

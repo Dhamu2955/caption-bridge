@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Captions</title>
+<style>
+  /*
+    vMix Browser input keys this over video, so the page must be transparent
+    and must never show chrome of its own — no scrollbars, no focus rings, no
+    error text. If something breaks, it goes blank rather than on air.
+
+    Fonts are system stacks on purpose. This page has to render on a switcher
+    with no internet on festival day; a webfont that fails to load would drop
+    the captions to a fallback mid-service.
+  */
+  :root {
+    --marble: #FFFFFF;
+    --scrim: rgba(12, 9, 8, 0.72);
+    --gujarati: 'Nirmala UI', 'Gujarati Sangam MN', 'Noto Sans Gujarati',
+                'Shruti', system-ui, sans-serif;
+    --english: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia,
+               'Times New Roman', serif;
+    /* Broadcast title-safe: keep text off the outer 10% (§ vMix compositing) */
+    --safe-x: 10vw;
+    --safe-y: 7vh;
+  }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+  }
+
+  #stage {
+    position: fixed;
+    left: var(--safe-x);
+    right: var(--safe-x);
+    bottom: var(--safe-y);
+    display: flex;
+    justify-content: center;
+  }
+
+  #block {
+    /* Hidden until there is something complete to show. Pop-on means the
+       block appears whole or not at all — never mid-sentence. */
+    display: none;
+    max-width: 100%;
+    padding: 0.7em 1.1em;
+    border-radius: 10px;
+    background: var(--scrim);
+    /* The shadow is legibility, not decoration: it keeps white text readable
+       when the scrim lands on a bright robe or a lit shrine. */
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+    text-align: center;
+    color: var(--marble);
+  }
+
+  #block.is-shown { display: block; }
+
+  #gu {
+    display: none;
+    font-family: var(--gujarati);
+    font-size: 3.1vw;
+    font-weight: 400;
+    /* Gujarati matras sit above and below the baseline and collide at tight
+       leading, so this is looser than the English line. */
+    line-height: 1.55;
+    margin: 0 0 0.35em;
+    opacity: 0.88;
+  }
+
+  #block.show-both #gu { display: block; }
+
+  #en {
+    font-family: var(--english);
+    font-size: 3.4vw;
+    font-weight: 600;
+    line-height: 1.32;
+    margin: 0;
+    white-space: pre-line;
+  }
+
+  /* A short fade stops a hard cut from reading as a flicker on camera. It is
+     deliberately faster than the eye tracks a word, so nothing is ever read
+     mid-transition — that would be roll-up behaviour by the back door. */
+  @media (prefers-reduced-motion: no-preference) {
+    #block.is-shown { animation: pop 120ms ease-out; }
+    @keyframes pop {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+  }
+
+  /* Venue projectors and phone-width previews. */
+  @media (max-aspect-ratio: 1/1) {
+    #gu { font-size: 5.2vw; }
+    #en { font-size: 5.6vw; }
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="block">
+      <p id="gu" lang="gu"></p>
+      <p id="en" lang="en"></p>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(location.search);
+  var output = params.get('output') || 'venue';
+  var token = params.get('token') || '';
+  // Default is English only: INVARIANT 3 says the projected track is the
+  // translation. ?lines=both is for a bilingual screen.
+  var showBoth = params.get('lines') === 'both';
+
+  var block = document.getElementById('block');
+  var guEl = document.getElementById('gu');
+  var enEl = document.getElementById('en');
+
+  if (showBoth) block.classList.add('show-both');
+
+  // A displayed line is immutable (INVARIANT 4 rule 2). There is deliberately
+  // no update path here: show() replaces the whole block or does nothing.
+  function show(line) {
+    if (!line || !line.translation) return;
+    guEl.textContent = line.original || '';
+    enEl.textContent = line.translation;
+    block.classList.remove('is-shown');
+    // Force reflow so the fade replays for a genuinely new line.
+    void block.offsetWidth;
+    block.classList.add('is-shown');
+  }
+
+  function clear() {
+    block.classList.remove('is-shown');
+    guEl.textContent = '';
+    enEl.textContent = '';
+  }
+
+  var socket = null;
+  var retryMs = 500;
+
+  function connect() {
+    var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var url = protocol + '//' + location.host + '/ws?role=overlay&output=' +
+              encodeURIComponent(output) + (token ? '&token=' + encodeURIComponent(token) : '');
+
+    socket = new WebSocket(url);
+
+    socket.onopen = function () { retryMs = 500; };
+
+    socket.onmessage = function (event) {
+      var message;
+      try { message = JSON.parse(event.data); } catch (err) { return; }
+      if (message.type === 'show') show(message.line);
+      else if (message.type === 'clear') clear();
+    };
+
+    // A dropped connection must never leave a stale caption frozen on air.
+    socket.onclose = function () {
+      clear();
+      setTimeout(connect, retryMs);
+      retryMs = Math.min(retryMs * 2, 10000);
+    };
+
+    socket.onerror = function () { if (socket) socket.close(); };
+  }
+
+  connect();
+}());
+</script>
+</body>
+</html>

@@ -8,8 +8,8 @@ See [SPEC.md](SPEC.md) for the full build specification.
 (search), phase 4 (backfill), and phase 5's bridge core — capture, real-time
 client, line builder, caption queue, stub and vMix adapters.
 
-**Not built:** the phase 5 UI. `operator.html` and the `/overlay` page do not
-exist. The adapters that would feed them do.
+**Not built:** nothing outstanding from the spec. The live path has not been
+run against real vMix hardware — see the checklist in the routing doc.
 
 See [docs/vmix-routing.md](docs/vmix-routing.md) for how audio reaches the
 bridge and captions get back to air.
@@ -92,6 +92,29 @@ sermon-captions backfill ./archive --speaker "Swami Ji" --retry-failed
 Dates are read from filenames (`sermon-2026-08-16.mp4`); `--date` is the
 fallback. State is written to `.backfill-state.json` after every file, so an
 interrupted run resumes and a failure never stops the batch.
+
+### Live captions (phase 5)
+
+```sh
+sermon-captions devices                       # print the ffmpeg device-list command
+sermon-captions live --device "CABLE Output (VB-Audio Virtual Cable)" \
+  --outputs venue,stream --record ./service.jsonl
+```
+
+Prints a reviewer URL and one overlay URL per output, each with a token. Point
+vMix Browser inputs at the overlay URLs and open the reviewer page on a tablet.
+
+- `/operator` — Gujarati above English at reading size, one action
+  ("Don't show this"), a draining bar for the time left, and a clearly
+  separated "Turn captions off".
+- `/overlay?output=venue` — the on-air caption block. Transparent background
+  for keying, English only by default (`&lines=both` for bilingual).
+
+Add `?demo=1` to the reviewer page to see it working without the bridge running.
+
+**The reviewer is advisory.** Releases never wait for them, closing the page
+stalls nothing, and a drop that arrives after a line has gone out is rejected
+rather than retroactively applied.
 
 ### Corrections
 

@@ -24,3 +24,6 @@ recordings/
 
 # Prisma generated client
 src/generated/
+
+# Playwright MCP scratch output
+.playwright-mcp/

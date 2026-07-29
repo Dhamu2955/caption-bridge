@@ -11,6 +11,9 @@ import { exportSrt } from './commands/export.js';
 import { editTranslation, listAllServices, showSegments } from './commands/edit.js';
 import { backfill } from './commands/backfill.js';
 import { formatHit, runIndex, runSearch } from './commands/search.js';
+import { runLive } from './commands/live.js';
+import type { CaptureFormat } from './live/capture.js';
+import { listDevicesCommand } from './live/capture.js';
 import { fail, info, warn } from './util/log.js';
 
 const USAGE = `sermon-captions — Gujarati→English sermon subtitles
@@ -24,6 +27,8 @@ Usage:
   sermon-captions backfill <dir> --speaker <name> [--limit n] [--only <substr>]
   sermon-captions index  [<video|service-id>]
   sermon-captions search "<query>" [--limit n]
+  sermon-captions live   --device "<audio device>" [--outputs venue,stream]
+  sermon-captions devices
 
 ingest options:
   --speaker <name>    Who is speaking. Required.
@@ -39,6 +44,14 @@ Common:
 
 Subtitles are generated artifacts — correct them with \`edit\`, then re-run
 \`export\`. Never hand-edit an SRT; the next export overwrites it.
+
+live options:
+  --device <name>     Audio device carrying the SPEAKER'S MIC ONLY, not Master.
+  --format <fmt>      dshow (Windows) | avfoundation (macOS). Auto-detected.
+  --outputs <list>    Comma-separated: venue,stream,reviewer,overflow.
+  --record <path>     Write every raw response and operator action to JSONL.
+  --token <secret>    Overlay/reviewer URL token. Generated if omitted.
+  --verbose           Log every release.
 
 backfill options:
   --limit <n>         Stop after n files. Use it to trial the worst recordings.
@@ -64,6 +77,7 @@ const BOOLEAN_FLAGS = new Set([
   'replace-edited',
   'retry-failed',
   'redo',
+  'verbose',
 ]);
 
 export function parseArgv(argv: string[]): ParsedArgs {
@@ -276,6 +290,23 @@ async function runSearchCommand(
   for (const hit of hits) process.stdout.write(`${formatHit(hit)}\n`);
 }
 
+async function runLiveCommand(flags: ParsedArgs['flags'], config: AppConfig) {
+  await runLive(
+    {
+      device: requireString(flags, 'device'),
+      format: optionalString(flags, 'format') as CaptureFormat | undefined,
+      outputs: optionalString(flags, 'outputs')
+        ?.split(',')
+        .map((name) => name.trim())
+        .filter(Boolean) as Parameters<typeof runLive>[0]['outputs'],
+      recordPath: optionalString(flags, 'record'),
+      token: optionalString(flags, 'token'),
+      verbose: flags.get('verbose') === true,
+    },
+    config,
+  );
+}
+
 async function main(argv: string[]): Promise<number> {
   loadDotEnv();
   const { command, positional, flags } = parseArgv(argv);
@@ -312,6 +343,12 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case 'search':
       await runSearchCommand(positional, flags, config);
+      return 0;
+    case 'live':
+      await runLiveCommand(flags, config);
+      return 0;
+    case 'devices':
+      process.stdout.write(`${listDevicesCommand()}\n`);
       return 0;
     default:
       fail(`unknown command "${command}"`);

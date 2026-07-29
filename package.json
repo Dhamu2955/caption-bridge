@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/express": "5.0.6",
     "@types/node": "^22.10.2",
     "@types/ws": "8.18.1",
     "tsx": "^4.19.2",
@@ -27,6 +28,7 @@
     "@huggingface/transformers": "4.2.0",
     "@prisma/adapter-pg": "7.9.1",
     "@prisma/client": "7.9.1",
+    "express": "5.2.1",
     "prisma": "7.9.1",
     "ws": "8.21.1"
   }
