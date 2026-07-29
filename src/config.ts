@@ -1,0 +1,223 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+/**
+ * Config per SPEC §5. Committed to the repo — no credentials here, ever.
+ * The API key is named by `soniox.apiKeyEnv` and read from the environment.
+ */
+
+export interface TranslationTerm {
+  source: string;
+  target: string;
+}
+
+export interface SonioxConfig {
+  apiKeyEnv: string;
+  baseUrl: string;
+  model: string;
+  sourceLanguages: string[];
+  targetLanguage: string;
+  /** Proper nouns, deity names, scriptural terms — improves recognition. */
+  contextTerms: string[];
+  /** Source→target pairs so the same term translates consistently every week. */
+  translationTerms: TranslationTerm[];
+}
+
+export interface IngestConfig {
+  /** Silence between blocks that ends a segment. Async has no endpoint
+   *  detection, so this is what stands in for it. See §4 phase 1. */
+  pauseMs: number;
+  /** Soft cap on translated characters per cue (§4: "~120"). */
+  maxChars: number;
+  /** Hard cap on cue duration, so a stretch without punctuation or pauses
+   *  cannot produce a 40-second caption. */
+  maxSegmentMs: number;
+  /** INVARIANT 4. No cue shorter than this — merge instead. */
+  minDisplayMs: number;
+  /** Soft wrap width. */
+  maxLineChars: number;
+  /** Lines per cue. §4 says two — raise deliberately, it changes the look. */
+  maxLines: number;
+  pollIntervalMs: number;
+  pollTimeoutMs: number;
+}
+
+export interface AppConfig {
+  soniox: SonioxConfig;
+  ingest: IngestConfig;
+  paths: { media: string; recordings: string };
+  database: { urlEnv: string };
+  server: { host: string; port: number };
+  live: {
+    delayAssemblyMs: number;
+    delayReviewMs: number;
+    minDisplayMs: number;
+    lateSkipMs: number;
+  };
+}
+
+const DEFAULTS = {
+  soniox: {
+    apiKeyEnv: 'SONIOX_API_KEY',
+    baseUrl: 'https://api.soniox.com/v1',
+    model: 'stt-async-v5',
+    sourceLanguages: ['gu', 'en'],
+    targetLanguage: 'en',
+    contextTerms: [] as string[],
+    translationTerms: [] as TranslationTerm[],
+  },
+  ingest: {
+    pauseMs: 1200,
+    maxChars: 120,
+    maxSegmentMs: 7000,
+    minDisplayMs: 1500,
+    maxLineChars: 42,
+    maxLines: 2,
+    pollIntervalMs: 3000,
+    pollTimeoutMs: 3_600_000,
+  },
+  paths: { media: './media', recordings: './recordings' },
+  database: { urlEnv: 'DATABASE_URL' },
+  server: { host: '127.0.0.1', port: 3000 },
+  live: {
+    delayAssemblyMs: 4000,
+    delayReviewMs: 25000,
+    minDisplayMs: 1500,
+    lateSkipMs: 2000,
+  },
+} satisfies AppConfig;
+
+export class ConfigError extends Error {}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function str(value: unknown, path: string, fallback: string): string {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new ConfigError(`${path} must be a non-empty string`);
+  }
+  return value;
+}
+
+function num(value: unknown, path: string, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new ConfigError(`${path} must be a non-negative number`);
+  }
+  return value;
+}
+
+function strArray(value: unknown, path: string, fallback: string[]): string[] {
+  if (value === undefined) return fallback;
+  if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+    throw new ConfigError(`${path} must be an array of strings`);
+  }
+  return value as string[];
+}
+
+/**
+ * §5 writes `translationTerms` as a bare list, but the Soniox `context` object
+ * wants {source, target} pairs. Accept either — a bare string maps to itself,
+ * which is the "transliterate this name, don't translate it" case.
+ */
+function translationTerms(value: unknown, path: string): TranslationTerm[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ConfigError(`${path} must be an array`);
+  }
+  return value.map((entry, i) => {
+    if (typeof entry === 'string') return { source: entry, target: entry };
+    if (isRecord(entry) && typeof entry['source'] === 'string' && typeof entry['target'] === 'string') {
+      return { source: entry['source'], target: entry['target'] };
+    }
+    throw new ConfigError(`${path}[${i}] must be a string or {source, target}`);
+  });
+}
+
+export function parseConfig(raw: unknown): AppConfig {
+  if (!isRecord(raw)) throw new ConfigError('config must be a JSON object');
+
+  const soniox = isRecord(raw['soniox']) ? raw['soniox'] : {};
+  const ingest = isRecord(raw['ingest']) ? raw['ingest'] : {};
+  const paths = isRecord(raw['paths']) ? raw['paths'] : {};
+  const database = isRecord(raw['database']) ? raw['database'] : {};
+  const server = isRecord(raw['server']) ? raw['server'] : {};
+  const live = isRecord(raw['live']) ? raw['live'] : {};
+
+  const config: AppConfig = {
+    soniox: {
+      apiKeyEnv: str(soniox['apiKeyEnv'], 'soniox.apiKeyEnv', DEFAULTS.soniox.apiKeyEnv),
+      baseUrl: str(soniox['baseUrl'], 'soniox.baseUrl', DEFAULTS.soniox.baseUrl).replace(/\/+$/, ''),
+      model: str(soniox['model'], 'soniox.model', DEFAULTS.soniox.model),
+      sourceLanguages: strArray(soniox['sourceLanguages'], 'soniox.sourceLanguages', DEFAULTS.soniox.sourceLanguages),
+      targetLanguage: str(soniox['targetLanguage'], 'soniox.targetLanguage', DEFAULTS.soniox.targetLanguage),
+      contextTerms: strArray(soniox['contextTerms'], 'soniox.contextTerms', DEFAULTS.soniox.contextTerms),
+      translationTerms: translationTerms(soniox['translationTerms'], 'soniox.translationTerms'),
+    },
+    ingest: {
+      pauseMs: num(ingest['pauseMs'], 'ingest.pauseMs', DEFAULTS.ingest.pauseMs),
+      maxChars: num(ingest['maxChars'], 'ingest.maxChars', DEFAULTS.ingest.maxChars),
+      maxSegmentMs: num(ingest['maxSegmentMs'], 'ingest.maxSegmentMs', DEFAULTS.ingest.maxSegmentMs),
+      minDisplayMs: num(ingest['minDisplayMs'], 'ingest.minDisplayMs', DEFAULTS.ingest.minDisplayMs),
+      maxLineChars: num(ingest['maxLineChars'], 'ingest.maxLineChars', DEFAULTS.ingest.maxLineChars),
+      maxLines: num(ingest['maxLines'], 'ingest.maxLines', DEFAULTS.ingest.maxLines),
+      pollIntervalMs: num(ingest['pollIntervalMs'], 'ingest.pollIntervalMs', DEFAULTS.ingest.pollIntervalMs),
+      pollTimeoutMs: num(ingest['pollTimeoutMs'], 'ingest.pollTimeoutMs', DEFAULTS.ingest.pollTimeoutMs),
+    },
+    paths: {
+      media: str(paths['media'], 'paths.media', DEFAULTS.paths.media),
+      recordings: str(paths['recordings'], 'paths.recordings', DEFAULTS.paths.recordings),
+    },
+    database: {
+      urlEnv: str(database['urlEnv'], 'database.urlEnv', DEFAULTS.database.urlEnv),
+    },
+    server: {
+      host: str(server['host'], 'server.host', DEFAULTS.server.host),
+      port: num(server['port'], 'server.port', DEFAULTS.server.port),
+    },
+    live: {
+      delayAssemblyMs: num(live['delayAssemblyMs'], 'live.delayAssemblyMs', DEFAULTS.live.delayAssemblyMs),
+      delayReviewMs: num(live['delayReviewMs'], 'live.delayReviewMs', DEFAULTS.live.delayReviewMs),
+      minDisplayMs: num(live['minDisplayMs'], 'live.minDisplayMs', DEFAULTS.live.minDisplayMs),
+      lateSkipMs: num(live['lateSkipMs'], 'live.lateSkipMs', DEFAULTS.live.lateSkipMs),
+    },
+  };
+
+  if (config.ingest.maxSegmentMs < config.ingest.minDisplayMs) {
+    throw new ConfigError('ingest.maxSegmentMs must be >= ingest.minDisplayMs');
+  }
+  if (config.soniox.sourceLanguages.length === 0) {
+    throw new ConfigError('soniox.sourceLanguages must list at least one language');
+  }
+
+  return config;
+}
+
+export function loadConfig(path = 'config.json'): AppConfig {
+  const full = resolve(path);
+  let text: string;
+  try {
+    text = readFileSync(full, 'utf8');
+  } catch {
+    throw new ConfigError(`cannot read config file: ${full}`);
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    throw new ConfigError(`${full} is not valid JSON: ${(err as Error).message}`);
+  }
+  return parseConfig(raw);
+}
+
+export function resolveApiKey(config: AppConfig, env: NodeJS.ProcessEnv = process.env): string {
+  const key = env[config.soniox.apiKeyEnv];
+  if (!key || key.trim() === '') {
+    throw new ConfigError(
+      `${config.soniox.apiKeyEnv} is not set. Export it or put it in .env — never in config.json.`,
+    );
+  }
+  return key.trim();
+}

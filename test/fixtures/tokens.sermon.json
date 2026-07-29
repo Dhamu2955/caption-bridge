@@ -1,0 +1,559 @@
+{
+  "_comment": "Real Soniox stt-async-v5 token shape, taken from an actual sermon transcript. Tokens are SUB-WORD pieces: a leading space is the only word delimiter, so they must be concatenated verbatim. Translation tokens carry start_ms/end_ms of 0 — present but meaningless; timing must come from the spoken run. Exercises unequal run lengths, a clause too short to display, an already-English passage with no translation, and a speaker change.",
+  "id": "00000000-0000-4000-8000-000000000000",
+  "tokens": [
+    {
+      "text": "આ",
+      "start_ms": 0,
+      "end_ms": 200,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "જે",
+      "start_ms": 200,
+      "end_ms": 400,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " આ",
+      "start_ms": 500,
+      "end_ms": 700,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "પ",
+      "start_ms": 700,
+      "end_ms": 900,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "ણે",
+      "start_ms": 900,
+      "end_ms": 1100,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " સે",
+      "start_ms": 1200,
+      "end_ms": 1400,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "વા",
+      "start_ms": 1400,
+      "end_ms": 1600,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " વિ",
+      "start_ms": 1700,
+      "end_ms": 1900,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "શે",
+      "start_ms": 1900,
+      "end_ms": 2100,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " વા",
+      "start_ms": 2200,
+      "end_ms": 2400,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "ત",
+      "start_ms": 2400,
+      "end_ms": 2600,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " ક",
+      "start_ms": 2700,
+      "end_ms": 2900,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "રી",
+      "start_ms": 2900,
+      "end_ms": 3100,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "શું",
+      "start_ms": 3100,
+      "end_ms": 3400,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": ".",
+      "start_ms": 3400,
+      "end_ms": 3600,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "Today",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " we",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " will",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " speak",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " about",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " ser",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": "vice",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": ".",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " ભ",
+      "start_ms": 5000,
+      "end_ms": 5200,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "ક્તિ",
+      "start_ms": 5200,
+      "end_ms": 5500,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " એ",
+      "start_ms": 5600,
+      "end_ms": 5800,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " મા",
+      "start_ms": 5900,
+      "end_ms": 6100,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "ર્ગ",
+      "start_ms": 6100,
+      "end_ms": 6400,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " છે",
+      "start_ms": 6500,
+      "end_ms": 6900,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": ".",
+      "start_ms": 6900,
+      "end_ms": 7200,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " De",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": "votion",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " is",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " the",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " path",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": ".",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " હા",
+      "start_ms": 7300,
+      "end_ms": 7550,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": ".",
+      "start_ms": 7550,
+      "end_ms": 7700,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " Yes",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": ".",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " સા",
+      "start_ms": 7800,
+      "end_ms": 8000,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "ચે",
+      "start_ms": 8000,
+      "end_ms": 8300,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " જ",
+      "start_ms": 8400,
+      "end_ms": 8700,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": ".",
+      "start_ms": 8700,
+      "end_ms": 9000,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " Tru",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": "ly",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " so",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": ".",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " Please",
+      "start_ms": 10000,
+      "end_ms": 10400,
+      "speaker": 2,
+      "language": "en",
+      "translation_status": "none"
+    },
+    {
+      "text": " turn",
+      "start_ms": 10400,
+      "end_ms": 10800,
+      "speaker": 2,
+      "language": "en",
+      "translation_status": "none"
+    },
+    {
+      "text": " to",
+      "start_ms": 10800,
+      "end_ms": 11000,
+      "speaker": 2,
+      "language": "en",
+      "translation_status": "none"
+    },
+    {
+      "text": " page",
+      "start_ms": 11000,
+      "end_ms": 11500,
+      "speaker": 2,
+      "language": "en",
+      "translation_status": "none"
+    },
+    {
+      "text": " ten",
+      "start_ms": 11500,
+      "end_ms": 12200,
+      "speaker": 2,
+      "language": "en",
+      "translation_status": "none"
+    },
+    {
+      "text": ".",
+      "start_ms": 12200,
+      "end_ms": 12500,
+      "speaker": 2,
+      "language": "en",
+      "translation_status": "none"
+    },
+    {
+      "text": " જય",
+      "start_ms": 13000,
+      "end_ms": 13300,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " સ્વા",
+      "start_ms": 13400,
+      "end_ms": 13700,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "મિ",
+      "start_ms": 13700,
+      "end_ms": 13900,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "ના",
+      "start_ms": 13900,
+      "end_ms": 14100,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "રા",
+      "start_ms": 14100,
+      "end_ms": 14300,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": "યણ",
+      "start_ms": 14300,
+      "end_ms": 14600,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": ".",
+      "start_ms": 14600,
+      "end_ms": 14800,
+      "speaker": 1,
+      "language": "gu",
+      "translation_status": "original"
+    },
+    {
+      "text": " J",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": "ai",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": " Swamin",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": "arayan",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    },
+    {
+      "text": ".",
+      "start_ms": 0,
+      "end_ms": 0,
+      "speaker": 1,
+      "language": "en",
+      "source_language": "gu",
+      "translation_status": "translation"
+    }
+  ]
+}

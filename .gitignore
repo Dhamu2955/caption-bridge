@@ -1,0 +1,23 @@
+node_modules/
+.env
+.env.*
+!.env.example
+media/
+recordings/
+
+# Generated artifacts — INVARIANT 2: subtitles are disposable, regenerate them.
+# The transcript cache is kept locally so re-runs are free, but never committed.
+*.mp4
+*.mkv
+*.mov
+*.webm
+*.wav
+*.srt
+*.segments.json
+*.soniox.json
+
+*.log
+.DS_Store
+
+# Editor-local settings
+.vscode/

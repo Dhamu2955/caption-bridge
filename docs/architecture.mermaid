@@ -1,0 +1,89 @@
+flowchart TB
+
+    subgraph SRC["1 · AUDIO SOURCE — tapped PRE-delay"]
+        MIC["Pulpit mic"]
+        BUS["vMix Bus B<br/>speaker mic ONLY, not Master"]
+        VCAB["Virtual audio device<br/>VB-Cable / BlackHole"]
+        MIC --> BUS --> VCAB
+    end
+
+    subgraph BRIDGE["2 · BRIDGE — Node.js — this is the project"]
+        CAP["Audio capture<br/>ffmpeg to PCM s16le 16k mono"]
+        WSC["Soniox WS client<br/>reconnect, backpressure, lifecycle"]
+        TOK["Token assembler<br/>commit is_final, filter translation_status"]
+        LINE["Line builder<br/>endpoint detect, max chars, 2-line window"]
+        STAMP["Timestamp mapper<br/>start_ms to wall clock"]
+        QUEUE[("Delay queue<br/>pending lines")]
+        SCHED["Release scheduler<br/>AUTHORITATIVE CLOCK"]
+        ADPT{"Output adapter<br/>interface"}
+        CAP --> WSC --> TOK --> LINE --> STAMP --> QUEUE --> SCHED --> ADPT
+    end
+
+    VCAB --> CAP
+    SONIOX["Soniox<br/>stt-rt.soniox.com websocket"]
+    WSC <--> SONIOX
+
+    subgraph DEV["3 · DEV + REPLAY — deterministic, zero API cost"]
+        FILE["Recorded Gujarati audio<br/>paced 3840 bytes / 120 ms"]
+        JSONL[("Raw token dump<br/>JSONL with arrival timestamps")]
+        RPL["Replay mode<br/>original timing preserved"]
+    end
+    FILE -.-> WSC
+    TOK -.-> JSONL
+    JSONL -.-> RPL
+    RPL -.-> LINE
+
+    subgraph OUT["4 · OUTPUT ADAPTERS — pluggable"]
+        VMX["vMix HTTP<br/>SetText, OverlayInput1In/Out"]
+        OVL["/overlay page<br/>served from bridge"]
+        OBSA["OBS WebSocket<br/>Mac-testable"]
+        STUB["Dev stub on :8088<br/>timestamped log"]
+    end
+    ADPT --> VMX
+    ADPT --> OVL
+    ADPT --> OBSA
+    ADPT --> STUB
+
+    subgraph VMIX["5 · vMIX MACHINE — Windows"]
+        CAM["Camera / program video<br/>LIVE"]
+        VDLY["Video Delay ~30 s"]
+        BRIN["Browser input<br/>loads /overlay"]
+        COMP["Overlay compositing"]
+        PGM["Program out to stream"]
+        CAM --> VDLY --> COMP --> PGM
+        BRIN --> COMP
+    end
+    OVL --> BRIN
+    VMX --> COMP
+    MIC -.audio also feeds program.-> CAM
+
+    XML["XML readback verify<br/>GET /api/ then assert field value"]
+    VMX -.-> XML
+    XML -.assert.-> ADPT
+
+    subgraph OPSUI["6 · OPERATOR — advisory only, NEVER blocking"]
+        UI["/operator UI<br/>Gujarati + English side by side"]
+        MET["Audio level meter<br/>catches silent cable failure"]
+        MON["Audio monitor<br/>~28 s ahead of air"]
+        ACT["Drop · Hold · Hide · Stop"]
+        UI --> ACT
+    end
+    SCHED -->|state push over WS| UI
+    CAP --> MET
+    CAP --> MON
+    ACT -->|advisory commands| SCHED
+
+    TUN["Tailscale or CF Tunnel<br/>real auth, never port-forward"]
+    REMOTE["Remote operator<br/>anywhere"]
+    UI <--> TUN
+    TUN <--> REMOTE
+
+    SD["Stream Deck via Companion<br/>HTTP to /hide"]
+    SD -->|panic| SCHED
+
+    classDef core fill:#1f4e5f,stroke:#0d2b36,color:#fff
+    classDef ext fill:#3d3d5c,stroke:#22223b,color:#fff
+    classDef dev fill:#4a3f35,stroke:#2b241e,color:#fff
+    class CAP,WSC,TOK,LINE,STAMP,QUEUE,SCHED,ADPT core
+    class SONIOX,REMOTE,SD ext
+    class FILE,JSONL,RPL,STUB dev

@@ -1,0 +1,31 @@
+sequenceDiagram
+    autonumber
+    participant S as Speaker
+    participant B as Bridge
+    participant SX as Soniox
+    participant Q as Delay Queue
+    participant O as Operator
+    participant V as vMix
+    participant A as Audience
+
+    Note over S,A: T+0s — speaker says a phrase
+
+    S->>B: audio, live pre-delay tap
+    B->>SX: PCM chunk
+    SX-->>B: non-final tokens, ~0.5s
+    SX-->>B: final + translation tokens, ~1-2s
+    B->>Q: line stamped with start_ms
+
+    Note over Q,O: T+2s — line becomes visible to operator
+
+    Q-->>O: pending line, Gujarati + English
+    O-->>Q: drop or hold — optional, advisory only
+
+    Note over O: ~28 second review window
+
+    Note over Q,A: T+30s — release deadline
+
+    Q->>V: SetText or overlay update
+    V->>A: caption composited onto DELAYED video
+
+    Note over S,A: video of the T+0 speech reaches air at T+30s<br/>caption and video land together
