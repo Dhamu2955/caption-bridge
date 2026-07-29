@@ -2,20 +2,27 @@
 
 Translated subtitles for live and recorded video — Soniox speech translation, SRT export, vMix and OBS output.
 
-See [SPEC.md](SPEC.md) for the full build specification. **Phase 1 (async ingest) is built; phases 2–5 are not.**
+See [SPEC.md](SPEC.md) for the full build specification. **Phases 1–2 are built
+(async ingest, Postgres persistence); phases 3–5 are not.**
 
 ## Setup
 
 ```sh
 npm install
 cp .env.example .env           # then paste your key from console.soniox.com
+docker compose up -d           # Postgres 16 + pgvector on 127.0.0.1:5433
+npx prisma migrate deploy
 ```
 
-The key is read from the environment, never from `config.json`. `.env` is
+Credentials are read from the environment, never from `config.json`. `.env` is
 gitignored and loaded automatically; a shell `export SONIOX_API_KEY=...` takes
 precedence over it.
 
-Needs Node 20.12+ and `ffmpeg` on PATH (`brew install ffmpeg`).
+Needs Node 20.12+, `ffmpeg` on PATH (`brew install ffmpeg`), and Docker.
+
+The database binds to **port 5433**, not the usual 5432, so it cannot collide
+with another Postgres already running on the machine. It listens on the
+loopback interface only (§9).
 
 ## Usage
 
@@ -39,10 +46,30 @@ sermon-2026-08-16.soniox.json     raw transcript cache; delete or --force to re-
 
 | Flag | |
 |---|---|
-| `--speaker <name>` | required; recorded in the segments file |
+| `--speaker <name>` | required |
 | `--date <YYYY-MM-DD>` | required |
+| `--title <text>` | optional service title |
 | `--force` | re-transcribe even if a cached transcript exists |
+| `--no-db` | write files only, skip the database |
+| `--replace-edited` | overwrite segments even if they carry human corrections |
 | `--config <path>` | defaults to `config.json` |
+
+### Corrections
+
+Segments in Postgres are the source of truth (INVARIANT 2). Fix a line there
+and re-export — **never hand-edit an SRT**, the next export overwrites it (§8).
+
+```sh
+sermon-captions list                                  # services and their ids
+sermon-captions show   ./sermon.mp4 --from 40 --limit 5
+sermon-captions edit   ./sermon.mp4 --cue 42 --text "Corrected line."
+sermon-captions export ./sermon.mp4                   # SELECT → format
+```
+
+`edit` takes the **cue number from the SRT** (1-based). It records `editedBy`,
+`editedAt` and the text it replaced. Re-ingesting a service that carries
+corrections is refused unless you pass `--replace-edited`, so a routine re-run
+cannot silently destroy a reviewer's work.
 
 ## Tuning
 
@@ -70,7 +97,7 @@ proper nouns and scriptural terms go so they come back the same every week.
 ## Tests
 
 ```sh
-npm test
+npm test          # database tests skip themselves if Postgres is not running
 npm run typecheck
 ```
 
@@ -92,7 +119,7 @@ present but meaningless — SPEC §4 says translated tokens have "no timestamps"
 which is true in spirit but not literally. Reading them at face value would
 drag every cue to `00:00:00`. Timing comes from the spoken run, always.
 
-## Two deviations from SPEC.md
+## Three deviations from SPEC.md
 
 **§4 says two lines maximum per SRT cue; the default is now three.** Chosen
 deliberately after reviewing a real sermon: at two lines, 62% of cues ended on
@@ -103,6 +130,14 @@ longer — the cost is screen area, not legibility. `maxLines: 2` restores the
 original behaviour, and pop-on, immutability and the 1500ms floor are all
 untouched. Revisit this before phase 5: a venue overlay has less room than a
 projected SRT.
+
+**§4 says `editedBy` is "hardcoded to `local`"; untouched segments say
+`soniox` instead.** The intent of §4 is that no correction ever needs
+backfilling, and a non-null `editedBy` on every row achieves that — but
+stamping `local` on 594 machine-generated segments would claim a person wrote
+them. So the column is non-null from day one and records provenance: `soniox`
+as transcribed, `local` once a human edits it, a real identity when auth
+arrives (§9). `editedAt IS NULL` is the precise test for "never touched".
 
 **§4 says to break segments on endpoint detection.** That feature does
 not exist in the Soniox async API — `enable_endpoint_detection` and the `<end>`

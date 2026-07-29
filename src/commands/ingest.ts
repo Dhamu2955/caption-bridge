@@ -10,14 +10,19 @@ import type { CreateTranscriptionRequest, Transcript, Transcription } from '../s
 import { buildSegments } from '../segments/build.js';
 import type { Segment } from '../segments/types.js';
 import { toSrt } from '../srt/format.js';
+import { saveService } from '../db/services.js';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import { info, warn } from '../util/log.js';
 
 export interface IngestArgs {
   videoPath: string;
   speaker: string;
   date: string;
+  title?: string | undefined;
   /** Re-transcribe even when a cached transcript exists. */
   force: boolean;
+  /** Overwrite segments even if some carry human corrections. */
+  replaceEdited?: boolean;
 }
 
 export interface IngestResult {
@@ -25,6 +30,9 @@ export interface IngestResult {
   outputs: { targetSrt: string; sourceSrt: string; segmentsJson: string; cache: string };
   cached: boolean;
   durationMs: number | undefined;
+  /** Set when the run was persisted. */
+  serviceId?: string;
+  createdService?: boolean;
 }
 
 /** Everything written next to the video, keyed off its basename. */
@@ -153,7 +161,15 @@ async function readCache(path: string): Promise<CachedTranscript | null> {
   }
 }
 
-export async function ingest(args: IngestArgs, config: AppConfig): Promise<IngestResult> {
+/**
+ * @param prisma When supplied, segments are persisted (§4 phase 2). Omitted in
+ *   unit tests and by `--no-db`, where the run stays file-only.
+ */
+export async function ingest(
+  args: IngestArgs,
+  config: AppConfig,
+  prisma?: PrismaClient,
+): Promise<IngestResult> {
   const videoPath = resolve(args.videoPath);
   if (!existsSync(videoPath)) throw new Error(`no such file: ${videoPath}`);
 
@@ -205,10 +221,35 @@ export async function ingest(args: IngestArgs, config: AppConfig): Promise<Inges
   };
   await writeFile(paths.segmentsJson, `${JSON.stringify(document, null, 2)}\n`, 'utf8');
 
-  return {
+  const result: IngestResult = {
     segments,
     outputs: paths,
     cached: usedCache,
     durationMs: data.transcription.audio_duration_ms,
   };
+
+  if (prisma) {
+    const saved = await saveService(
+      prisma,
+      {
+        date: args.date,
+        speaker: args.speaker,
+        title: args.title,
+        source: 'rip',
+        videoPath,
+        durationMs: data.transcription.audio_duration_ms ?? null,
+        trimStartMs: 0,
+      },
+      segments,
+      { replaceEdited: args.replaceEdited === true },
+    );
+    result.serviceId = saved.serviceId;
+    result.createdService = saved.created;
+    if (saved.discardedEdits > 0) {
+      warn(`discarded ${saved.discardedEdits} hand-corrected segment(s) on re-ingest`);
+    }
+    info(`${saved.created ? 'created' : 'updated'} service ${saved.serviceId}`);
+  }
+
+  return result;
 }

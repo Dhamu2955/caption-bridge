@@ -1,0 +1,71 @@
+// Phase 2 — segments become the source of truth (INVARIANT 2).
+// Video is never modified; SRT is a disposable artifact regenerated from here.
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+// Prisma 7 keeps the connection URL out of the schema: migrations read it from
+// prisma.config.ts, the client gets it through a driver adapter.
+datasource db {
+  provider   = "postgresql"
+  // §3 wants pgvector available from phase 2 so phase 3's embeddings need no
+  // infrastructure change. No vector columns exist yet.
+  extensions = [vector]
+}
+
+enum ServiceSource {
+  rip
+  live
+}
+
+model Service {
+  id          String        @id @default(uuid())
+  date        DateTime      @db.Date
+  speaker     String
+  title       String?
+  source      ServiceSource @default(rip)
+  videoPath   String        @unique
+  durationMs  Int?
+  /// INVARIANT 1 — the happy path trims before transcribing, so this stays 0.
+  /// Set only when someone insists on transcribing an untrimmed file; export
+  /// subtracts it.
+  trimStartMs Int           @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  segments Segment[]
+
+  @@index([date])
+}
+
+model Segment {
+  id        String @id @default(uuid())
+  serviceId String
+  index     Int
+
+  original    String
+  translation String
+  startMs     Int
+  endMs       Int
+  /// Diarization label, not a person's name. Null when a merge crossed speakers.
+  speaker     String?
+
+  /// §4: required from day one so no correction ever needs backfilling.
+  /// "soniox" until a human touches it, then the editor's identity —
+  /// hardcoded "local" until auth exists (§9).
+  editedBy String @default("soniox")
+  /// Null means never edited; the text is exactly as transcribed.
+  editedAt DateTime?
+  /// Retained on edit — corrections are the whole reason the DB is the
+  /// source of truth.
+  previousTranslation String?
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, index])
+  @@index([serviceId, startMs])
+}

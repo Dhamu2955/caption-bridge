@@ -21,3 +21,6 @@ recordings/
 
 # Editor-local settings
 .vscode/
+
+# Prisma generated client
+src/generated/

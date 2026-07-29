@@ -1,0 +1,27 @@
+# Local Postgres for phases 2–4. Localhost only — see SPEC §9.
+# pgvector/pgvector ships the vector extension prebuilt; §3 wants it from
+# phase 2 so phase 3's embeddings need no image change.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: sermon-captions-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sermon
+      POSTGRES_PASSWORD: sermon
+      POSTGRES_DB: sermon_captions
+    ports:
+      # Bound to the loopback interface deliberately: this must not be
+      # reachable from the LAN.
+      # Host port 5433 — 5432 belongs to another project on this machine.
+      - '127.0.0.1:5433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sermon -d sermon_captions']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
