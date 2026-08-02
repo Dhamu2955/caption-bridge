@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
-import { BridgeServer } from '../src/live/server.js';
+import { BridgeServer, parseOperatorCommand } from '../src/live/server.js';
 import { BrowserAdapter } from '../src/live/adapters/browser.js';
 import type { CaptionLine } from '../src/live/types.js';
 
@@ -162,6 +162,36 @@ describe('bridge server', () => {
     expect(seen).toContainEqual({ type: 'drop', lineId: 'l1' });
     ws.close();
     await advisory.stop();
+  });
+});
+
+describe('operator command parsing', () => {
+  it('accepts the commands the reviewer page sends', () => {
+    expect(parseOperatorCommand('{"type":"drop","lineId":"line-3"}')).toEqual({
+      type: 'drop',
+      lineId: 'line-3',
+    });
+    expect(parseOperatorCommand('{"type":"edit","lineId":"line-3","text":"Corrected."}')).toEqual({
+      type: 'edit',
+      lineId: 'line-3',
+      text: 'Corrected.',
+    });
+    expect(parseOperatorCommand('{"type":"hold"}')).toEqual({ type: 'hold' });
+  });
+
+  it('ignores anything that is not a command this bridge knows', () => {
+    // Nothing on this socket is trusted enough to guess at.
+    expect(parseOperatorCommand('{"type":"shutdown"}')).toBeUndefined();
+    expect(parseOperatorCommand('{"lineId":"line-3"}')).toBeUndefined();
+    expect(parseOperatorCommand('not json')).toBeUndefined();
+    expect(parseOperatorCommand('null')).toBeUndefined();
+    expect(parseOperatorCommand('[1,2,3]')).toBeUndefined();
+  });
+
+  it('drops fields of the wrong type rather than passing them through', () => {
+    expect(parseOperatorCommand('{"type":"edit","lineId":7,"text":{"a":1}}')).toEqual({
+      type: 'edit',
+    });
   });
 });
 

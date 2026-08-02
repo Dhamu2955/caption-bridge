@@ -24,6 +24,10 @@ import { systemClock } from '../types.js';
 
 interface Scheduled {
   line: CaptionLine;
+  /** A reviewer's correction, applied at release. `line` keeps the machine text
+   *  so the original stays recoverable — the same reason the database keeps
+   *  previousTranslation on an edited segment. */
+  editedLine: CaptionLine | undefined;
   releaseAt: number;
   dropped: boolean;
 }
@@ -87,6 +91,7 @@ export class CaptionQueue {
     for (const state of this.outputs.values()) {
       state.pending.push({
         line,
+        editedLine: undefined,
         releaseAt: this.releaseAtFor(line, state.config),
         dropped: false,
       });
@@ -125,6 +130,55 @@ export class CaptionQueue {
 
       entry.dropped = true;
       this.emit({ type: 'dropped', output: state.config.name, lineId, by });
+    }
+  }
+
+  /**
+   * Correct a line before it goes out.
+   *
+   * The same advisory contract as `drop`, and for the same reason: once a line
+   * has been released it is immutable (INVARIANT 4), so a correction that
+   * arrives late is rejected rather than chasing text already on screen.
+   *
+   * `CaptionLine` is readonly by design, so this stores a replacement alongside
+   * the original rather than mutating it. Nothing that has already been handed
+   * to an adapter can be reached from here.
+   */
+  editLine(lineId: string, translation: string, by = 'operator', outputName?: string): void {
+    for (const state of this.outputs.values()) {
+      if (outputName && state.config.name !== outputName) continue;
+
+      if (state.released.has(lineId)) {
+        this.emit({
+          type: 'edit-rejected',
+          output: state.config.name,
+          lineId,
+          reason: 'already-released',
+        });
+        continue;
+      }
+
+      const entry = state.pending.find((item) => item.line.id === lineId);
+      if (!entry) {
+        this.emit({
+          type: 'edit-rejected',
+          output: state.config.name,
+          lineId,
+          reason: 'unknown-line',
+        });
+        continue;
+      }
+
+      const current = entry.editedLine ?? entry.line;
+      entry.editedLine = { ...entry.line, translation };
+      this.emit({
+        type: 'edited',
+        output: state.config.name,
+        lineId,
+        by,
+        previousTranslation: current.translation,
+        translation,
+      });
     }
   }
 
@@ -195,14 +249,17 @@ export class CaptionQueue {
           continue;
         }
 
-        void state.adapter.show(entry.line);
-        state.released.add(entry.line.id);
+        // A reviewer's correction wins if one arrived in time; from here on the
+        // line is released and nothing can touch it.
+        const released = entry.editedLine ?? entry.line;
+        void state.adapter.show(released);
+        state.released.add(released.id);
         state.lastReleasedAt = now;
         releases++;
         this.emit({
           type: 'released',
           output: state.config.name,
-          line: entry.line,
+          line: released,
           scheduledAt: entry.releaseAt,
           releasedAt: now,
         });

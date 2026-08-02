@@ -21,9 +21,48 @@ import { info, warn } from '../util/log.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(here, '..', '..', 'public');
 
+export type OperatorCommandType =
+  | 'drop'
+  | 'edit'
+  | 'hold'
+  | 'resume'
+  | 'captions-off'
+  | 'captions-on';
+
 export interface OperatorCommand {
-  type: 'drop' | 'hold' | 'resume' | 'captions-off' | 'captions-on';
+  type: OperatorCommandType;
   lineId?: string;
+  /** The corrected translation, for `edit`. */
+  text?: string;
+}
+
+const COMMAND_TYPES = new Set<string>([
+  'drop',
+  'edit',
+  'hold',
+  'resume',
+  'captions-off',
+  'captions-on',
+]);
+
+/** Anything that is not a command this bridge knows is ignored, not guessed at. */
+export function parseOperatorCommand(raw: string): OperatorCommand | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+
+  const candidate = parsed as { type?: unknown; lineId?: unknown; text?: unknown };
+  if (typeof candidate.type !== 'string' || !COMMAND_TYPES.has(candidate.type)) return undefined;
+
+  return {
+    type: candidate.type as OperatorCommandType,
+    ...(typeof candidate.lineId === 'string' ? { lineId: candidate.lineId } : {}),
+    ...(typeof candidate.text === 'string' ? { text: candidate.text } : {}),
+  };
 }
 
 export interface OperatorView {
@@ -124,12 +163,8 @@ export class BridgeServer {
       this.operators.add(ws);
       ws.send(JSON.stringify({ type: 'state', ...this.view }));
       ws.on('message', (raw) => {
-        let command: OperatorCommand;
-        try {
-          command = JSON.parse(raw.toString()) as OperatorCommand;
-        } catch {
-          return;
-        }
+        const command = parseOperatorCommand(raw.toString());
+        if (!command) return;
         // Advisory only. The scheduler decides whether to honour it.
         this.options.onCommand?.(command);
       });

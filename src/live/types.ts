@@ -1,8 +1,10 @@
 /**
  * Live bridge types. Phase 5 — see SPEC §4 and INVARIANTS 4–10.
  *
- * The one rule everything here serves: a caption that has been shown is
- * immutable. Nothing in this module offers a way to edit a released line.
+ * The one rule everything here serves: a caption that has been RELEASED is
+ * immutable. Nothing in this module offers a way to edit or withdraw a line
+ * once it has gone to an output. A line still pending in the queue has been
+ * shown to nobody, so correcting it is not an exception to that rule.
  */
 
 export interface CaptionLine {
@@ -56,6 +58,22 @@ export type QueueEvent =
   | { type: 'dropped'; output: string; lineId: string; by: string }
   | {
       type: 'drop-rejected';
+      output: string;
+      lineId: string;
+      reason: 'already-released' | 'unknown-line';
+    }
+  | {
+      type: 'edited';
+      output: string;
+      lineId: string;
+      by: string;
+      /** The text being replaced, kept for the same reason the database keeps
+       *  previousTranslation: the machine baseline must stay recoverable. */
+      previousTranslation: string;
+      translation: string;
+    }
+  | {
+      type: 'edit-rejected';
       output: string;
       lineId: string;
       reason: 'already-released' | 'unknown-line';

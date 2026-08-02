@@ -76,6 +76,13 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
           // already shown it by now.
           if (command.lineId) queue.drop(command.lineId, 'reviewer', 'stream');
           break;
+        case 'edit':
+          // Same scope as drop, and the same advisory contract: if the line has
+          // already gone out the queue rejects it rather than chasing it.
+          if (command.lineId && command.text !== undefined) {
+            queue.editLine(command.lineId, command.text, 'reviewer', 'stream');
+          }
+          break;
         case 'hold':
           queue.hold();
           break;

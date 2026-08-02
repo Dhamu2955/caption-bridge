@@ -231,3 +231,115 @@ describe('gap reporting', () => {
     expect(events).toContainEqual({ type: 'gap', durationMs: 4200 });
   });
 });
+
+describe('editing a line before it is released (INVARIANT 4 rule 2)', () => {
+  it('releases the corrected text when the edit arrives in time', () => {
+    const { queue, adapters } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'The lord of everything.'));
+
+    queue.editLine('a', 'The Lord of all.', 'reviewer');
+    queue.tick(EPOCH + 29_000);
+
+    expect(adapters.get('stream')!.shown()).toEqual(['The Lord of all.']);
+  });
+
+  it('keeps the machine text recoverable in the event', () => {
+    const { queue, events } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'Machine wording.'));
+
+    queue.editLine('a', 'Reviewer wording.', 'reviewer');
+
+    expect(events.find((event) => event.type === 'edited')).toMatchObject({
+      output: 'stream',
+      lineId: 'a',
+      by: 'reviewer',
+      // NOT dropped — the JSONL is a labelled set of human-judged translations,
+      // which needs both sides of the correction.
+      previousTranslation: 'Machine wording.',
+      translation: 'Reviewer wording.',
+    });
+  });
+
+  it('does not touch the line already handed to the adapter', () => {
+    const { queue, adapters, events } = setup([output('stream', 0)]);
+    queue.add(line('a', 0, 'Went out as-is.'));
+    queue.tick(EPOCH);
+
+    queue.editLine('a', 'Too late.', 'reviewer');
+
+    expect(adapters.get('stream')!.shown()).toEqual(['Went out as-is.']);
+    expect(events.find((event) => event.type === 'edit-rejected')).toMatchObject({
+      lineId: 'a',
+      reason: 'already-released',
+    });
+  });
+
+  it('rejects an edit for a line it has never seen', () => {
+    const { queue, events } = setup([output('stream', 29_000)]);
+    queue.editLine('ghost', 'anything', 'reviewer');
+    expect(events.find((event) => event.type === 'edit-rejected')).toMatchObject({
+      lineId: 'ghost',
+      reason: 'unknown-line',
+    });
+  });
+
+  it('applies only to the named output, leaving the venue copy alone', () => {
+    const { queue, adapters } = setup([output('venue', 4000), output('stream', 29_000)]);
+    queue.add(line('a', 0, 'Original.'));
+
+    queue.editLine('a', 'Corrected.', 'reviewer', 'stream');
+    queue.tick(EPOCH + 4000);
+    queue.tick(EPOCH + 29_000);
+
+    // The venue screen showed it 25 seconds ago; only the reviewed path can
+    // still change.
+    expect(adapters.get('venue')!.shown()).toEqual(['Original.']);
+    expect(adapters.get('stream')!.shown()).toEqual(['Corrected.']);
+  });
+
+  it('takes the last correction when a reviewer edits twice', () => {
+    const { queue, adapters, events } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'First.'));
+
+    queue.editLine('a', 'Second.', 'reviewer');
+    queue.editLine('a', 'Third.', 'reviewer');
+    queue.tick(EPOCH + 29_000);
+
+    expect(adapters.get('stream')!.shown()).toEqual(['Third.']);
+    const edits = events.filter((event) => event.type === 'edited');
+    expect(edits.at(-1)).toMatchObject({ previousTranslation: 'Second.', translation: 'Third.' });
+  });
+
+  it('still drops a line that was edited — a correction is not an approval', () => {
+    const { queue, adapters } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'Original.'));
+
+    queue.editLine('a', 'Corrected.', 'reviewer');
+    queue.drop('a', 'reviewer');
+    queue.tick(EPOCH + 29_000);
+
+    expect(adapters.get('stream')!.shown()).toEqual([]);
+  });
+
+  it('leaves the Gujarati source untouched — only the translation is corrected', () => {
+    const { queue, events } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'English.'));
+
+    queue.editLine('a', 'Better English.', 'reviewer');
+    queue.tick(EPOCH + 29_000);
+
+    const released = events.find((event) => event.type === 'released');
+    expect(released).toMatchObject({ line: { original: 'gu-English.', id: 'a' } });
+  });
+
+  it('does not delay the release it corrects (INVARIANT 10)', () => {
+    const { queue, adapters } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'Original.'));
+    queue.editLine('a', 'Corrected.', 'reviewer');
+
+    queue.tick(EPOCH + 28_999);
+    expect(adapters.get('stream')!.shown()).toEqual([]);
+    queue.tick(EPOCH + 29_000);
+    expect(adapters.get('stream')!.shown()).toEqual(['Corrected.']);
+  });
+});
