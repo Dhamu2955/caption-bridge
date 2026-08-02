@@ -1,7 +1,11 @@
-import { resolve } from 'node:path';
-
 import type { PrismaClient } from '../generated/prisma/client.js';
-import { editSegment, findService, formatServiceDate, listServices, loadSegments } from '../db/services.js';
+import {
+  editSegment,
+  formatServiceDate,
+  listServices,
+  loadSegments,
+  resolveServiceRef,
+} from '../db/services.js';
 
 export interface EditArgs {
   /** Video path or service id. */
@@ -10,18 +14,6 @@ export interface EditArgs {
   cue: number;
   text: string;
   editedBy?: string | undefined;
-}
-
-async function resolveService(prisma: PrismaClient, ref: string) {
-  const service =
-    (await findService(prisma, { videoPath: resolve(ref) })) ??
-    (await findService(prisma, { id: ref }));
-  if (!service) {
-    throw new Error(
-      `no service found for "${ref}" — pass the video path used at ingest, or a service id (\`sermon-captions list\`)`,
-    );
-  }
-  return service;
 }
 
 /**
@@ -35,7 +27,7 @@ export async function editTranslation(
   args: EditArgs,
   prisma: PrismaClient,
 ): Promise<{ serviceId: string; before: string; after: string; unchanged: boolean }> {
-  const service = await resolveService(prisma, args.ref);
+  const service = await resolveServiceRef(prisma, args.ref);
 
   if (!Number.isInteger(args.cue) || args.cue < 1) {
     throw new Error(`--cue must be a whole number of 1 or more, got "${args.cue}"`);
@@ -69,7 +61,7 @@ export interface ShowArgs {
 
 /** Read cues back, so a correction can be checked without opening the SRT. */
 export async function showSegments(args: ShowArgs, prisma: PrismaClient) {
-  const service = await resolveService(prisma, args.ref);
+  const service = await resolveServiceRef(prisma, args.ref);
   const rows = await loadSegments(prisma, service.id);
   const from = Math.max(1, args.from ?? 1);
   const limit = Math.max(1, args.limit ?? 20);

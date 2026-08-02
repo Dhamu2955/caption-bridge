@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { Segment } from '../segments/types.js';
 
@@ -125,6 +127,25 @@ export async function findService(
   if (ref.id) return prisma.service.findUnique({ where: { id: ref.id } });
   if (ref.videoPath) return prisma.service.findUnique({ where: { videoPath: ref.videoPath } });
   return null;
+}
+
+/**
+ * Resolve the `<video|service-id>` argument every command takes.
+ *
+ * Path first — the video path is what someone has to hand — then id, so one
+ * positional argument serves both. Throws rather than returning null: no
+ * caller has anything useful to do with "not found" except report it.
+ */
+export async function resolveServiceRef(prisma: PrismaClient, ref: string) {
+  const service =
+    (await findService(prisma, { videoPath: resolve(ref) })) ??
+    (await findService(prisma, { id: ref }));
+  if (!service) {
+    throw new Error(
+      `no service found for "${ref}" — pass the video path used at ingest, or a service id (\`sermon-captions list\`)`,
+    );
+  }
+  return service;
 }
 
 export async function listServices(prisma: PrismaClient) {

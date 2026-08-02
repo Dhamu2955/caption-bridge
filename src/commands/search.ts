@@ -1,7 +1,5 @@
-import { resolve } from 'node:path';
-
 import type { AppConfig } from '../config.js';
-import { findService, listServices } from '../db/services.js';
+import { listServices, resolveServiceRef } from '../db/services.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { deepLink } from '../search/chunk.js';
 import { LocalEmbedder, type Embedder } from '../search/embedder.js';
@@ -26,10 +24,7 @@ export async function runIndex(
   const targets: { id: string; label: string }[] = [];
 
   if (args.ref) {
-    const service =
-      (await findService(prisma, { videoPath: resolve(args.ref) })) ??
-      (await findService(prisma, { id: args.ref }));
-    if (!service) throw new Error(`no service found for "${args.ref}"`);
+    const service = await resolveServiceRef(prisma, args.ref);
     targets.push({ id: service.id, label: service.videoPath });
   } else {
     for (const service of await listServices(prisma)) {
