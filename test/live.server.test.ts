@@ -364,4 +364,13 @@ describe('reviewer page contract', () => {
     const html = await readFile(page, 'utf8');
     expect(html).toContain('Already went out');
   });
+
+  it('shows at most one status note per line', async () => {
+    const html = await readFile(page, 'utf8');
+    // A line can be corrected AND past its air time at once. Showing "the new
+    // wording goes out" beside "already went out" reads as a contradiction, so
+    // the notes are driven by one attribute rather than three booleans.
+    expect(html).toMatch(/data-note.*dropped.*expired.*edited/s);
+    expect(html).not.toMatch(/card\[data-edited="true"\] \.note-edited/);
+  });
 });

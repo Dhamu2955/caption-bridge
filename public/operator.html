@@ -239,9 +239,13 @@
     text-transform: uppercase;
   }
 
-  .card[data-dropped="true"] .note-dropped { display: block; color: var(--kumkum); }
-  .card[data-edited="true"] .note-edited   { display: block; color: var(--flame); }
-  .card[data-expired="true"] .note-expired { display: block; color: var(--marble-dim); }
+  /* At most ONE note per card. A card can be corrected AND past its air time
+     at once, and showing "the new wording goes out" beside "already went out"
+     reads as a contradiction to someone who is not thinking about state
+     machines. Priority: dropped, then expired, then corrected. */
+  .card[data-note="dropped"] .note-dropped { display: block; color: var(--kumkum); }
+  .card[data-note="edited"]  .note-edited  { display: block; color: var(--flame); }
+  .card[data-note="expired"] .note-expired { display: block; color: var(--marble-dim); }
 
   /* ---- actions -------------------------------------------------------- */
 
@@ -611,11 +615,16 @@
       card.gu.textContent = line.original || '';
       card.en.textContent = state.edited[line.id] || line.translation || '';
 
-      card.li.setAttribute('data-urgent', index === 0 ? 'true' : 'false');
+      // Nothing that has already gone out is urgent — there is no action left
+      // to take on it.
+      card.li.setAttribute('data-urgent', index === 0 && !expired ? 'true' : 'false');
       card.li.setAttribute('data-dropped', dropped ? 'true' : 'false');
-      card.li.setAttribute('data-edited', edited && !dropped ? 'true' : 'false');
       card.li.setAttribute('data-expired', expired ? 'true' : 'false');
       card.li.setAttribute('data-editing', state.editing === line.id ? 'true' : 'false');
+      card.li.setAttribute(
+        'data-note',
+        dropped ? 'dropped' : expired ? 'expired' : edited ? 'edited' : 'none',
+      );
 
       // An expired row says so rather than accepting a press that the bridge
       // would only reject (INVARIANT 10).
