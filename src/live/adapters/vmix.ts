@@ -157,6 +157,44 @@ export function extractTextField(
   return match?.[1] === undefined ? undefined : decodeXml(match[1]);
 }
 
+export interface InputPosition {
+  /** Milliseconds from the start of the file. */
+  positionMs: number;
+  durationMs: number;
+  /** vMix reports Running / Paused / Completed. */
+  state: string;
+}
+
+/**
+ * Read an input's playback position out of vMix's state XML.
+ *
+ * This is what lets `play` caption a recorded sermon: captions follow the
+ * position rather than a clock, so pausing, seeking and restarting all behave
+ * without any special handling.
+ *
+ * Matches the opening tag only, because a Video input is often self-closing —
+ * unlike the GT titles `extractTextField` reads, which always have children.
+ */
+export function extractInputPosition(xml: string, inputGuid: string): InputPosition | undefined {
+  const tag = new RegExp(`<input\\b[^>]*\\bkey="${escapeRegExp(inputGuid)}"[^>]*>`, 'i').exec(xml);
+  if (!tag?.[0]) return undefined;
+
+  const attribute = (name: string): string | undefined =>
+    new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(tag[0])?.[1];
+
+  const position = Number(attribute('position'));
+  const duration = Number(attribute('duration'));
+
+  // An input with no position (a camera, a title) is not something to caption.
+  if (!Number.isFinite(position)) return undefined;
+
+  return {
+    positionMs: Math.max(0, position),
+    durationMs: Number.isFinite(duration) ? duration : 0,
+    state: attribute('state') ?? 'Unknown',
+  };
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

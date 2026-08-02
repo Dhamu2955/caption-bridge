@@ -14,6 +14,7 @@ import { editTranslation, listAllServices, showSegments } from './commands/edit.
 import { backfill } from './commands/backfill.js';
 import { formatHit, runIndex, runSearch } from './commands/search.js';
 import { runLive } from './commands/live.js';
+import { runPlay } from './commands/play.js';
 import type { CaptureFormat } from './live/capture.js';
 import { listDevicesCommand } from './live/capture.js';
 import { fail, info, warn } from './util/log.js';
@@ -32,6 +33,7 @@ Usage:
   sermon-captions backfill <dir> --speaker <name> [--limit n] [--only <substr>]
   sermon-captions index  [<video|service-id>]
   sermon-captions search "<query>" [--limit n]
+  sermon-captions play   <video|service-id> --input <vmix-guid> [--lines both]
   sermon-captions live   --device "<audio device>" [--outputs venue,stream]
   sermon-captions devices
 
@@ -60,6 +62,12 @@ Common:
 
 Subtitles are generated artifacts — correct them with \`edit\`, then re-run
 \`export\`. Never hand-edit an SRT; the next export overwrites it.
+
+play options:
+  --input <guid>      GUID of the vMix input playing the file. Never a number.
+  --caption-input <guid>  Drive a GT title instead of the browser overlay.
+  --vmix-url <url>    vMix web controller (default http://127.0.0.1:8088).
+  --lines both        Gujarati above English on the overlay.
 
 live options:
   --device <name>     Audio device carrying the SPEAKER'S MIC ONLY, not Master.
@@ -380,6 +388,28 @@ async function runSearchCommand(
   for (const hit of hits) process.stdout.write(`${formatHit(hit)}\n`);
 }
 
+async function runPlayCommand(
+  positional: string[],
+  flags: ParsedArgs['flags'],
+  config: AppConfig,
+) {
+  const ref = firstPositional(positional, 'video path or service id');
+  await withDb(config, (prisma) =>
+    runPlay(
+      {
+        ref,
+        input: requireString(flags, 'input'),
+        vmixUrl: optionalString(flags, 'vmix-url'),
+        captionInput: optionalString(flags, 'caption-input'),
+        lines: optionalString(flags, 'lines') === 'both' ? 'both' : 'en',
+        token: optionalString(flags, 'token'),
+      },
+      config,
+      prisma,
+    ),
+  );
+}
+
 async function runLiveCommand(flags: ParsedArgs['flags'], config: AppConfig) {
   await runLive(
     {
@@ -436,6 +466,9 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case 'search':
       await runSearchCommand(positional, flags, config);
+      return 0;
+    case 'play':
+      await runPlayCommand(positional, flags, config);
       return 0;
     case 'live':
       await runLiveCommand(flags, config);
