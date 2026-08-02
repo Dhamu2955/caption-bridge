@@ -18,6 +18,13 @@
     "pollIntervalMs": 3000,
     "pollTimeoutMs": 3600000
   },
+  "youtube": {
+    "clientIdEnv": "YOUTUBE_CLIENT_ID",
+    "clientSecretEnv": "YOUTUBE_CLIENT_SECRET",
+    "refreshTokenEnv": "YOUTUBE_REFRESH_TOKEN",
+    "dailyQuotaUnits": 10000,
+    "authPort": 8719
+  },
   "search": {
     "model": "Xenova/multilingual-e5-small",
     "dimensions": 384,

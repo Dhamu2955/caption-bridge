@@ -2,12 +2,14 @@
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 
-import { ConfigError, loadConfig, type AppConfig } from './config.js';
+import { ConfigError, loadConfig, resolveYoutubeCredentials, type AppConfig } from './config.js';
 import { DatabaseError, resolveDatabaseUrl, withPrisma } from './db/client.js';
 import { EditsWouldBeLostError } from './db/services.js';
 import type { PrismaClient } from './generated/prisma/client.js';
 import { ingest } from './commands/ingest.js';
 import { exportSrt } from './commands/export.js';
+import { createYoutubeClient, publish, publishAll } from './commands/publish.js';
+import { authorise } from './youtube/auth.js';
 import { editTranslation, listAllServices, showSegments } from './commands/edit.js';
 import { backfill } from './commands/backfill.js';
 import { formatHit, runIndex, runSearch } from './commands/search.js';
@@ -21,6 +23,9 @@ const USAGE = `sermon-captions — Gujarati→English sermon subtitles
 Usage:
   sermon-captions ingest <video> --speaker <name> --date <YYYY-MM-DD> [options]
   sermon-captions export <video|service-id> [--out-dir <dir>]
+  sermon-captions publish <video|service-id> [--youtube-id <id>] [--dry-run]
+  sermon-captions publish --all [--budget <units>]
+  sermon-captions publish --auth
   sermon-captions edit   <video|service-id> --cue <n> --text "corrected text"
   sermon-captions show   <video|service-id> [--from <n>] [--limit <n>]
   sermon-captions list
@@ -37,6 +42,17 @@ ingest options:
   --force             Re-transcribe even if a cached transcript exists.
   --no-db             Write files only; do not touch the database.
   --replace-edited    Overwrite segments even if they carry human corrections.
+
+publish options:
+  --youtube-id <id>   The video on YOUR channel. Needed once; then remembered.
+  --all               Publish every service that has a video id, paced to quota.
+  --budget <units>    Quota units to spend in one run (default 90% of the day's).
+  --dry-run           Show what would be uploaded; make no API calls.
+  --force             Upload again even if nothing changed.
+  --auth              Mint a refresh token, once, in a browser.
+
+Captions can only be attached to videos on your own channel — sermons ripped
+from other mandirs' streams cannot be published, only played back locally.
 
 Common:
   --config <path>     Config file (default: config.json).
@@ -71,6 +87,9 @@ interface ParsedArgs {
 }
 
 const BOOLEAN_FLAGS = new Set([
+  'all',
+  'auth',
+  'dry-run',
   'force',
   'help',
   'no-db',
@@ -192,6 +211,77 @@ async function runExport(positional: string[], flags: ParsedArgs['flags'], confi
   );
   info(`  ${basename(result.targetSrt)}`);
   info(`  ${basename(result.sourceSrt)}`);
+}
+
+async function runPublish(positional: string[], flags: ParsedArgs['flags'], config: AppConfig) {
+  if (flags.get('auth') === true) {
+    const credentials = resolveYoutubeCredentials(config, process.env, {
+      requireRefreshToken: false,
+    });
+    const refreshToken = await authorise({
+      clientId: credentials.clientId,
+      clientSecret: credentials.clientSecret,
+      port: config.youtube.authPort,
+      onUrl: (url) => {
+        info('Open this in a browser and approve access:');
+        info('');
+        process.stdout.write(`${url}\n\n`);
+      },
+    });
+    info('Paste this into .env:');
+    process.stdout.write(`${config.youtube.refreshTokenEnv}=${refreshToken}\n`);
+    info('');
+    info('Set the OAuth consent screen to Production, or this token expires in 7 days.');
+    return;
+  }
+
+  const dryRun = flags.get('dry-run') === true;
+  // --dry-run resolves and formats everything but never calls the API, so it
+  // must work with no credentials at all.
+  const client = dryRun
+    ? undefined
+    : createYoutubeClient(resolveYoutubeCredentials(config, process.env));
+
+  if (flags.get('all') === true) {
+    const result = await withDb(config, (prisma) =>
+      publishAll(
+        {
+          budget: optionalNumber(flags, 'budget'),
+          force: flags.get('force') === true,
+          dryRun,
+        },
+        config,
+        prisma,
+        client,
+      ),
+    );
+    if (result.stoppedOnQuota) {
+      info('Re-run the same command tomorrow — it picks up where this stopped.');
+    }
+    return;
+  }
+
+  const ref = firstPositional(positional, 'video path or service id');
+  const result = await withDb(config, (prisma) =>
+    publish(
+      {
+        ref,
+        youtubeVideoId: optionalString(flags, 'youtube-id'),
+        force: flags.get('force') === true,
+        dryRun,
+      },
+      config,
+      prisma,
+      client,
+    ),
+  );
+
+  info('');
+  info(`https://youtu.be/${result.youtubeVideoId}`);
+  for (const track of result.tracks) {
+    info(`  ${track.language}: ${track.action}`);
+  }
+  if (result.quotaUnits > 0) info(`${result.quotaUnits} quota units`);
 }
 
 async function runEdit(positional: string[], flags: ParsedArgs['flags'], config: AppConfig) {
@@ -325,6 +415,9 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case 'export':
       await runExport(positional, flags, config);
+      return 0;
+    case 'publish':
+      await runPublish(positional, flags, config);
       return 0;
     case 'edit':
       await runEdit(positional, flags, config);
