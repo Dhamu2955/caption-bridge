@@ -165,6 +165,112 @@ describe('bridge server', () => {
   });
 });
 
+describe('control endpoints', () => {
+  const PORT = 3202;
+  const TOKEN = 'control-token';
+  const sessions: { action: string; device?: string | undefined }[] = [];
+  let server: BridgeServer;
+  let running = false;
+
+  beforeAll(async () => {
+    server = new BridgeServer({
+      host: '127.0.0.1',
+      port: PORT,
+      outputs: new Map([['venue', new BrowserAdapter('venue')]]),
+      token: TOKEN,
+      listDevices: async () => [
+        { name: 'CABLE Output (VB-Audio Virtual Cable)', likelyBus: true },
+        { name: 'Microphone (Realtek(R) Audio)', likelyBus: false },
+      ],
+      onSession: (action, device) => {
+        sessions.push({ action, device });
+        running = action === 'start';
+      },
+      sessionStatus: () => ({ running, device: 'CABLE Output (VB-Audio Virtual Cable)', level: 0.2 }),
+    });
+    await server.start();
+  });
+
+  afterAll(async () => {
+    await server.stop();
+  });
+
+  const base = `http://127.0.0.1:${PORT}`;
+
+  it('refuses an unauthenticated call', async () => {
+    // These do more than serve markup, so unlike the pages they are gated.
+    expect((await fetch(`${base}/api/devices`)).status).toBe(401);
+    expect((await fetch(`${base}/api/devices?token=wrong`)).status).toBe(401);
+  });
+
+  it('still serves the overlay page without a token, so vMix keeps working', async () => {
+    expect((await fetch(`${base}/overlay`)).status).toBe(200);
+  });
+
+  it('lists devices with the likely bus flagged', async () => {
+    const response = await fetch(`${base}/api/devices?token=${TOKEN}`);
+    const body = (await response.json()) as { devices: { name: string; likelyBus: boolean }[] };
+    expect(body.devices[0]).toEqual({
+      name: 'CABLE Output (VB-Audio Virtual Cable)',
+      likelyBus: true,
+    });
+  });
+
+  it('starts and stops capture with the chosen device', async () => {
+    const start = await fetch(`${base}/api/session?token=${TOKEN}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start', device: 'CABLE Output (VB-Audio Virtual Cable)' }),
+    });
+    expect(start.status).toBe(200);
+    expect(sessions.at(-1)).toEqual({
+      action: 'start',
+      device: 'CABLE Output (VB-Audio Virtual Cable)',
+    });
+    expect((await start.json()) as { running: boolean }).toMatchObject({ running: true });
+
+    await fetch(`${base}/api/session?token=${TOKEN}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'stop' }),
+    });
+    expect(sessions.at(-1)?.action).toBe('stop');
+  });
+
+  it('rejects an action it does not recognise', async () => {
+    const response = await fetch(`${base}/api/session?token=${TOKEN}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reboot' }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it('reports the level, so a dead cable is visible before the service starts', async () => {
+    const response = await fetch(`${base}/api/session?token=${TOKEN}`);
+    expect((await response.json()) as { level: number }).toMatchObject({ level: 0.2 });
+  });
+});
+
+describe('control page contract', () => {
+  const page = fileURLToPath(new URL('../public/control.html', import.meta.url));
+
+  it('never stores anything in localStorage or sessionStorage (§8)', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/localStorage|sessionStorage/);
+  });
+
+  it('requests no external resources', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+  });
+
+  it('warns against picking the main mix (INVARIANT 6)', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('not the main mix');
+  });
+});
+
 describe('operator command parsing', () => {
   it('accepts the commands the reviewer page sends', () => {
     expect(parseOperatorCommand('{"type":"drop","lineId":"line-3"}')).toEqual({

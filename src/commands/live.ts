@@ -9,6 +9,9 @@ import { LineBuilder } from '../live/pipeline/lineBuilder.js';
 import { CaptionQueue } from '../live/pipeline/queue.js';
 import { BrowserAdapter } from '../live/adapters/browser.js';
 import { StubAdapter } from '../live/adapters/stub.js';
+import { VmixAdapter } from '../live/adapters/vmix.js';
+import { YoutubeLiveAdapter } from '../live/adapters/youtubeLive.js';
+import { listAudioDevices } from '../live/devices.js';
 import { BridgeServer, type OperatorCommand } from '../live/server.js';
 import { outputConfigs, type OutputName } from '../live/outputs.js';
 import type { CaptionLine } from '../live/types.js';
@@ -17,6 +20,12 @@ import { info, warn } from '../util/log.js';
 export interface LiveArgs {
   device: string;
   format?: CaptureFormat | undefined;
+  /** YouTube live caption ingestion URL, from the stream's CC settings. */
+  youtubeCaptionsUrl?: string | undefined;
+  /** Delay between this machine's encoder and YouTube receiving the video. */
+  streamOffsetMs?: number | undefined;
+  /** Drive a vMix GT title as well as the browser overlays. */
+  captionInput?: string | undefined;
   /** Which outputs to serve. Defaults to venue + stream. */
   outputs?: OutputName[];
   /** JSONL of every raw response plus operator actions. */
@@ -54,6 +63,27 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
   const stub = new StubAdapter('stub', { log: args.verbose ?? false });
   queue.addOutput(configs.stub, stub);
 
+  // Closed captions on the public stream. Attached to the stream output's own
+  // config, so it inherits the reviewed delay and every drop and correction
+  // the reviewer makes, with no scheduling of its own.
+  if (args.youtubeCaptionsUrl) {
+    const youtube = new YoutubeLiveAdapter({
+      ingestionUrl: args.youtubeCaptionsUrl,
+      sessionEpoch,
+      streamOffsetMs: args.streamOffsetMs ?? 0,
+      onError: (err) => warn(`youtube captions: ${err.message}`),
+    });
+    queue.addOutput({ ...configs.stream, name: 'youtube' }, youtube);
+    info('posting closed captions to YouTube');
+  }
+
+  // The GT title route, for a night when a Browser input misbehaves.
+  if (args.captionInput) {
+    const gt = new VmixAdapter({ inputGuid: args.captionInput });
+    queue.addOutput({ ...configs.venue, name: 'vmix-title' }, gt);
+    info(`driving vMix GT title ${args.captionInput}`);
+  }
+
   const client = new SonioxRealtimeClient({
     apiKey,
     model: 'stt-rt-v5',
@@ -63,11 +93,31 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
     recordPath: args.recordPath ? resolve(args.recordPath) : undefined,
   });
 
+  // Capture is created before the server so the control page can start and
+  // stop it, but is not started until the session is running.
+  let capturing = false;
+  let currentDevice = args.device;
+  let lastLevel = 0;
+
   const server = new BridgeServer({
     host: config.server.host,
     port: config.server.port,
     outputs: overlays,
     token,
+    listDevices: () => listAudioDevices(args.format),
+    sessionStatus: () => ({ running: capturing, device: currentDevice, level: lastLevel }),
+    onSession: (action, device) => {
+      if (action === 'stop') {
+        capture.stop();
+        capturing = false;
+        return;
+      }
+      if (capturing) capture.stop();
+      if (device) currentDevice = device;
+      capture.setDevice(currentDevice);
+      capture.start();
+      capturing = true;
+    },
     onCommand: (command: OperatorCommand) => {
       client.recordEvent({ operator: command });
       switch (command.type) {
@@ -172,6 +222,7 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
   let silentChunks = 0;
   capture.on('audio', (chunk) => client.sendAudio(chunk));
   capture.on('level', (level) => {
+    lastLevel = level;
     // A silent cable and a silent speaker look identical without this.
     if (level < 0.0005) {
       silentChunks++;
@@ -185,6 +236,7 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
   await server.start();
   client.connect();
   capture.start();
+  capturing = true;
   queue.start(100);
 
   const viewTimer = setInterval(publishView, 250);

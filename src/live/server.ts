@@ -2,10 +2,11 @@ import { createServer, type Server } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import express from 'express';
+import express, { type RequestHandler } from 'express';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import type { CaptionLine, QueueEvent } from './types.js';
+import type { AudioDevice } from './devices.js';
 import type { BrowserAdapter } from './adapters/browser.js';
 import { info, warn } from '../util/log.js';
 
@@ -97,6 +98,12 @@ export interface BridgeServerOptions {
   /** Shared secret; omit to run without one on a trusted localhost. */
   token?: string | undefined;
   onCommand?: (command: OperatorCommand) => void;
+  /** Audio devices for the control page's dropdown. */
+  listDevices?: () => Promise<AudioDevice[]>;
+  /** Start and stop capture from the control page. */
+  onSession?: (action: 'start' | 'stop', device?: string) => Promise<void> | void;
+  /** Reported on the control page so the operator can see what is running. */
+  sessionStatus?: () => { running: boolean; device?: string | undefined; level?: number };
 }
 
 export class BridgeServer {
@@ -119,9 +126,61 @@ export class BridgeServer {
     const app = express();
     app.disable('x-powered-by');
 
+    app.use(express.json({ limit: '16kb' }));
     app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
     app.get('/', (_req, res) => res.redirect('/operator'));
     app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
+    /**
+     * The first HTTP endpoints on this server that need the token — until now
+     * it was checked only on the WebSocket upgrade, because the pages
+     * themselves must stay reachable without one (§9: a vMix Browser input
+     * cannot log in, and a redirect to a login form kills captions on air).
+     * These do more than serve markup, so they are gated.
+     */
+    const guard: RequestHandler = (req, res, next) => {
+      if (!this.options.token || req.query['token'] === this.options.token) {
+        next();
+        return;
+      }
+      res.status(401).json({ error: 'bad or missing token' });
+    };
+
+    app.get('/api/devices', guard, (_req, res) => {
+      void (async () => {
+        if (!this.options.listDevices) {
+          res.json({ devices: [] });
+          return;
+        }
+        try {
+          res.json({ devices: await this.options.listDevices() });
+        } catch (err) {
+          res.status(500).json({ error: (err as Error).message });
+        }
+      })();
+    });
+
+    app.get('/api/session', guard, (_req, res) => {
+      res.json(this.options.sessionStatus?.() ?? { running: false });
+    });
+
+    app.post('/api/session', guard, (req, res) => {
+      void (async () => {
+        const body = req.body as { action?: unknown; device?: unknown };
+        const action = body?.action;
+        if (action !== 'start' && action !== 'stop') {
+          res.status(400).json({ error: 'action must be start or stop' });
+          return;
+        }
+        const device = typeof body.device === 'string' ? body.device : undefined;
+        try {
+          await this.options.onSession?.(action, device);
+          res.json(this.options.sessionStatus?.() ?? { running: action === 'start' });
+        } catch (err) {
+          res.status(500).json({ error: (err as Error).message });
+        }
+      })();
+    });
 
     const server = createServer(app);
     const wss = new WebSocketServer({ noServer: true });
@@ -143,7 +202,19 @@ export class BridgeServer {
 
     const base = `http://${this.options.host}:${this.options.port}`;
     const suffix = this.options.token ? `?token=${this.options.token}` : '';
+
+    // §9: the reviewer surface carries broadcast content ahead of air. Reaching
+    // it from a tablet means binding to the LAN, which is fine — routing it in
+    // from outside is not.
+    if (this.options.host !== '127.0.0.1' && this.options.host !== 'localhost') {
+      warn(`serving on ${this.options.host} — LAN only, never port-forward this`);
+      if (!this.options.token) {
+        warn('no token set while bound off-loopback — anyone on the network can drive captions');
+      }
+    }
+
     info(`reviewer  ${base}/operator${suffix}`);
+    info(`control   ${base}/control${suffix}`);
     for (const name of this.options.outputs.keys()) {
       info(`overlay   ${base}/overlay${suffix ? `${suffix}&` : '?'}output=${name}`);
     }

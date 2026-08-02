@@ -35,7 +35,7 @@ export interface CaptureEvents {
   close: [number | null];
 }
 
-function defaultFormat(): CaptureFormat {
+export function defaultFormat(): CaptureFormat {
   if (process.platform === 'win32') return 'dshow';
   if (process.platform === 'darwin') return 'avfoundation';
   return 'pulse';
@@ -72,7 +72,7 @@ export function rmsLevel(chunk: Buffer): number {
 }
 
 export class AudioCapture extends EventEmitter<CaptureEvents> {
-  private readonly options: CaptureOptions;
+  private options: CaptureOptions;
   private child: ChildProcessByStdio<null, Readable, Readable> | undefined;
   private carry: Buffer = Buffer.alloc(0);
 
@@ -81,7 +81,18 @@ export class AudioCapture extends EventEmitter<CaptureEvents> {
     this.options = options;
   }
 
+  /** Point at a different input. Takes effect on the next `start()`. */
+  setDevice(device: string): void {
+    this.options = { ...this.options, device };
+  }
+
+  get device(): string {
+    return this.options.device;
+  }
+
   start(): void {
+    // Stale audio from a previous device must not be prepended to the new one.
+    this.carry = Buffer.alloc(0);
     const chunkBytes = this.options.chunkBytes ?? 3840;
     const child = spawn(this.options.ffmpegPath ?? 'ffmpeg', buildCaptureArgs(this.options), {
       stdio: ['ignore', 'pipe', 'pipe'],

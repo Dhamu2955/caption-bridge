@@ -75,6 +75,9 @@ live options:
   --outputs <list>    Comma-separated: venue,stream,reviewer,overflow.
   --record <path>     Write every raw response and operator action to JSONL.
   --token <secret>    Overlay/reviewer URL token. Generated if omitted.
+  --youtube-captions <url>  YouTube live caption ingestion URL.
+  --stream-offset <ms>      Delay between your encoder and YouTube receiving it.
+  --caption-input <guid>    Also drive a vMix GT title.
   --verbose           Log every release.
 
 backfill options:
@@ -421,6 +424,9 @@ async function runLiveCommand(flags: ParsedArgs['flags'], config: AppConfig) {
         .filter(Boolean) as Parameters<typeof runLive>[0]['outputs'],
       recordPath: optionalString(flags, 'record'),
       token: optionalString(flags, 'token'),
+      youtubeCaptionsUrl: optionalString(flags, 'youtube-captions'),
+      streamOffsetMs: optionalNumber(flags, 'stream-offset'),
+      captionInput: optionalString(flags, 'caption-input'),
       verbose: flags.get('verbose') === true,
     },
     config,
