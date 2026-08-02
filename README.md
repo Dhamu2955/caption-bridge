@@ -35,13 +35,18 @@ files, so a correction never means re-encoding anything.
 ## How it works
 
 ```
-video ──▶ ffmpeg ──▶ Soniox ──▶ segments ──▶ Postgres ──▶ .srt files
-          extracts   transcribes  grouped      the source    regenerated
-          the audio  + translates into cues    of truth      any time
+video ──▶ ffmpeg ──▶ Soniox ──▶ segments ──▶ Postgres ──┬─▶ .srt files
+          extracts   transcribes  grouped      the source │   regenerated any time
+          the audio  + translates into cues    of truth   │
+                                                          ├─▶ YouTube caption tracks
+                                                          │   `publish`
+                                                          └─▶ the projector
+                                                              `play`, live from the DB
 ```
 
 Corrections go into the database, not into the `.srt`. Re-export and the fix
-appears. Hand-edit an `.srt` and the next export silently overwrites it.
+appears — and re-publish and it appears on YouTube too. Hand-edit an `.srt` and
+the next export silently overwrites it.
 
 ---
 
@@ -101,7 +106,7 @@ npx prisma migrate deploy
 npm test
 ```
 
-158 tests, no API calls, nothing spent. If they pass, you're set up correctly.
+273 tests, no API calls, nothing spent. If they pass, you're set up correctly.
 
 ---
 
@@ -196,6 +201,101 @@ destroy someone's work.
 
 ---
 
+## Putting captions on YouTube
+
+For sermons on **your own channel**. YouTube's auto-captions handle Gujarati
+religious vocabulary badly and cannot be corrected; these can.
+
+Upload the video in YouTube Studio as usual, then hand `publish` its id once:
+
+```sh
+npx tsx src/cli.ts publish ./sermon-2026-08-16.mp4 --youtube-id dQw4w9WgXcQ
+```
+
+Both tracks go up — English and Gujarati. The id is remembered, so after a
+correction it is just:
+
+```sh
+npx tsx src/cli.ts edit ./sermon-2026-08-16.mp4 --cue 42 --text "The corrected line."
+npx tsx src/cli.ts publish ./sermon-2026-08-16.mp4
+```
+
+That **updates** the existing track rather than adding a second one, and
+publishing again with nothing changed does nothing at all — no request, no
+quota. The text comes from the database, not from the `.srt` on disk.
+
+| Option | |
+|---|---|
+| `--youtube-id <id>` | the video on your channel. Needed once |
+| `--all` | publish every service that has an id, paced to the daily quota |
+| `--budget <units>` | quota to spend in one run (default 90% of the day's) |
+| `--dry-run` | show what would be uploaded; make no API calls |
+| `--force` | upload again even if nothing changed |
+| `--auth` | mint a refresh token, once, in a browser |
+
+### One-time setup
+
+1. At [console.cloud.google.com](https://console.cloud.google.com), make a
+   project, enable **YouTube Data API v3**, and create an **OAuth client** of
+   type *Desktop app*.
+2. **Set the OAuth consent screen to "Production", not "Testing".** In Testing,
+   Google expires refresh tokens after **seven days** — exactly the length of
+   festival week. Verification is not needed for personal use; an unverified
+   production app just shows a warning on the one consent screen you ever see.
+3. Put the client id and secret in `.env`, then:
+
+```sh
+npx tsx src/cli.ts publish --auth
+```
+
+Approve in the browser and paste the printed refresh token into `.env`.
+
+### The quota, and why a backlog takes a few days
+
+The API gives 10,000 units a day. A caption insert is 400 and an update 450, so
+one video with both languages costs **800 to publish, 900 to correct** — about a
+dozen videos a day.
+
+- **A year of sermons (~45 videos)** is roughly a four-day run. `publish --all`
+  stops cleanly when the budget is gone and resumes the next day by itself; it
+  keeps no state file, because the database already records what is on YouTube.
+- **A whole festival week (7 videos)** fits inside a single day's quota.
+
+> **Sermons ripped from other mandirs' streams cannot be published.** Captions
+> can only be attached to videos on a channel you own, and YouTube removed
+> community captions in 2020. Those sermons are served by `play` on the
+> projector instead.
+
+---
+
+## Captions on the projector
+
+vMix does **not** pick up an `.srt` sitting beside the video the way VLC does,
+so something has to drive the captions during playback:
+
+```sh
+npx tsx src/cli.ts play ./sermon-2026-08-16.mp4 --input <vmix-input-guid>
+```
+
+It prints an overlay URL — point a vMix Browser input at it. Captions follow the
+playhead, so **pause, seek and restart all just work**, and the text comes from
+the database, so a correction made last night is on screen this morning with no
+re-export.
+
+| Option | |
+|---|---|
+| `--input <guid>` | the vMix input playing the file. A GUID, never a number |
+| `--caption-input <guid>` | drive a vMix GT title instead of the overlay |
+| `--vmix-url <url>` | vMix web controller (default `http://127.0.0.1:8088`) |
+| `--lines both` | Gujarati above English |
+
+If the bridge is not available on a given Sunday, add the sermon to vMix as a
+**VLC input** with `--sub-file=./sermon-2026-08-16.en.srt`. VLC burns the
+subtitles into the frames, so they cannot be styled or keyed — but it needs
+nothing running.
+
+---
+
 ## Finding something across sermons
 
 ```sh
@@ -264,13 +364,53 @@ npx tsx src/cli.ts live --device "CABLE Output (VB-Audio Virtual Cable)" \
   --outputs venue,stream --record ./service.jsonl
 ```
 
-It prints one reviewer URL and one overlay URL per output, each with a token.
-Point vMix Browser inputs at the overlay URLs; open the reviewer page on a
-tablet.
+It prints a setup URL, a reviewer URL and one overlay URL per output, each with
+a token. Point vMix Browser inputs at the overlay URLs; open the reviewer page
+on a tablet.
 
-**`/operator`** — the reviewer page. Gujarati above English at reading size,
-one button ("Don't show this"), a bar that drains to show the time left, and a
-clearly separated "Turn captions off".
+**`/control`** — the setup page, for whoever is running the switcher. Pick the
+audio input from a dropdown instead of typing a device name exactly, start and
+stop, and watch a level meter that shows whether the cable is actually carrying
+sound. Inputs that look like a virtual cable are floated to the top and marked,
+because tapping the main mix instead of the speaker's own bus is the single
+biggest accuracy loss available.
+
+**`/operator`** — the reviewer page. A queue of the lines still waiting to go
+out, soonest first, Gujarati above English at reading size. Each has a bar that
+drains to show the time left, a "Don't show this", and a "Fix wording" for the
+occasional line worth correcting rather than dropping. Plus a clearly separated
+"Turn captions off".
+
+### Captions on the YouTube stream
+
+```sh
+npx tsx src/cli.ts live --device "…" --outputs venue,stream \
+  --youtube-captions "<ingestion url from YouTube>" --stream-offset 180000
+```
+
+Enable closed captions with the **POST to URL** method in the stream's settings
+and YouTube gives you the ingestion URL. Every reviewed line is posted there as
+a real closed caption — toggleable by the viewer, and never burned into the
+picture, which is why this path needs no second composite in vMix.
+
+`--stream-offset` is the delay between your encoder and YouTube receiving the
+video; it is what puts each caption on the right words. **Confirm it on a
+private test stream before a festival.**
+
+### How long the reviewer gets
+
+`live.delayReviewMs` in `config.json`, three minutes by default, up to ten.
+
+At the original 25 seconds a reviewer could realistically only drop a line —
+reading the Gujarati, judging the English and typing a fix does not fit. Minutes
+make correcting one workable. The cost is that the stream runs that far behind
+the room, and that the delay can no longer live in vMix's Video Delay, which
+buffers uncompressed frames in RAM: it has to move after the encoder, to OBS's
+stream delay or a disk relay. See [docs/vmix-routing.md](docs/vmix-routing.md).
+
+The venue screens are unaffected — they stay about four seconds behind the
+speaker, because a congregation in the room cannot watch captions three minutes
+late.
 
 **`/overlay?output=venue`** — the caption block that goes on screen.
 Transparent background so vMix can key it. English only by default; add
@@ -360,6 +500,24 @@ the file plays with sound.
 Postgres isn't running. `docker compose up -d`. They skip rather than fail on
 purpose, so the rest of the suite still runs.
 
+**`publish` says the refresh token is invalid**
+The OAuth consent screen is in "Testing", where Google expires refresh tokens
+after seven days. Set it to "Production" and run `publish --auth` again.
+
+**`publish` says no YouTube video is recorded**
+Pass `--youtube-id <id>` once; it's remembered after that. If the sermon was
+ripped from another mandir's channel there is no id to pass — captions can only
+go on videos you own.
+
+**YouTube captions ran out of quota**
+Expected on a backlog run: the daily allowance covers about a dozen videos.
+Re-run the same command tomorrow; it picks up where it stopped.
+
+**`play` shows no captions**
+Check the `--input` GUID matches the input actually playing the file — vMix
+input *numbers* shift when inputs are reordered, which is why this takes a GUID.
+`http://127.0.0.1:8088/api/` in a browser shows the state XML with the keys in it.
+
 ---
 
 ## Project layout
@@ -370,6 +528,7 @@ src/
   config.ts           reads config.json, resolves credentials from the environment
   audio/              ffmpeg audio extraction
   soniox/             async API client
+  youtube/            Data API client and the one-off OAuth flow
   segments/build.ts   tokens → subtitles. The core; shared by every phase
   srt/format.ts       subtitles → .srt text
   db/                 Postgres access
@@ -378,10 +537,11 @@ src/
   commands/           one file per CLI command
 public/
   operator.html       reviewer page
+  control.html        setup page — audio input, start/stop, level meter
   overlay.html        on-air caption block
 prisma/schema.prisma  database schema
 docs/                 architecture and vMix routing
-test/                 158 tests
+test/                 273 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else

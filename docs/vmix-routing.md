@@ -108,6 +108,50 @@ Implemented in `src/live/adapters/vmix.ts`, with all four §4 traps handled:
 
 ---
 
+## 3b. Sunday playback — captions on a recorded sermon
+
+The weekly job is a recorded sermon on a projector, not a live broadcast, and it
+needs its own answer. **vMix's Video input does not load a sidecar `.srt`** the
+way VLC does — SPEC INVARIANT 3 used to imply it did, and that has been
+corrected.
+
+### `sermon-captions play` (preferred)
+
+```sh
+npx tsx src/cli.ts play ./sermon-2026-08-16.mp4 --input <vmix-input-guid>
+```
+
+Polls `GET /api/` four times a second, reads the playing input's `position`, and
+pushes whichever cue spans that millisecond to the overlay page. Point a vMix
+Browser input at the overlay URL it prints.
+
+Because it is position-driven rather than clock-driven, **pause, seek and
+restart need no handling** — every poll asks vMix where the file actually is.
+Cues come from the database, so a correction made with `edit` on Saturday is on
+screen on Sunday with no `export` in between.
+
+`--caption-input <guid>` drives a vMix GT title instead of the browser overlay,
+for a night when the Browser input misbehaves.
+
+Do **not** use vMix Data Sources polling an endpoint for this. vMix would own
+the refresh timing, which breaks INVARIANT 9's per-output scheduling and cannot
+express a drop.
+
+### VLC input (zero-code fallback)
+
+vMix's VLC input plays through libVLC, which does understand subtitles. Add the
+sermon as a **VLC input** rather than a Video input and pass:
+
+```
+--sub-file=/path/to/sermon-2026-08-16.en.srt
+```
+
+VLC renders the subtitles into the frames, so they cannot be styled to match the
+live overlay or keyed separately, and the VLC input is less frame-accurate than
+the native Video input. It is the "we need something this Sunday" option.
+
+---
+
 ## 4. The two composite stages (INVARIANT 8)
 
 This is the part §4 flagged as unresolved, and it turns out to be **simpler
@@ -160,6 +204,43 @@ decision arrives too late.
   match. Confirm whether the Video Delay input carries its own audio or whether
   Master needs a matching delay.
 
+### What phases 4 and 5 changed about all this
+
+Two things, and together they remove most of the arrangement above for the
+public stream.
+
+**YouTube closed captions are never burned in.** `live --youtube-captions <url>`
+POSTs each released English line to YouTube's caption ingestion endpoint, synced
+by timestamp. The video path carries no captions, so there is nothing to
+un-burn, so there is no second composite and no second mix. A reviewer's drop
+means the POST simply never happens. Mix 2 and the ⚠ licence question above
+apply only if you burn captions into the picture instead.
+
+**A minutes-long delay cannot live in vMix's Video Delay.** The review window
+now defaults to three minutes (tunable to ten), because at 25 seconds a reviewer
+can only drop a line — reading the Gujarati, judging the English and typing a
+correction does not fit. But Video Delay buffers uncompressed frames in RAM; the
+~30 MB estimate above is for 29 seconds, and ten minutes is orders of magnitude
+more. Move the long delay **after the encoder**, where it is compressed:
+
+```
+mic ──→ bridge ──→ Soniox ──→ queue ── held ~3 min, drops and edits applied ──→ POST to YouTube
+vMix ──→ encoder ──→ compressed buffer (~3 min) ──→ RTMP to YouTube
+```
+
+- **OBS stream delay** — built for exactly this, buffers the encoded output
+- **Disk relay** — record the encoder output and start `ffmpeg -re` on the
+  growing file N minutes later. Effectively unlimited, survives a long festival
+
+`--stream-offset <ms>` must match whatever delay you choose: it is what puts the
+caption on the right moment of YouTube's timeline. Calibrate it on a private
+test stream — along with the ingestion wire format, which is the one part of the
+live-caption path not verifiable from the code.
+
+The venue and overflow screens are untouched by all of this. They stay on
+assembly delay (~4s) with the browser overlay composited once, because a
+congregation in the room cannot watch captions three minutes behind the speaker.
+
 ### Simplification worth considering
 
 If the reviewer feed turns out to be expensive — a second mix, a second delay,
@@ -176,15 +257,24 @@ nothing else changes.
 
 Do these in order. Each one rules out a class of failure before the next.
 
-1. **Cable, silent.** Play anything through Bus B; confirm `sermon-captions
-   live --device … --output stub` shows a non-zero level. Proves the routing.
+1. **Cable, silent.** Play anything through Bus B; confirm the control page's
+   level meter moves — or `sermon-captions live --device … --output stub` shows
+   a non-zero level. Proves the routing.
 2. **Cable, speech.** Confirm lines appear in the stub log with sensible text.
    Proves Soniox is getting clean audio.
 3. **Browser overlay in Chrome on macOS.** Proves rendering before Windows is
    involved at all.
 4. **Browser input in vMix.** Proves the Chromium path.
 5. **GT readback.** `verify()` against a real title. Proves the `.Text` trap.
-6. **Two delays, two mixes.** The only step that genuinely needs the festival
-   hardware.
+6. **Playback captions.** `play` against a Video input: captions follow the
+   file, survive a pause, and jump on a seek. Needs vMix but no festival rig,
+   and it exercises the same overlay path the live phase depends on — which
+   makes it the cheapest rehearsal available.
+7. **YouTube captions on a private stream.** Confirm they appear, then calibrate
+   `--stream-offset` until they sit on the right words. Also confirms the
+   ingestion wire format, which is the one unvalidated piece.
+8. **Two delays, two mixes.** Only needed if you burn captions into the picture
+   for the stream; the YouTube CC path does not. The one step that genuinely
+   needs the festival hardware.
 
 Steps 1–3 need no Windows, which is the point of §10's build-order rule.
