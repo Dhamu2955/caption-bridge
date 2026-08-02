@@ -37,7 +37,7 @@
   "server": { "host": "127.0.0.1", "port": 3000 },
   "live": {
     "delayAssemblyMs": 4000,
-    "delayReviewMs": 25000,
+    "delayReviewMs": 180000,
     "minDisplayMs": 1500,
     "lateSkipMs": 2000
   }

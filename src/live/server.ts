@@ -65,17 +65,28 @@ export function parseOperatorCommand(raw: string): OperatorCommand | undefined {
   };
 }
 
+export interface PendingLine extends CaptionLine {
+  /** Wall-clock instant this line goes to air. Past it, nothing can change it. */
+  deadlineAt: number;
+  /** When it reached the reviewer feed. The drain bar runs from here to
+   *  deadlineAt — using the review window alone leaves the bar pinned full for
+   *  the first few seconds, because assembly delay is not review time. */
+  visibleFrom: number;
+  /** Whether a correction is already queued against it. */
+  edited: boolean;
+}
+
+/**
+ * Everything the reviewer can still act on, soonest deadline first.
+ *
+ * A list rather than one `current` line: at a three-minute review window there
+ * are tens of lines in flight at once, and the reviewer needs to see which one
+ * is about to expire.
+ */
 export interface OperatorView {
-  /** The line the reviewer is judging — the one on the reviewer feed now. */
-  current:
-    | (CaptionLine & {
-        /** Wall-clock instant this line goes to air. */
-        deadlineAt: number;
-        /** Size of the review window, so the bar knows what full looks like. */
-        windowMs: number;
-      })
-    | null;
-  upcoming: CaptionLine[];
+  pending: PendingLine[];
+  /** Size of the review window, so the page can label it. */
+  windowMs: number;
 }
 
 export interface BridgeServerOptions {
@@ -93,7 +104,7 @@ export class BridgeServer {
   private readonly operators = new Set<WebSocket>();
   private server: Server | undefined;
   private wss: WebSocketServer | undefined;
-  private view: OperatorView = { current: null, upcoming: [] };
+  private view: OperatorView = { pending: [], windowMs: 0 };
 
   constructor(options: BridgeServerOptions) {
     this.options = options;

@@ -266,3 +266,27 @@ describe('output table (INVARIANT 7)', () => {
     }
   });
 });
+
+describe('review window length', () => {
+  it('defaults to three minutes, so correcting a line is realistic', () => {
+    // At 25 seconds a reviewer can only drop; reading the Gujarati, judging
+    // the English and typing a fix does not fit.
+    const outputs = outputConfigs(parseConfig({}));
+    expect(outputs.stream.delayMs).toBe(184_000);
+  });
+
+  it('carries a longer window straight through to the reviewed output', () => {
+    const config = parseConfig({ live: { delayAssemblyMs: 4000, delayReviewMs: 600_000 } });
+    expect(outputConfigs(config).stream.delayMs).toBe(604_000);
+  });
+
+  it('leaves unreviewed outputs on assembly delay however long review gets', () => {
+    // The venue screen cannot be ten minutes behind the room.
+    const config = parseConfig({ live: { delayAssemblyMs: 4000, delayReviewMs: 600_000 } });
+    expect(outputConfigs(config).venue.delayMs).toBe(4000);
+  });
+
+  it('refuses a window past ten minutes', () => {
+    expect(() => parseConfig({ live: { delayReviewMs: 600_001 } })).toThrow(/10 minutes/);
+  });
+});

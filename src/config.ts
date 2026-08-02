@@ -118,11 +118,20 @@ const DEFAULTS = {
   server: { host: '127.0.0.1', port: 3000 },
   live: {
     delayAssemblyMs: 4000,
-    delayReviewMs: 25000,
+    // Three minutes, not the 25 seconds phase 5 was designed around. At 25s a
+    // reviewer can realistically only drop a line; correcting one needs time to
+    // read the Gujarati, judge the English, and type. Tunable up to 10 minutes
+    // — but a delay this long cannot live in vMix's Video Delay, which is
+    // RAM-resident. See docs/vmix-routing.md.
+    delayReviewMs: 180_000,
     minDisplayMs: 1500,
     lateSkipMs: 2000,
   },
 } satisfies AppConfig;
+
+/** Ten minutes. Past this the stream is so far behind the room that the two
+ *  stop being the same event; it is also a lot of buffered video. */
+const MAX_REVIEW_MS = 600_000;
 
 export class ConfigError extends Error {}
 
@@ -246,6 +255,12 @@ export function parseConfig(raw: unknown): AppConfig {
   }
   if (config.soniox.sourceLanguages.length === 0) {
     throw new ConfigError('soniox.sourceLanguages must list at least one language');
+  }
+  if (config.live.delayReviewMs > MAX_REVIEW_MS) {
+    throw new ConfigError(
+      `live.delayReviewMs must be at most ${MAX_REVIEW_MS} (10 minutes) — a longer delay ` +
+        `puts the stream far enough behind the room to stop being the same event`,
+    );
   }
 
   return config;

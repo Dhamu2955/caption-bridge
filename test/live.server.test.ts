@@ -237,9 +237,25 @@ describe('reviewer page contract', () => {
     }
   });
 
-  it('offers exactly one primary action', async () => {
+  it('offers exactly one primary action per line (§7)', async () => {
     const html = await readFile(page, 'utf8');
-    expect(html.match(/class="drop"/g)).toHaveLength(1);
+    // Cards are built in script now that the page shows a queue, so the class
+    // is assigned rather than written in markup — but there is still exactly
+    // one primary button, and it is the drop.
+    expect(html.match(/className = 'drop'/g)).toHaveLength(1);
     expect(html).toContain("Don't show this");
+  });
+
+  it('keeps correcting a line secondary to dropping it', async () => {
+    const html = await readFile(page, 'utf8');
+    // A wrong line shown to nobody beats a hurried rewrite, so "fix" is a
+    // ghost button beside the coloured one, never in place of it.
+    expect(html).toMatch(/className = 'ghost fix'/);
+    expect(html).toContain('Fix wording');
+  });
+
+  it('tells the reviewer when a line can no longer be changed (INVARIANT 10)', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('Already went out');
   });
 });

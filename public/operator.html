@@ -17,6 +17,11 @@
       · the Gujarati/English pairing is the largest thing on the page, because
         judging a translation without its source is guesswork
 
+    The page shows a QUEUE, not one line. With a three-minute review window
+    there are tens of lines in flight at once. The card at the top is the one
+    closest to going out, so the reviewer always works downward from the most
+    urgent thing.
+
     Fonts are system stacks: the page is served off the bridge on a LAN that
     may have no route to the internet.
   */
@@ -140,18 +145,36 @@
     color: var(--marble);
   }
 
-  /* ---- the pairing: the whole point of the page ---------------------- */
+  /* ---- the queue ------------------------------------------------------ */
 
-  .live {
+  .label {
+    margin: 30px 0 12px;
+    font-family: var(--utility);
+    font-size: 0.72rem;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--marble-dim);
+  }
+
+  .label .count { color: var(--marble); }
+
+  .queue { margin: 0; padding: 0; list-style: none; }
+
+  .card {
     display: grid;
     grid-template-columns: 14px 1fr;
-    gap: 22px;
-    margin-top: 22px;
-    padding: 26px 24px;
+    gap: 20px;
+    margin-bottom: 14px;
+    padding: 22px 22px;
     border-radius: 12px;
     background: var(--ink-raised);
     border: 1px solid var(--hairline);
   }
+
+  /* The top card is the one about to go out — the only one under real time
+     pressure, so it is the only one that looks urgent. */
+  .card[data-urgent="true"] { border-color: var(--flame); }
 
   /*
     Signature: the countdown drains downward beside the text, like oil going
@@ -178,15 +201,17 @@
   .gu {
     margin: 0;
     font-family: var(--gujarati);
-    font-size: 1.9rem;
+    font-size: 1.5rem;
     font-weight: 400;
     /* Gujarati matras sit well above and below the baseline. */
     line-height: 1.6;
   }
 
+  .card[data-urgent="true"] .gu { font-size: 1.9rem; }
+
   .rule {
     height: 0;
-    margin: 18px 0;
+    margin: 14px 0;
     border: 0;
     border-top: 1px solid var(--hairline);
   }
@@ -194,53 +219,58 @@
   .en {
     margin: 0;
     font-family: var(--english);
-    font-size: 1.6rem;
+    font-size: 1.3rem;
     line-height: 1.45;
   }
 
-  .live[data-empty="true"] .rule,
-  .live[data-empty="true"] .gu { display: none; }
+  .card[data-urgent="true"] .en { font-size: 1.6rem; }
 
-  .live[data-empty="true"] .en {
-    color: var(--marble-dim);
-    font-size: 1.15rem;
-  }
+  .card[data-dropped="true"] .gu,
+  .card[data-dropped="true"] .en { opacity: 0.32; text-decoration: line-through; }
 
-  .live[data-hidden="true"] .gu,
-  .live[data-hidden="true"] .en { opacity: 0.32; text-decoration: line-through; }
+  .card[data-expired="true"] { opacity: 0.5; border-style: dashed; }
 
-  .hidden-note {
+  .note {
     display: none;
-    margin: 14px 0 0;
+    margin: 12px 0 0;
     font-family: var(--utility);
     font-size: 0.76rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: var(--kumkum);
   }
 
-  .live[data-hidden="true"] .hidden-note { display: block; }
+  .card[data-dropped="true"] .note-dropped { display: block; color: var(--kumkum); }
+  .card[data-edited="true"] .note-edited   { display: block; color: var(--flame); }
+  .card[data-expired="true"] .note-expired { display: block; color: var(--marble-dim); }
 
   /* ---- actions -------------------------------------------------------- */
 
+  .actions { display: flex; gap: 10px; margin-top: 16px; }
+
   .drop {
-    display: block;
-    width: 100%;
-    margin-top: 18px;
-    padding: 26px 20px;
+    flex: 1 1 auto;
+    padding: 20px;
     border: 0;
     border-radius: 12px;
     background: var(--kumkum);
     color: #FFF6F2;
     font-family: var(--english);
-    font-size: 1.4rem;
+    font-size: 1.15rem;
     cursor: pointer;
     /* Comfortably past the 44px touch minimum — this gets pressed in a hurry. */
-    min-height: 76px;
+    min-height: 64px;
   }
 
   .drop:hover:not(:disabled) { filter: brightness(1.08); }
-  .drop:disabled { background: var(--ink-raised); color: var(--marble-dim); cursor: default; }
+
+  /* A spent button must still read as a button, or "Hidden" looks like a stray
+     line of text sitting in the card. */
+  .drop:disabled {
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--marble-dim);
+    cursor: default;
+  }
 
   .ghost {
     padding: 14px 22px;
@@ -254,41 +284,44 @@
     cursor: pointer;
   }
 
-  .ghost:hover { border-color: var(--marble-dim); }
+  .ghost:hover:not(:disabled) { border-color: var(--marble-dim); }
+  .ghost:disabled { color: var(--marble-dim); cursor: default; }
 
-  /* ---- coming up ------------------------------------------------------ */
+  /* Secondary by construction: dropping stays the big coloured button, because
+     a wrong line shown to nobody beats a hurried rewrite. */
+  .fix { flex: 0 0 auto; min-height: 64px; }
 
-  .label {
-    margin: 34px 0 12px;
-    font-family: var(--utility);
-    font-size: 0.72rem;
-    font-weight: 400;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--marble-dim);
-  }
+  .editor { display: none; margin-top: 14px; }
+  .card[data-editing="true"] .editor { display: block; }
+  .card[data-editing="true"] .actions { display: none; }
 
-  .queue { margin: 0; padding: 0; list-style: none; }
-
-  .queue li {
-    padding: 14px 0;
-    border-top: 1px solid var(--hairline);
-    color: var(--marble-dim);
-  }
-
-  .queue .q-gu {
-    display: block;
-    font-family: var(--gujarati);
-    font-size: 1rem;
-    line-height: 1.5;
-  }
-
-  .queue .q-en {
-    display: block;
-    font-family: var(--english);
-    font-size: 1.05rem;
-    line-height: 1.4;
+  .editor textarea {
+    width: 100%;
+    min-height: 96px;
+    padding: 14px;
+    border: 1px solid var(--flame);
+    border-radius: 10px;
+    background: var(--ink-sunk);
     color: var(--marble);
+    font-family: var(--english);
+    font-size: 1.25rem;
+    line-height: 1.45;
+    resize: vertical;
+  }
+
+  .editor-actions { display: flex; gap: 10px; margin-top: 10px; }
+
+  .save {
+    flex: 1 1 auto;
+    padding: 16px;
+    min-height: 56px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--flame);
+    color: var(--ink);
+    font-family: var(--english);
+    font-size: 1.1rem;
+    cursor: pointer;
   }
 
   .queue-empty { padding: 14px 0; border-top: 1px solid var(--hairline); color: var(--marble-dim); }
@@ -334,11 +367,13 @@
     .status { gap: 10px; }
     .status-text { font-size: 0.95rem; }
     .ghost { padding: 12px 14px; font-size: 0.92rem; }
-    .hidden-note { letter-spacing: 0.08em; font-size: 0.7rem; }
-    .live { padding: 20px 16px; gap: 16px; grid-template-columns: 10px 1fr; }
-    .gu { font-size: 1.5rem; }
-    .en { font-size: 1.3rem; }
-    .drop { font-size: 1.2rem; min-height: 68px; padding: 20px; }
+    .card { padding: 18px 16px; gap: 14px; grid-template-columns: 10px 1fr; }
+    .gu { font-size: 1.25rem; }
+    .card[data-urgent="true"] .gu { font-size: 1.5rem; }
+    .en { font-size: 1.15rem; }
+    .card[data-urgent="true"] .en { font-size: 1.3rem; }
+    .drop { font-size: 1.05rem; min-height: 60px; padding: 16px; }
+    .actions { flex-direction: column; }
   }
 </style>
 </head>
@@ -361,23 +396,9 @@
     </div>
   </section>
 
-  <section class="live" id="live" data-empty="true" aria-label="Caption waiting to go out">
-    <div class="drain" role="progressbar" aria-label="Time left to act" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-      <div class="drain-fill" id="drainFill" style="transform: scaleY(0)"></div>
-    </div>
-    <div>
-      <p class="gu" id="gu" lang="gu"></p>
-      <hr class="rule">
-      <p class="en" id="en" lang="en">Nothing yet. The first caption appears a few seconds after the speaker starts.</p>
-      <p class="hidden-note" id="hiddenNote">Hidden — this one will not go out</p>
-    </div>
-  </section>
-
-  <button class="drop" id="drop" type="button" disabled>Don't show this</button>
-
-  <h2 class="label">Coming up</h2>
-  <ol class="queue" id="queue"></ol>
-  <p class="queue-empty" id="queueEmpty">Nothing queued.</p>
+  <h2 class="label">Waiting to go out — <span class="count" id="count">0</span></h2>
+  <ol class="queue" id="queue" aria-live="polite"></ol>
+  <p class="queue-empty" id="queueEmpty">Nothing yet. The first caption appears a few seconds after the speaker starts.</p>
 
   <div class="panic-zone">
     <button class="panic" id="panic" type="button" data-off="false">Turn captions off</button>
@@ -399,15 +420,9 @@
     dot: document.getElementById('dot'),
     statusText: document.getElementById('statusText'),
     pause: document.getElementById('pause'),
-    live: document.getElementById('live'),
-    gu: document.getElementById('gu'),
-    en: document.getElementById('en'),
-    drainFill: document.getElementById('drainFill'),
-    drain: document.querySelector('.drain'),
-    drop: document.getElementById('drop'),
-    hiddenNote: document.getElementById('hiddenNote'),
     queue: document.getElementById('queue'),
     queueEmpty: document.getElementById('queueEmpty'),
+    count: document.getElementById('count'),
     panic: document.getElementById('panic'),
     panicHint: document.getElementById('panicHint'),
     video: document.getElementById('video'),
@@ -423,12 +438,18 @@
   }
 
   var state = {
-    current: null,       // line the reviewer is judging
-    upcoming: [],
-    dropped: {},         // ids the reviewer has hidden, so the card can show it
+    pending: [],
+    windowMs: 0,
+    dropped: {},     // ids the reviewer has hidden
+    edited: {},      // id -> corrected text the reviewer sent
+    editing: null,   // id currently open in the editor
     paused: false,
     captionsOff: false
   };
+
+  // Live card elements, keyed by line id, so the drain animation and an open
+  // editor survive a state message arriving four times a second.
+  var cards = {};
 
   // ---- rendering ------------------------------------------------------
 
@@ -444,72 +465,203 @@
     setStatus('live', 'Captions are going out');
   }
 
-  function renderCurrent() {
-    var line = state.current;
-    if (!line) {
-      el.live.setAttribute('data-empty', 'true');
-      el.live.setAttribute('data-hidden', 'false');
-      el.gu.textContent = '';
-      el.en.textContent = 'Nothing yet. The first caption appears a few seconds after the speaker starts.';
-      el.drop.disabled = true;
-      setDrain(0);
-      return;
-    }
-    el.live.setAttribute('data-empty', 'false');
-    el.live.setAttribute('data-hidden', state.dropped[line.id] ? 'true' : 'false');
-    el.gu.textContent = line.original || '';
-    el.en.textContent = line.translation || '';
-    el.drop.disabled = Boolean(state.dropped[line.id]);
-    el.drop.textContent = state.dropped[line.id] ? 'Hidden' : "Don't show this";
+  function buildCard(line) {
+    var li = document.createElement('li');
+    li.className = 'card';
+
+    var drain = document.createElement('div');
+    drain.className = 'drain';
+    drain.setAttribute('role', 'progressbar');
+    drain.setAttribute('aria-label', 'Time left to act');
+    drain.setAttribute('aria-valuemin', '0');
+    drain.setAttribute('aria-valuemax', '100');
+    var fill = document.createElement('div');
+    fill.className = 'drain-fill';
+    drain.appendChild(fill);
+
+    var body = document.createElement('div');
+
+    var gu = document.createElement('p');
+    gu.className = 'gu';
+    gu.lang = 'gu';
+
+    var rule = document.createElement('hr');
+    rule.className = 'rule';
+
+    var en = document.createElement('p');
+    en.className = 'en';
+    en.lang = 'en';
+
+    var noteDropped = document.createElement('p');
+    noteDropped.className = 'note note-dropped';
+    noteDropped.textContent = 'Hidden — this one will not go out';
+
+    var noteEdited = document.createElement('p');
+    noteEdited.className = 'note note-edited';
+    noteEdited.textContent = 'Corrected — the new wording goes out';
+
+    var noteExpired = document.createElement('p');
+    noteExpired.className = 'note note-expired';
+    noteExpired.textContent = 'Already went out — too late to change';
+
+    var actions = document.createElement('div');
+    actions.className = 'actions';
+
+    var drop = document.createElement('button');
+    drop.className = 'drop';
+    drop.type = 'button';
+    drop.textContent = "Don't show this";
+
+    var fix = document.createElement('button');
+    fix.className = 'ghost fix';
+    fix.type = 'button';
+    fix.textContent = 'Fix wording';
+
+    actions.appendChild(drop);
+    actions.appendChild(fix);
+
+    var editor = document.createElement('div');
+    editor.className = 'editor';
+    var textarea = document.createElement('textarea');
+    textarea.lang = 'en';
+    textarea.setAttribute('aria-label', 'Corrected English');
+    var editorActions = document.createElement('div');
+    editorActions.className = 'editor-actions';
+    var save = document.createElement('button');
+    save.className = 'save';
+    save.type = 'button';
+    save.textContent = 'Use this wording';
+    var cancel = document.createElement('button');
+    cancel.className = 'ghost';
+    cancel.type = 'button';
+    cancel.textContent = 'Cancel';
+    editorActions.appendChild(save);
+    editorActions.appendChild(cancel);
+    editor.appendChild(textarea);
+    editor.appendChild(editorActions);
+
+    body.appendChild(gu);
+    body.appendChild(rule);
+    body.appendChild(en);
+    body.appendChild(noteDropped);
+    body.appendChild(noteEdited);
+    body.appendChild(noteExpired);
+    body.appendChild(actions);
+    body.appendChild(editor);
+
+    li.appendChild(drain);
+    li.appendChild(body);
+
+    drop.addEventListener('click', function () {
+      if (state.dropped[line.id]) return;
+      // Optimistic, and reversed by a drop-rejected event if the bridge says
+      // the line had already gone out.
+      state.dropped[line.id] = true;
+      send({ type: 'drop', lineId: line.id });
+      render();
+    });
+
+    fix.addEventListener('click', function () {
+      state.editing = line.id;
+      textarea.value = state.edited[line.id] || card.line.translation || '';
+      render();
+      textarea.focus();
+    });
+
+    cancel.addEventListener('click', function () {
+      state.editing = null;
+      render();
+    });
+
+    save.addEventListener('click', function () {
+      var text = textarea.value.trim();
+      if (!text) return;
+      state.edited[line.id] = text;
+      state.editing = null;
+      send({ type: 'edit', lineId: line.id, text: text });
+      render();
+    });
+
+    var card = {
+      li: li, drain: drain, fill: fill, gu: gu, en: en,
+      drop: drop, fix: fix, textarea: textarea, line: line
+    };
+    return card;
   }
 
-  function setDrain(fraction) {
-    var clamped = Math.max(0, Math.min(1, fraction));
-    el.drainFill.style.transform = 'scaleY(' + clamped + ')';
-    el.drain.setAttribute('aria-valuenow', String(Math.round(clamped * 100)));
-  }
+  function render() {
+    var now = Date.now();
+    el.queueEmpty.style.display = state.pending.length ? 'none' : '';
+    el.count.textContent = String(state.pending.length);
 
-  function renderQueue() {
-    el.queue.textContent = '';
-    var items = state.upcoming.slice(0, 4);
-    el.queueEmpty.style.display = items.length ? 'none' : '';
-    items.forEach(function (line) {
-      var li = document.createElement('li');
-      var gu = document.createElement('span');
-      gu.className = 'q-gu';
-      gu.lang = 'gu';
-      gu.textContent = line.original || '';
-      var en = document.createElement('span');
-      en.className = 'q-en';
-      en.lang = 'en';
-      en.textContent = line.translation || '';
-      li.appendChild(gu);
-      li.appendChild(en);
-      el.queue.appendChild(li);
+    var seen = {};
+    state.pending.forEach(function (line, index) {
+      seen[line.id] = true;
+      var card = cards[line.id];
+      if (!card) {
+        card = buildCard(line);
+        cards[line.id] = card;
+      }
+      card.line = line;
+
+      var expired = line.deadlineAt <= now;
+      var dropped = Boolean(state.dropped[line.id]);
+      var edited = Boolean(state.edited[line.id]) || Boolean(line.edited);
+
+      card.gu.textContent = line.original || '';
+      card.en.textContent = state.edited[line.id] || line.translation || '';
+
+      card.li.setAttribute('data-urgent', index === 0 ? 'true' : 'false');
+      card.li.setAttribute('data-dropped', dropped ? 'true' : 'false');
+      card.li.setAttribute('data-edited', edited && !dropped ? 'true' : 'false');
+      card.li.setAttribute('data-expired', expired ? 'true' : 'false');
+      card.li.setAttribute('data-editing', state.editing === line.id ? 'true' : 'false');
+
+      // An expired row says so rather than accepting a press that the bridge
+      // would only reject (INVARIANT 10).
+      card.drop.disabled = dropped || expired;
+      card.fix.disabled = dropped || expired;
+      card.drop.textContent = dropped ? 'Hidden' : "Don't show this";
+      card.fix.textContent = edited ? 'Fix again' : 'Fix wording';
+
+      if (card.li.parentNode !== el.queue) el.queue.appendChild(card.li);
+      // Keep DOM order matching the queue order without rebuilding the cards.
+      if (el.queue.children[index] !== card.li) {
+        el.queue.insertBefore(card.li, el.queue.children[index] || null);
+      }
+    });
+
+    // Anything the bridge no longer lists has gone to air; forget it.
+    Object.keys(cards).forEach(function (id) {
+      if (seen[id]) return;
+      if (cards[id].li.parentNode) cards[id].li.parentNode.removeChild(cards[id].li);
+      delete cards[id];
+      delete state.dropped[id];
+      delete state.edited[id];
+      if (state.editing === id) state.editing = null;
     });
   }
 
-  // The bar drains against the line's own deadline, which the bridge sends as
-  // a wall-clock instant. The page never decides when anything goes out — it
-  // only shows how long is left (INVARIANT 10: the scheduler owns the clock).
+  // The bar drains from when the line reached the reviewer feed to its air
+  // time, both sent by the bridge as wall-clock instants. The page never
+  // decides when anything goes out — it only shows how long is left
+  // (INVARIANT 10: the scheduler owns the clock).
   function animateDrain() {
-    var line = state.current;
-    if (line && line.deadlineAt && line.windowMs) {
-      var left = line.deadlineAt - Date.now();
-      setDrain(left / line.windowMs);
-    }
+    var now = Date.now();
+    state.pending.forEach(function (line) {
+      var card = cards[line.id];
+      if (!card) return;
+      var span = line.deadlineAt - line.visibleFrom;
+      var fraction = span > 0 ? (line.deadlineAt - now) / span : 0;
+      var clamped = Math.max(0, Math.min(1, fraction));
+      card.fill.style.transform = 'scaleY(' + clamped + ')';
+      card.drain.setAttribute('aria-valuenow', String(Math.round(clamped * 100)));
+    });
     requestAnimationFrame(animateDrain);
   }
   requestAnimationFrame(animateDrain);
 
   // ---- actions --------------------------------------------------------
-
-  el.drop.addEventListener('click', function () {
-    if (!state.current || state.dropped[state.current.id]) return;
-    state.dropped[state.current.id] = true;
-    send({ type: 'drop', lineId: state.current.id });
-    renderCurrent();
-  });
 
   el.pause.addEventListener('click', function () {
     state.paused = !state.paused;
@@ -543,11 +695,23 @@
 
   function apply(message) {
     if (message.type === 'state') {
-      state.current = message.current || null;
-      state.upcoming = message.upcoming || [];
-      renderCurrent();
-      renderQueue();
+      state.pending = message.pending || [];
+      state.windowMs = message.windowMs || 0;
+      render();
       renderStatus();
+      return;
+    }
+    // The bridge is the authority on whether an action landed. An optimistic
+    // strike-through that the scheduler rejected has to come back off.
+    if (message.type === 'event' && message.event) {
+      var event = message.event;
+      if (event.type === 'drop-rejected') {
+        delete state.dropped[event.lineId];
+        render();
+      } else if (event.type === 'edit-rejected') {
+        delete state.edited[event.lineId];
+        render();
+      }
     }
   }
 
@@ -581,29 +745,34 @@
   if (demo) {
     // Lets the page be reviewed without the bridge running.
     var samples = [
-      { id: 'd1', original: 'ભક્તિ એ માર્ગ છે, અને સેવા એ તેનું ફળ છે.',
+      { original: 'ભક્તિ એ માર્ગ છે, અને સેવા એ તેનું ફળ છે.',
         translation: 'Devotion is the path, and service is its fruit.' },
-      { id: 'd2', original: 'આજે આપણે કથા વાર્તા વિશે વાત કરીશું.',
+      { original: 'આજે આપણે કથા વાર્તા વિશે વાત કરીશું.',
         translation: 'Today we will speak about discourse and stories.' },
-      { id: 'd3', original: 'જય સ્વામિનારાયણ.', translation: 'Jai Swaminarayan.' }
+      { original: 'જય સ્વામિનારાયણ.', translation: 'Jai Swaminarayan.' }
     ];
+    var windowMs = 180000;
     var at = 0;
     connected = true;
     (function cycle() {
-      var line = samples[at % samples.length];
+      var sample = samples[at % samples.length];
+      var now = Date.now();
+      state.pending.push({
+        id: 'demo-' + at,
+        original: sample.original,
+        translation: sample.translation,
+        visibleFrom: now,
+        deadlineAt: now + windowMs,
+        edited: false
+      });
       at++;
-      state.current = {
-        id: line.id + '-' + at,
-        original: line.original,
-        translation: line.translation,
-        deadlineAt: Date.now() + 25000,
-        windowMs: 25000
-      };
-      state.upcoming = samples.slice(0, 2);
-      renderCurrent();
-      renderQueue();
+      state.pending = state.pending.filter(function (line) {
+        return line.deadlineAt > Date.now();
+      });
+      state.windowMs = windowMs;
+      render();
       renderStatus();
-      setTimeout(cycle, 25000);
+      setTimeout(cycle, 6000);
     }());
   } else {
     renderStatus();

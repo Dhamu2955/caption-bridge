@@ -81,6 +81,8 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
           // already gone out the queue rejects it rather than chasing it.
           if (command.lineId && command.text !== undefined) {
             queue.editLine(command.lineId, command.text, 'reviewer', 'stream');
+            edited.add(command.lineId);
+            publishView();
           }
           break;
         case 'hold':
@@ -117,6 +119,8 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
   /** Lines the reviewer has not yet run out of time on. */
   const awaitingReview: CaptionLine[] = [];
   const reviewWindowMs = config.live.delayReviewMs;
+  /** Line ids a correction has already been queued against. */
+  const edited = new Set<string>();
 
   function publishView(): void {
     const now = Date.now();
@@ -126,16 +130,20 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
       if (sessionEpoch + head.audioStartMs + configs.stream.delayMs > now) break;
       awaitingReview.shift();
     }
-    const head = awaitingReview[0];
+
     server.publish({
-      current: head
-        ? {
-            ...head,
-            deadlineAt: sessionEpoch + head.audioStartMs + configs.stream.delayMs,
-            windowMs: reviewWindowMs,
-          }
-        : null,
-      upcoming: awaitingReview.slice(1, 5),
+      // Every line still in the window, not just the head: at three minutes
+      // there are tens in flight and the reviewer has to see which is closest
+      // to expiring.
+      pending: awaitingReview.map((line) => ({
+        ...line,
+        deadlineAt: sessionEpoch + line.audioStartMs + configs.stream.delayMs,
+        // The bar drains from the moment the line reached the reviewer feed
+        // (assembly delay), not from when it was spoken.
+        visibleFrom: sessionEpoch + line.audioStartMs + config.live.delayAssemblyMs,
+        edited: edited.has(line.id),
+      })),
+      windowMs: reviewWindowMs,
     });
   }
 
