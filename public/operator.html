@@ -62,7 +62,7 @@
   }
 
   .shell {
-    max-width: 900px;
+    max-width: 1320px;
     margin: 0 auto;
     padding: 0 20px 40px;
   }
@@ -144,6 +144,13 @@
   .card[data-showing="true"] { border-color: var(--flame); }
   .card .gu[title] { cursor: pointer; }
 
+  /* The line being spoken in the picture right now. Distinct from "urgent",
+     which is about time running out — this is about where the video is. */
+  .card[data-current="true"] {
+    border-color: var(--flame);
+    background: rgba(240, 169, 44, 0.07);
+  }
+
   /* Shown while the recording is still catching up to its own trail. */
   .feed-waiting {
     position: absolute;
@@ -211,6 +218,61 @@
     font-family: var(--utility);
     font-size: 0.82rem;
     color: var(--marble);
+  }
+
+  /* ---- video beside the queue ----------------------------------------- */
+
+  /*
+    Side by side so the picture and the line being judged are in one glance
+    rather than a scroll apart. It collapses to a single column on anything
+    narrower than a laptop: the reviewer's tablet is held in portrait, where
+    two columns would make both of them too narrow to read.
+  */
+  .stage { display: grid; gap: 20px; align-items: start; }
+
+  @media (min-width: 900px) {
+    .stage { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+    /* The picture stays put while the queue scrolls past it. */
+    .stage > .feed { position: sticky; top: 76px; }
+    .stage-queue { max-height: calc(100vh - 120px); overflow-y: auto; }
+    .stage-queue .label { margin-top: 0; }
+  }
+
+  /* ---- what has already gone out -------------------------------------- */
+
+  .transcript { margin-top: 34px; }
+  .said { margin: 0; padding: 0; list-style: none; }
+
+  .said li {
+    padding: 12px 0;
+    border-top: 1px solid var(--hairline);
+  }
+  .said li:first-child { border-top: 0; }
+
+  .said .said-gu {
+    margin: 0;
+    font-family: var(--gujarati);
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--marble-dim);
+  }
+  .said .said-en {
+    margin: 3px 0 0;
+    font-size: 1.05rem;
+    line-height: 1.45;
+  }
+  /* A line the reviewer changed reads differently from one that just went. */
+  .said li[data-edited="true"] .said-en { color: var(--flame); }
+  .said li[data-dropped="true"] .said-en {
+    color: var(--marble-dim);
+    text-decoration: line-through;
+  }
+  .said .said-at {
+    float: right;
+    margin-left: 12px;
+    font-family: var(--utility);
+    font-size: 0.72rem;
+    color: var(--marble-dim);
   }
 
   /* ---- the queue ------------------------------------------------------ */
@@ -459,6 +521,7 @@
     <button class="ghost" id="pause" type="button">Pause captions</button>
   </header>
 
+  <div class="stage">
   <section class="feed" id="feed" data-empty="true" aria-label="Reviewer video">
     <video id="video" playsinline muted hidden></video>
     <p class="feed-caption" id="feedCaption" hidden></p>
@@ -472,9 +535,18 @@
     </div>
   </section>
 
-  <h2 class="label">Waiting to go out — <span class="count" id="count">0</span></h2>
-  <ol class="queue" id="queue" aria-live="polite"></ol>
-  <p class="queue-empty" id="queueEmpty">Nothing yet. The first caption appears a few seconds after the speaker starts.</p>
+  <div class="stage-queue">
+    <h2 class="label">Waiting to go out — <span class="count" id="count">0</span></h2>
+    <ol class="queue" id="queue" aria-live="polite"></ol>
+    <p class="queue-empty" id="queueEmpty">Nothing yet. The first caption appears a few seconds after the speaker starts.</p>
+  </div>
+  </div>
+
+  <section class="transcript">
+    <h2 class="label">Already gone out — <span class="count" id="saidCount">0</span></h2>
+    <ol class="said" id="said" aria-live="off"></ol>
+    <p class="queue-empty" id="saidEmpty">Nothing has gone out yet.</p>
+  </section>
 
   <div class="panic-zone">
     <button class="panic" id="panic" type="button" data-off="false">Turn captions off</button>
@@ -678,6 +750,8 @@
     windowMs: 0,
     sessionEpoch: 0,
     seekedTo: null,  // line the picture is parked on, if any
+    current: null,   // line being spoken in the picture right now
+    said: [],        // everything that has gone out, oldest first
     dropped: {},     // ids the reviewer has hidden
     edited: {},      // id -> corrected text the reviewer sent
     editing: null,   // id currently open in the editor
@@ -835,12 +909,13 @@
     return card;
   }
 
-  /** The line the picture is currently on, shown over it. */
+  /** The line the picture is currently on, shown over it and marked in the queue. */
   function renderFeedCaption() {
     var node = document.getElementById('feedCaption');
     if (!node) return;
     if (!media.url || el.video.hidden) {
       node.hidden = true;
+      if (state.current !== null) { state.current = null; markCurrent(); }
       return;
     }
 
@@ -853,6 +928,20 @@
 
     node.hidden = !showing;
     if (showing) node.textContent = state.edited[showing.id] || showing.translation || '';
+
+    var id = showing ? showing.id : null;
+    if (id !== state.current) { state.current = id; markCurrent(); }
+  }
+
+  /**
+   * Touches only the attribute that changed rather than re-rendering.
+   * This runs every animation frame; rebuilding the queue at 60Hz would make
+   * the text boxes unusable while someone is typing a correction into one.
+   */
+  function markCurrent() {
+    Object.keys(cards).forEach(function (id) {
+      cards[id].li.setAttribute('data-current', id === state.current ? 'true' : 'false');
+    });
   }
 
   function render() {
@@ -904,15 +993,81 @@
       }
     });
 
-    // Anything the bridge no longer lists has gone to air; forget it.
+    // Anything the bridge no longer lists has gone to air. This is the only
+    // moment its final wording is known — whether the reviewer changed it,
+    // dropped it, or let it through — so it is recorded on the way past.
     Object.keys(cards).forEach(function (id) {
       if (seen[id]) return;
+      var line = cards[id].line;
+      if (line) {
+        state.said.push({
+          id: id,
+          original: line.original || '',
+          translation: state.edited[id] || line.translation || '',
+          startMs: line.audioStartMs,
+          dropped: Boolean(state.dropped[id]),
+          edited: Boolean(state.edited[id]) || Boolean(line.edited)
+        });
+        appendSaid(state.said[state.said.length - 1]);
+      }
       if (cards[id].li.parentNode) cards[id].li.parentNode.removeChild(cards[id].li);
       delete cards[id];
       delete state.dropped[id];
       delete state.edited[id];
       if (state.editing === id) state.editing = null;
+      if (state.current === id) state.current = null;
     });
+  }
+
+  /** Appended rather than re-rendered — a two-hour service is a long list. */
+  function appendSaid(entry) {
+    var host = document.getElementById('said');
+    if (!host) return;
+
+    var li = document.createElement('li');
+    li.setAttribute('data-dropped', entry.dropped ? 'true' : 'false');
+    li.setAttribute('data-edited', entry.edited ? 'true' : 'false');
+
+    var at = document.createElement('span');
+    at.className = 'said-at';
+    at.textContent = clockFor(entry.startMs);
+    li.appendChild(at);
+
+    var gu = document.createElement('p');
+    gu.className = 'said-gu';
+    gu.lang = 'gu';
+    gu.textContent = entry.original;
+    li.appendChild(gu);
+
+    var en = document.createElement('p');
+    en.className = 'said-en';
+    en.lang = 'en';
+    en.textContent = entry.dropped ? 'Not shown' : entry.translation;
+    li.appendChild(en);
+
+    // Tapping a line takes the picture back to it, same as the queue.
+    if (media.url) {
+      gu.style.cursor = 'pointer';
+      gu.title = 'Show this moment';
+      gu.addEventListener('click', function () { seekTo(entry.startMs, null); });
+    }
+
+    // Newest at the top: the interesting end of a growing list is the recent
+    // one, and it saves scrolling past an hour of sermon to reach it.
+    host.insertBefore(li, host.firstChild);
+
+    var count = document.getElementById('saidCount');
+    if (count) count.textContent = String(state.said.length);
+    var empty = document.getElementById('saidEmpty');
+    if (empty) empty.style.display = 'none';
+  }
+
+  /** `12:34` from a position in the recording. */
+  function clockFor(ms) {
+    var total = Math.max(0, Math.round(ms / 1000));
+    var minutes = Math.floor(total / 60);
+    var seconds = total % 60;
+    return minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
   }
 
   // The bar drains from when the line reached the reviewer feed to its air
