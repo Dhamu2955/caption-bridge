@@ -2,10 +2,11 @@ import { createServer, type Server } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import express from 'express';
+import express, { type RequestHandler } from 'express';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import type { CaptionLine, QueueEvent } from './types.js';
+import type { AudioDevice } from './devices.js';
 import type { BrowserAdapter } from './adapters/browser.js';
 import { info, warn } from '../util/log.js';
 
@@ -21,22 +22,72 @@ import { info, warn } from '../util/log.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(here, '..', '..', 'public');
 
+export type OperatorCommandType =
+  | 'drop'
+  | 'edit'
+  | 'hold'
+  | 'resume'
+  | 'captions-off'
+  | 'captions-on';
+
 export interface OperatorCommand {
-  type: 'drop' | 'hold' | 'resume' | 'captions-off' | 'captions-on';
+  type: OperatorCommandType;
   lineId?: string;
+  /** The corrected translation, for `edit`. */
+  text?: string;
 }
 
+const COMMAND_TYPES = new Set<string>([
+  'drop',
+  'edit',
+  'hold',
+  'resume',
+  'captions-off',
+  'captions-on',
+]);
+
+/** Anything that is not a command this bridge knows is ignored, not guessed at. */
+export function parseOperatorCommand(raw: string): OperatorCommand | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+
+  const candidate = parsed as { type?: unknown; lineId?: unknown; text?: unknown };
+  if (typeof candidate.type !== 'string' || !COMMAND_TYPES.has(candidate.type)) return undefined;
+
+  return {
+    type: candidate.type as OperatorCommandType,
+    ...(typeof candidate.lineId === 'string' ? { lineId: candidate.lineId } : {}),
+    ...(typeof candidate.text === 'string' ? { text: candidate.text } : {}),
+  };
+}
+
+export interface PendingLine extends CaptionLine {
+  /** Wall-clock instant this line goes to air. Past it, nothing can change it. */
+  deadlineAt: number;
+  /** When it reached the reviewer feed. The drain bar runs from here to
+   *  deadlineAt — using the review window alone leaves the bar pinned full for
+   *  the first few seconds, because assembly delay is not review time. */
+  visibleFrom: number;
+  /** Whether a correction is already queued against it. */
+  edited: boolean;
+}
+
+/**
+ * Everything the reviewer can still act on, soonest deadline first.
+ *
+ * A list rather than one `current` line: at a three-minute review window there
+ * are tens of lines in flight at once, and the reviewer needs to see which one
+ * is about to expire.
+ */
 export interface OperatorView {
-  /** The line the reviewer is judging — the one on the reviewer feed now. */
-  current:
-    | (CaptionLine & {
-        /** Wall-clock instant this line goes to air. */
-        deadlineAt: number;
-        /** Size of the review window, so the bar knows what full looks like. */
-        windowMs: number;
-      })
-    | null;
-  upcoming: CaptionLine[];
+  pending: PendingLine[];
+  /** Size of the review window, so the page can label it. */
+  windowMs: number;
 }
 
 export interface BridgeServerOptions {
@@ -47,6 +98,12 @@ export interface BridgeServerOptions {
   /** Shared secret; omit to run without one on a trusted localhost. */
   token?: string | undefined;
   onCommand?: (command: OperatorCommand) => void;
+  /** Audio devices for the control page's dropdown. */
+  listDevices?: () => Promise<AudioDevice[]>;
+  /** Start and stop capture from the control page. */
+  onSession?: (action: 'start' | 'stop', device?: string) => Promise<void> | void;
+  /** Reported on the control page so the operator can see what is running. */
+  sessionStatus?: () => { running: boolean; device?: string | undefined; level?: number };
 }
 
 export class BridgeServer {
@@ -54,7 +111,7 @@ export class BridgeServer {
   private readonly operators = new Set<WebSocket>();
   private server: Server | undefined;
   private wss: WebSocketServer | undefined;
-  private view: OperatorView = { current: null, upcoming: [] };
+  private view: OperatorView = { pending: [], windowMs: 0 };
 
   constructor(options: BridgeServerOptions) {
     this.options = options;
@@ -69,9 +126,61 @@ export class BridgeServer {
     const app = express();
     app.disable('x-powered-by');
 
+    app.use(express.json({ limit: '16kb' }));
     app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
     app.get('/', (_req, res) => res.redirect('/operator'));
     app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
+    /**
+     * The first HTTP endpoints on this server that need the token — until now
+     * it was checked only on the WebSocket upgrade, because the pages
+     * themselves must stay reachable without one (§9: a vMix Browser input
+     * cannot log in, and a redirect to a login form kills captions on air).
+     * These do more than serve markup, so they are gated.
+     */
+    const guard: RequestHandler = (req, res, next) => {
+      if (!this.options.token || req.query['token'] === this.options.token) {
+        next();
+        return;
+      }
+      res.status(401).json({ error: 'bad or missing token' });
+    };
+
+    app.get('/api/devices', guard, (_req, res) => {
+      void (async () => {
+        if (!this.options.listDevices) {
+          res.json({ devices: [] });
+          return;
+        }
+        try {
+          res.json({ devices: await this.options.listDevices() });
+        } catch (err) {
+          res.status(500).json({ error: (err as Error).message });
+        }
+      })();
+    });
+
+    app.get('/api/session', guard, (_req, res) => {
+      res.json(this.options.sessionStatus?.() ?? { running: false });
+    });
+
+    app.post('/api/session', guard, (req, res) => {
+      void (async () => {
+        const body = req.body as { action?: unknown; device?: unknown };
+        const action = body?.action;
+        if (action !== 'start' && action !== 'stop') {
+          res.status(400).json({ error: 'action must be start or stop' });
+          return;
+        }
+        const device = typeof body.device === 'string' ? body.device : undefined;
+        try {
+          await this.options.onSession?.(action, device);
+          res.json(this.options.sessionStatus?.() ?? { running: action === 'start' });
+        } catch (err) {
+          res.status(500).json({ error: (err as Error).message });
+        }
+      })();
+    });
 
     const server = createServer(app);
     const wss = new WebSocketServer({ noServer: true });
@@ -93,7 +202,19 @@ export class BridgeServer {
 
     const base = `http://${this.options.host}:${this.options.port}`;
     const suffix = this.options.token ? `?token=${this.options.token}` : '';
+
+    // §9: the reviewer surface carries broadcast content ahead of air. Reaching
+    // it from a tablet means binding to the LAN, which is fine — routing it in
+    // from outside is not.
+    if (this.options.host !== '127.0.0.1' && this.options.host !== 'localhost') {
+      warn(`serving on ${this.options.host} — LAN only, never port-forward this`);
+      if (!this.options.token) {
+        warn('no token set while bound off-loopback — anyone on the network can drive captions');
+      }
+    }
+
     info(`reviewer  ${base}/operator${suffix}`);
+    info(`control   ${base}/control${suffix}`);
     for (const name of this.options.outputs.keys()) {
       info(`overlay   ${base}/overlay${suffix ? `${suffix}&` : '?'}output=${name}`);
     }
@@ -124,12 +245,8 @@ export class BridgeServer {
       this.operators.add(ws);
       ws.send(JSON.stringify({ type: 'state', ...this.view }));
       ws.on('message', (raw) => {
-        let command: OperatorCommand;
-        try {
-          command = JSON.parse(raw.toString()) as OperatorCommand;
-        } catch {
-          return;
-        }
+        const command = parseOperatorCommand(raw.toString());
+        if (!command) return;
         // Advisory only. The scheduler decides whether to honour it.
         this.options.onCommand?.(command);
       });

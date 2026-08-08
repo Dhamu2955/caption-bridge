@@ -231,3 +231,160 @@ describe('gap reporting', () => {
     expect(events).toContainEqual({ type: 'gap', durationMs: 4200 });
   });
 });
+
+describe('editing a line before it is released (INVARIANT 4 rule 2)', () => {
+  it('releases the corrected text when the edit arrives in time', () => {
+    const { queue, adapters } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'The lord of everything.'));
+
+    queue.editLine('a', 'The Lord of all.', 'reviewer');
+    queue.tick(EPOCH + 29_000);
+
+    expect(adapters.get('stream')!.shown()).toEqual(['The Lord of all.']);
+  });
+
+  it('keeps the machine text recoverable in the event', () => {
+    const { queue, events } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'Machine wording.'));
+
+    queue.editLine('a', 'Reviewer wording.', 'reviewer');
+
+    expect(events.find((event) => event.type === 'edited')).toMatchObject({
+      output: 'stream',
+      lineId: 'a',
+      by: 'reviewer',
+      // NOT dropped — the JSONL is a labelled set of human-judged translations,
+      // which needs both sides of the correction.
+      previousTranslation: 'Machine wording.',
+      translation: 'Reviewer wording.',
+    });
+  });
+
+  it('does not touch the line already handed to the adapter', () => {
+    const { queue, adapters, events } = setup([output('stream', 0)]);
+    queue.add(line('a', 0, 'Went out as-is.'));
+    queue.tick(EPOCH);
+
+    queue.editLine('a', 'Too late.', 'reviewer');
+
+    expect(adapters.get('stream')!.shown()).toEqual(['Went out as-is.']);
+    expect(events.find((event) => event.type === 'edit-rejected')).toMatchObject({
+      lineId: 'a',
+      reason: 'already-released',
+    });
+  });
+
+  it('rejects an edit for a line it has never seen', () => {
+    const { queue, events } = setup([output('stream', 29_000)]);
+    queue.editLine('ghost', 'anything', 'reviewer');
+    expect(events.find((event) => event.type === 'edit-rejected')).toMatchObject({
+      lineId: 'ghost',
+      reason: 'unknown-line',
+    });
+  });
+
+  it('applies only to the named output, leaving the venue copy alone', () => {
+    const { queue, adapters } = setup([output('venue', 4000), output('stream', 29_000)]);
+    queue.add(line('a', 0, 'Original.'));
+
+    queue.editLine('a', 'Corrected.', 'reviewer', 'stream');
+    queue.tick(EPOCH + 4000);
+    queue.tick(EPOCH + 29_000);
+
+    // The venue screen showed it 25 seconds ago; only the reviewed path can
+    // still change.
+    expect(adapters.get('venue')!.shown()).toEqual(['Original.']);
+    expect(adapters.get('stream')!.shown()).toEqual(['Corrected.']);
+  });
+
+  it('takes the last correction when a reviewer edits twice', () => {
+    const { queue, adapters, events } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'First.'));
+
+    queue.editLine('a', 'Second.', 'reviewer');
+    queue.editLine('a', 'Third.', 'reviewer');
+    queue.tick(EPOCH + 29_000);
+
+    expect(adapters.get('stream')!.shown()).toEqual(['Third.']);
+    const edits = events.filter((event) => event.type === 'edited');
+    expect(edits.at(-1)).toMatchObject({ previousTranslation: 'Second.', translation: 'Third.' });
+  });
+
+  it('still drops a line that was edited — a correction is not an approval', () => {
+    const { queue, adapters } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'Original.'));
+
+    queue.editLine('a', 'Corrected.', 'reviewer');
+    queue.drop('a', 'reviewer');
+    queue.tick(EPOCH + 29_000);
+
+    expect(adapters.get('stream')!.shown()).toEqual([]);
+  });
+
+  it('leaves the Gujarati source untouched — only the translation is corrected', () => {
+    const { queue, events } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'English.'));
+
+    queue.editLine('a', 'Better English.', 'reviewer');
+    queue.tick(EPOCH + 29_000);
+
+    const released = events.find((event) => event.type === 'released');
+    expect(released).toMatchObject({ line: { original: 'gu-English.', id: 'a' } });
+  });
+
+  it('does not delay the release it corrects (INVARIANT 10)', () => {
+    const { queue, adapters } = setup([output('stream', 29_000)]);
+    queue.add(line('a', 0, 'Original.'));
+    queue.editLine('a', 'Corrected.', 'reviewer');
+
+    queue.tick(EPOCH + 28_999);
+    expect(adapters.get('stream')!.shown()).toEqual([]);
+    queue.tick(EPOCH + 29_000);
+    expect(adapters.get('stream')!.shown()).toEqual(['Corrected.']);
+  });
+
+  it('gives the reviewer the whole window to act, however long it is', () => {
+    // The point of a three-minute window: a correction sent at 2m59s still
+    // lands, because nothing is released until the deadline.
+    const { queue, adapters } = setup([output('stream', 184_000)]);
+    queue.add(line('a', 0, 'Original.'));
+
+    queue.tick(EPOCH + 100_000);
+    queue.editLine('a', 'Corrected at the last moment.', 'reviewer');
+    queue.tick(EPOCH + 184_000);
+
+    expect(adapters.get('stream')!.shown()).toEqual(['Corrected at the last moment.']);
+  });
+});
+
+describe('holding for longer than lateSkipMs', () => {
+  it('discards what aged out rather than dumping it on screen at once', () => {
+    const { queue, adapters, events } = setup([output('stream', 0, { lateSkipMs: 2000 })]);
+    queue.add(line('a', 0));
+
+    queue.hold();
+    // A "pause captions" press held past lateSkipMs. The late-skip check sits
+    // above the hold check in tick, so the line is skipped, not queued — a
+    // desynced caption is worse than none. At a three-minute review window an
+    // operator pause is far more likely to cross this threshold, so the
+    // behaviour is pinned rather than left to be discovered on the night.
+    queue.tick(EPOCH + 5000);
+    queue.resume();
+    queue.tick(EPOCH + 5001);
+
+    expect(adapters.get('stream')!.shown()).toEqual([]);
+    expect(events.find((event) => event.type === 'skipped')).toMatchObject({ lateByMs: 5000 });
+  });
+
+  it('releases normally when the hold is shorter than lateSkipMs', () => {
+    const { queue, adapters } = setup([output('stream', 0, { lateSkipMs: 2000 })]);
+    queue.add(line('a', 0));
+
+    queue.hold();
+    queue.tick(EPOCH + 1000);
+    queue.resume();
+    queue.tick(EPOCH + 1001);
+
+    expect(adapters.get('stream')!.shown()).toEqual(['a']);
+  });
+});

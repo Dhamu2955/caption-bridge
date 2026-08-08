@@ -42,6 +42,16 @@ export interface IngestConfig {
   pollTimeoutMs: number;
 }
 
+export interface YoutubeConfig {
+  clientIdEnv: string;
+  clientSecretEnv: string;
+  refreshTokenEnv: string;
+  /** The API's default daily allowance. Bulk publish paces itself against it. */
+  dailyQuotaUnits: number;
+  /** Port for the one-off `publish --auth` loopback redirect. */
+  authPort: number;
+}
+
 export interface SearchConfig {
   /** Multilingual so a Gujarati query can reach English text (§3). Changing
    *  this invalidates every stored vector — re-index after. */
@@ -56,6 +66,7 @@ export interface SearchConfig {
 export interface AppConfig {
   soniox: SonioxConfig;
   ingest: IngestConfig;
+  youtube: YoutubeConfig;
   search: SearchConfig;
   paths: { media: string; recordings: string };
   database: { urlEnv: string };
@@ -88,6 +99,13 @@ const DEFAULTS = {
     pollIntervalMs: 3000,
     pollTimeoutMs: 3_600_000,
   },
+  youtube: {
+    clientIdEnv: 'YOUTUBE_CLIENT_ID',
+    clientSecretEnv: 'YOUTUBE_CLIENT_SECRET',
+    refreshTokenEnv: 'YOUTUBE_REFRESH_TOKEN',
+    dailyQuotaUnits: 10_000,
+    authPort: 8719,
+  },
   search: {
     model: 'Xenova/multilingual-e5-small',
     dimensions: 384,
@@ -100,11 +118,20 @@ const DEFAULTS = {
   server: { host: '127.0.0.1', port: 3000 },
   live: {
     delayAssemblyMs: 4000,
-    delayReviewMs: 25000,
+    // Three minutes, not the 25 seconds phase 5 was designed around. At 25s a
+    // reviewer can realistically only drop a line; correcting one needs time to
+    // read the Gujarati, judge the English, and type. Tunable up to 10 minutes
+    // — but a delay this long cannot live in vMix's Video Delay, which is
+    // RAM-resident. See docs/vmix-routing.md.
+    delayReviewMs: 180_000,
     minDisplayMs: 1500,
     lateSkipMs: 2000,
   },
 } satisfies AppConfig;
+
+/** Ten minutes. Past this the stream is so far behind the room that the two
+ *  stop being the same event; it is also a lot of buffered video. */
+const MAX_REVIEW_MS = 600_000;
 
 export class ConfigError extends Error {}
 
@@ -160,6 +187,7 @@ export function parseConfig(raw: unknown): AppConfig {
 
   const soniox = isRecord(raw['soniox']) ? raw['soniox'] : {};
   const ingest = isRecord(raw['ingest']) ? raw['ingest'] : {};
+  const youtube = isRecord(raw['youtube']) ? raw['youtube'] : {};
   const searchRaw = isRecord(raw['search']) ? raw['search'] : {};
   const paths = isRecord(raw['paths']) ? raw['paths'] : {};
   const database = isRecord(raw['database']) ? raw['database'] : {};
@@ -185,6 +213,13 @@ export function parseConfig(raw: unknown): AppConfig {
       maxLines: num(ingest['maxLines'], 'ingest.maxLines', DEFAULTS.ingest.maxLines),
       pollIntervalMs: num(ingest['pollIntervalMs'], 'ingest.pollIntervalMs', DEFAULTS.ingest.pollIntervalMs),
       pollTimeoutMs: num(ingest['pollTimeoutMs'], 'ingest.pollTimeoutMs', DEFAULTS.ingest.pollTimeoutMs),
+    },
+    youtube: {
+      clientIdEnv: str(youtube['clientIdEnv'], 'youtube.clientIdEnv', DEFAULTS.youtube.clientIdEnv),
+      clientSecretEnv: str(youtube['clientSecretEnv'], 'youtube.clientSecretEnv', DEFAULTS.youtube.clientSecretEnv),
+      refreshTokenEnv: str(youtube['refreshTokenEnv'], 'youtube.refreshTokenEnv', DEFAULTS.youtube.refreshTokenEnv),
+      dailyQuotaUnits: num(youtube['dailyQuotaUnits'], 'youtube.dailyQuotaUnits', DEFAULTS.youtube.dailyQuotaUnits),
+      authPort: num(youtube['authPort'], 'youtube.authPort', DEFAULTS.youtube.authPort),
     },
     search: {
       model: str(searchRaw['model'], 'search.model', DEFAULTS.search.model),
@@ -221,6 +256,12 @@ export function parseConfig(raw: unknown): AppConfig {
   if (config.soniox.sourceLanguages.length === 0) {
     throw new ConfigError('soniox.sourceLanguages must list at least one language');
   }
+  if (config.live.delayReviewMs > MAX_REVIEW_MS) {
+    throw new ConfigError(
+      `live.delayReviewMs must be at most ${MAX_REVIEW_MS} (10 minutes) — a longer delay ` +
+        `puts the stream far enough behind the room to stop being the same event`,
+    );
+  }
 
   return config;
 }
@@ -240,6 +281,46 @@ export function loadConfig(path = 'config.json'): AppConfig {
     throw new ConfigError(`${full} is not valid JSON: ${(err as Error).message}`);
   }
   return parseConfig(raw);
+}
+
+export interface YoutubeCredentials {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}
+
+/**
+ * OAuth credentials for `publish`. Same rule as the Soniox key: config.json
+ * names the variables, `.env` holds the values, and `.env` is gitignored.
+ *
+ * `refreshToken` is optional here because `publish --auth` exists precisely to
+ * mint one — it needs the client pair and nothing else.
+ */
+export function resolveYoutubeCredentials(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+  options: { requireRefreshToken?: boolean } = {},
+): YoutubeCredentials {
+  const read = (name: string): string => {
+    const value = env[name];
+    if (!value || value.trim() === '') {
+      throw new ConfigError(
+        `${name} is not set. Put it in .env — never in config.json. ` +
+          `Run \`sermon-captions publish --auth\` to mint a refresh token.`,
+      );
+    }
+    return value.trim();
+  };
+
+  const refreshTokenRaw = env[config.youtube.refreshTokenEnv];
+  return {
+    clientId: read(config.youtube.clientIdEnv),
+    clientSecret: read(config.youtube.clientSecretEnv),
+    refreshToken:
+      options.requireRefreshToken === false
+        ? (refreshTokenRaw ?? '').trim()
+        : read(config.youtube.refreshTokenEnv),
+  };
 }
 
 export function resolveApiKey(config: AppConfig, env: NodeJS.ProcessEnv = process.env): string {

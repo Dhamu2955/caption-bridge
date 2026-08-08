@@ -34,13 +34,41 @@ model Service {
   /// subtracts it.
   trimStartMs Int           @default(0)
 
+  /// The video on the mandir's own YouTube channel, set once by
+  /// `publish --youtube-id`. Null for the ~45 sermons a year ripped from other
+  /// mandirs' streams: captions.insert only works on videos you own, and
+  /// community captions no longer exist, so those can never be published.
+  youtubeVideoId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  segments Segment[]
-  chunks   Chunk[]
+  segments       Segment[]
+  chunks         Chunk[]
+  captionUploads CaptionUpload[]
 
   @@index([date])
+}
+
+/// One row per language per service, recording what is already on YouTube.
+///
+/// `trackId` is what makes a republish after a correction an UPDATE rather than
+/// a second track in the same language — YouTube happily accepts the duplicate
+/// and viewers then get two "English" options. `contentHash` makes an unchanged
+/// republish free: no request, no quota.
+model CaptionUpload {
+  id        String @id @default(uuid())
+  serviceId String
+  language  String
+
+  trackId     String
+  /// sha256 of the exact SRT text uploaded.
+  contentHash String
+  uploadedAt  DateTime @default(now())
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, language])
 }
 
 model Segment {

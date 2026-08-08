@@ -14,7 +14,7 @@ import {
   saveService,
   toServiceDate,
 } from '../src/db/services.js';
-import { toExportSegments } from '../src/commands/export.js';
+import { buildSrtTexts, toExportSegments } from '../src/commands/export.js';
 import { parseConfig } from '../src/config.js';
 import { exportSrt } from '../src/commands/export.js';
 import type { PrismaClient } from '../src/generated/prisma/client.js';
@@ -252,5 +252,65 @@ describe('trimStartMs is applied at export (INVARIANT 1)', () => {
 
   it('never produces a negative timestamp', () => {
     expect(toExportSegments(rows, 999_999)[0]?.startMs).toBe(0);
+  });
+});
+
+/** Pure, so it runs with or without a database. */
+describe('buildSrtTexts — the bytes publish uploads', () => {
+  const rows = [
+    {
+      index: 0,
+      startMs: 1000,
+      endMs: 4000,
+      original: 'સેવા એ જ ધર્મ છે.',
+      translation: 'Service itself is dharma.',
+      speaker: null,
+      editedBy: 'soniox',
+      editedAt: null,
+      previousTranslation: null,
+    },
+    {
+      index: 1,
+      startMs: 4000,
+      endMs: 7000,
+      original: 'સત્સંગ કરો.',
+      translation: 'Keep satsang.',
+      speaker: null,
+      editedBy: 'local',
+      editedAt: new Date('2026-08-01T00:00:00.000Z'),
+      previousTranslation: 'Do satsang.',
+    },
+  ];
+
+  it('formats both languages from the same rows', () => {
+    const texts = buildSrtTexts(rows, 0, CONFIG);
+    expect(texts.target).toContain('Service itself is dharma.');
+    expect(texts.source).toContain('સેવા એ જ ધર્મ છે.');
+    expect(texts.target).toContain('00:00:01,000 --> 00:00:04,000');
+  });
+
+  it('carries the correction, not the machine text it replaced', () => {
+    const texts = buildSrtTexts(rows, 0, CONFIG);
+    expect(texts.target).toContain('Keep satsang.');
+    // NOT "Do satsang." — publish must upload what the reviewer corrected.
+    expect(texts.target).not.toContain('Do satsang.');
+  });
+
+  it('matches what exportSrt would write, so the two can never drift', () => {
+    const segments = toExportSegments(rows, 0);
+    const options = { maxLineChars: CONFIG.ingest.maxLineChars, maxLines: CONFIG.ingest.maxLines };
+    const texts = buildSrtTexts(rows, 0, CONFIG);
+    expect(texts.target).toBe(toSrt(segments, 'translation', options));
+    expect(texts.source).toBe(toSrt(segments, 'original', options));
+  });
+
+  it('applies trimStartMs the same way export does (INVARIANT 1)', () => {
+    expect(buildSrtTexts(rows, 1000, CONFIG).target).toContain(
+      '00:00:00,000 --> 00:00:03,000',
+    );
+  });
+
+  it('is deterministic — two calls produce identical bytes', () => {
+    expect(buildSrtTexts(rows, 0, CONFIG)).toEqual(buildSrtTexts(rows, 0, CONFIG));
   });
 });

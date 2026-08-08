@@ -53,13 +53,20 @@ Corrections go in the **database**. A hand-edited SRT is lost on the next export
 
 ### INVARIANT 3 — Never burn subtitles into video
 
-External SRT alongside the file. vMix loads it at playback. Burn-in is a one-way door and makes corrections impossible without re-encoding.
+External SRT alongside the file. Burn-in is a one-way door and makes corrections impossible without re-encoding.
 
 ```
 sermon-2026-08-16.mp4
 sermon-2026-08-16.en.srt   ← projected
 sermon-2026-08-16.gu.srt   ← generated anyway: YouTube, accessibility, checking a suspect line
 ```
+
+**Correction, found while building phase 6.** This section used to say "vMix loads it at playback". It does not — vMix's Video input has no sidecar-SRT support, unlike VLC. The no-burn-in rule is unaffected, but something has to *drive* the captions at playback. Two routes, both external:
+
+- **`sermon-captions play`** (preferred) — polls vMix for the playing input's position and pushes the matching cue to the overlay page. Position-driven, so pause and seek behave, and cues come from the database rather than the `.srt`, so a correction needs no re-export
+- **vMix VLC input** with `--sub-file=<basename>.en.srt` — zero setup, but VLC renders the subtitles into the frames, so they cannot be styled or keyed separately
+
+The `.srt` files still matter: they are what `publish` uploads to YouTube, what plays in VLC, and the archival artifact. They are simply not the projector path.
 
 ### INVARIANT 4 — Pop-on captions, never roll-up
 
@@ -72,7 +79,7 @@ Broadcast captioning has two conventions: *roll-up* (words appear as spoken) and
 Three rules, enforced in code:
 
 1. `includeNonFinal: false` on **every** output, venue screens included. Non-final tokens are used for operator preview only, never for display
-2. **A displayed line is immutable.** A late revision creates a new line; it never edits one already on screen
+2. **A *released* line is immutable.** A late revision creates a new line; it never edits one already on screen. (This originally said "displayed". The rule was always about text that has gone to an output — a line still pending in the queue has been shown to nobody, so a reviewer correcting it before release is inside the rule, not an exception to it. See phase 4.)
 3. **Minimum display time ~1500ms.** Queue fast clauses rather than flashing them
 
 Cost is ~2–4s of latency at the venue rather than ~1.5s. Nobody notices when they can hear the speaker. Rewriting text, they notice immediately.
@@ -217,6 +224,10 @@ So delay B holds the caption and the video **separately** and composites again a
 Single-stage outputs (`venue`, `overflow`) composite once at A and are never reviewed.
 
 **Status: designed, not built or validated.** The vMix-side arrangement for two composite stages needs working through against the actual switcher before phase 5 begins — likely two Mix outputs with independent Video Delay inputs, but confirm it. Do not implement phase 5 from this section without revisiting it first.
+
+**Update from phase 5 — this section does not apply to YouTube closed captions.** The two-composite arrangement exists because burned-in pixels cannot be un-burned after review. Captions posted to YouTube's live ingestion endpoint are never burned in: the video path carries no captions at all, and the reviewer's decisions apply purely on the text side before the POST. So for the public stream there is one video path, no compositing, and no second mix. It still applies to any output that burns captions into the picture — venue and overflow overlays.
+
+**And a delay measured in minutes cannot live in vMix's Video Delay.** Phase 4 moves the default review window to three minutes, tunable to ten. Video Delay buffers uncompressed frames in RAM — fine at 30 seconds, tens of gigabytes at ten minutes. A long delay has to sit *after* the encoder, in the compressed domain: OBS's stream-delay feature, or recording the encoder output and pushing the growing file with `ffmpeg -re` a few minutes behind. See docs/vmix-routing.md.
 
 **INVARIANT 9 — Schedule against audio timestamps.**
 
