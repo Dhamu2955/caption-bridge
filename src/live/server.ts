@@ -100,10 +100,21 @@ export interface BridgeServerOptions {
   onCommand?: (command: OperatorCommand) => void;
   /** Audio devices for the control page's dropdown. */
   listDevices?: () => Promise<AudioDevice[]>;
-  /** Start and stop capture from the control page. */
-  onSession?: (action: 'start' | 'stop', device?: string) => Promise<void> | void;
+  /**
+   * Start and stop capture from the control page.
+   *
+   * `start` and `stop` are capture-only — `stop` leaves the queue draining so
+   * everything already spoken still reaches air. `end` tears the session down
+   * and discards that backlog, which is why it is a separate word.
+   */
+  onSession?: (action: 'start' | 'stop' | 'end', device?: string) => Promise<void> | void;
   /** Reported on the control page so the operator can see what is running. */
   sessionStatus?: () => { running: boolean; device?: string | undefined; level?: number };
+  /**
+   * Mounted ahead of the static pages, so `serve` can add its own routes
+   * without this class having to know what they are.
+   */
+  routers?: RequestHandler[];
 }
 
 export class BridgeServer {
@@ -127,6 +138,11 @@ export class BridgeServer {
     app.disable('x-powered-by');
 
     app.use(express.json({ limit: '16kb' }));
+
+    // Ahead of the static handler so a route can shadow a page if it ever
+    // needs to, and so `serve` can add endpoints without editing this class.
+    for (const router of this.options.routers ?? []) app.use(router);
+
     app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
     app.get('/', (_req, res) => res.redirect('/operator'));
     app.get('/healthz', (_req, res) => res.json({ ok: true }));
@@ -168,8 +184,8 @@ export class BridgeServer {
       void (async () => {
         const body = req.body as { action?: unknown; device?: unknown };
         const action = body?.action;
-        if (action !== 'start' && action !== 'stop') {
-          res.status(400).json({ error: 'action must be start or stop' });
+        if (action !== 'start' && action !== 'stop' && action !== 'end') {
+          res.status(400).json({ error: 'action must be start, stop or end' });
           return;
         }
         const device = typeof body.device === 'string' ? body.device : undefined;

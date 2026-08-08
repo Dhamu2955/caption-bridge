@@ -110,6 +110,36 @@ npm test
 
 ---
 
+## Running the app
+
+```sh
+npm run dev
+```
+
+It prints a URL. Open it and everything else is set up from there — the Soniox
+key, the database, the audio input, the YouTube caption URL.
+
+**It starts before any of that exists.** A fresh clone with no `.env`, no
+database and no ffmpeg still serves the page; the Overview tab lists what is
+missing and what to do about each one, rather than refusing to run. Steps 2–4 of
+Setup below are the same work done from a terminal instead.
+
+| Tab | |
+|---|---|
+| **Overview** | What is set up and what is not, and whether captions are going out |
+| **Captions** | Pick the sound input, start and stop, watch the level meter, copy the overlay URLs for vMix |
+| **Reviewer** | The reviewer queue, for correcting lines from the vMix machine rather than a tablet |
+| **Sermons** | Not built yet — the recorded-sermon workflow is still the CLI below |
+| **Settings** | Credentials, subtitle shape, live timing, names and terms |
+
+`/control`, `/operator` and `/overlay` still work at their own URLs and are
+unchanged, so a tablet or a saved vMix Browser input is unaffected.
+
+To reach it from the vMix machine and a tablet, set **Listen on** to `0.0.0.0`
+in Settings and restart. Note what that means: anyone on the mandir network can
+then open the app, and the app can write API keys. Only do it on a network you
+trust — there are no user accounts yet.
+
 ## Running commands
 
 Everything runs from the **repo root** (the tool reads `config.json` from the
@@ -576,6 +606,28 @@ a word boundary, and discarding it fuses two words together.
 are meaningless. Reading them at face value would drag every subtitle to
 `00:00:00`. Timing always comes from the spoken tokens; the translation
 inherits it.
+
+### A reviewer's decisions used not to reach YouTube
+
+Fixed, and worth recording because it changes what the live path actually did.
+
+The closed-caption output is registered under its own name (`youtube`) while
+carrying the `stream` output's schedule. Reviewer drops and edits were scoped to
+`'stream'` alone, and `CaptionQueue` skips any output whose name does not match —
+so **"Don't show this" removed a line from the overlay but still posted it to
+YouTube**, and "Fix wording" corrected the overlay while YouTube received the
+machine translation. The comment claiming otherwise was written before the
+output was given a separate name.
+
+`drop` and `editLine` now take a list of output names rather than one.
+`test/live.youtube.test.ts` covers it: register both outputs, drop a line,
+assert no POST happens.
+
+Two smaller things fixed alongside it. A failed POST used to consume a sequence
+number, leaving a gap in a series the endpoint counts on — the number is now
+only spent by a request YouTube accepted. And the ingestion URL is checked when
+it is set rather than at the first caption, so a truncated paste is caught
+before a service instead of during one.
 
 ### Where this differs from SPEC.md
 

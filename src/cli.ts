@@ -2,7 +2,13 @@
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 
-import { ConfigError, loadConfig, resolveYoutubeCredentials, type AppConfig } from './config.js';
+import {
+  ConfigError,
+  loadConfig,
+  loadConfigSafe,
+  resolveYoutubeCredentials,
+  type AppConfig,
+} from './config.js';
 import { DatabaseError, resolveDatabaseUrl, withPrisma } from './db/client.js';
 import { EditsWouldBeLostError } from './db/services.js';
 import type { PrismaClient } from './generated/prisma/client.js';
@@ -14,6 +20,7 @@ import { editTranslation, listAllServices, showSegments } from './commands/edit.
 import { backfill } from './commands/backfill.js';
 import { formatHit, runIndex, runSearch } from './commands/search.js';
 import { runLive } from './commands/live.js';
+import { runServe } from './commands/serve.js';
 import { runPlay } from './commands/play.js';
 import type { CaptureFormat } from './live/capture.js';
 import { listDevicesCommand } from './live/capture.js';
@@ -35,7 +42,12 @@ Usage:
   sermon-captions search "<query>" [--limit n]
   sermon-captions play   <video|service-id> --input <vmix-guid> [--lines both]
   sermon-captions live   --device "<audio device>" [--outputs venue,stream]
+  sermon-captions serve  [--format <dshow|avfoundation|pulse>]
   sermon-captions devices
+
+serve opens the web interface, where everything else can be set up and run.
+It starts on a machine with nothing configured — no API key, no database —
+and tells you what is missing rather than refusing. "npm run dev" runs it.
 
 ingest options:
   --speaker <name>    Who is speaking. Required.
@@ -443,7 +455,25 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const configPath = flags.get('config');
-  const config = loadConfig(typeof configPath === 'string' ? configPath : 'config.json');
+  const resolvedConfigPath = typeof configPath === 'string' ? configPath : 'config.json';
+
+  // `serve` is the one command that must start on a machine nothing has been
+  // set up on yet, so it takes the config that reports its problems instead of
+  // throwing them. Every other command is right to refuse: a transcription run
+  // costs money and should not proceed on guesses.
+  if (command === 'serve') {
+    await runServe(
+      {
+        format: optionalString(flags, 'format') as CaptureFormat | undefined,
+        token: optionalString(flags, 'token'),
+        verbose: flags.get('verbose') === true,
+      },
+      loadConfigSafe(resolvedConfigPath),
+    );
+    return 0;
+  }
+
+  const config = loadConfig(resolvedConfigPath);
 
   switch (command) {
     case 'ingest':

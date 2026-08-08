@@ -136,6 +136,21 @@ describe('audio capture', () => {
     expect(args).toContain(':BlackHole 2ch');
   });
 
+  it('adds the avfoundation colon to a bare device name', () => {
+    // The device list — and so the dropdown built from it — yields bare names.
+    // avfoundation reads "[video]:[audio]", so without the colon ffmpeg looks
+    // for a camera called "BlackHole 2ch" and exits with "Video device not
+    // found" the moment someone presses Start.
+    const args = buildCaptureArgs({ device: 'BlackHole 2ch', format: 'avfoundation' });
+    expect(args).toContain(':BlackHole 2ch');
+    expect(args).not.toContain('BlackHole 2ch');
+  });
+
+  it('leaves an index pair alone', () => {
+    const args = buildCaptureArgs({ device: '0:1', format: 'avfoundation' });
+    expect(args).toContain('0:1');
+  });
+
   it('reports silence as zero level — this is what catches a dead cable', () => {
     expect(rmsLevel(Buffer.alloc(3840))).toBe(0);
   });

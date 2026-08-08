@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import { YoutubeLiveAdapter, formatCaptionTimestamp } from '../src/live/adapters/youtubeLive.js';
+import {
+  YoutubeLiveAdapter,
+  checkIngestionUrl,
+  formatCaptionTimestamp,
+} from '../src/live/adapters/youtubeLive.js';
+import { StubAdapter } from '../src/live/adapters/stub.js';
+import { CaptionQueue } from '../src/live/pipeline/queue.js';
 import {
   listAudioDevices,
   looksLikeBus,
   parseAvfoundationDevices,
   parseDshowDevices,
 } from '../src/live/devices.js';
-import type { CaptionLine } from '../src/live/types.js';
+import type { CaptionLine, OutputConfig } from '../src/live/types.js';
 
 const EPOCH = Date.UTC(2026, 7, 2, 18, 30, 0);
 
@@ -101,6 +107,24 @@ describe('YouTube live captions', () => {
     expect(posts[0]?.url).toBe('http://upload.test/cc?seq=1');
   });
 
+  it('does not burn a sequence number on a failed post', async () => {
+    // The endpoint counts on an unbroken series. Spending a number on a POST
+    // YouTube never accepted leaves a gap it cannot account for.
+    const { posts, fetchImpl } = harness([new Error('ECONNRESET')]);
+    const adapter = new YoutubeLiveAdapter({
+      ingestionUrl: 'http://upload.test/cc?cid=abc',
+      sessionEpoch: EPOCH,
+      fetchImpl,
+      onError: () => {},
+    });
+
+    await adapter.show(line('a', 0));
+    await adapter.show(line('b', 3000));
+
+    expect(posts[0]?.url).toContain('&seq=1');
+    expect(posts[1]?.url).toContain('&seq=1');
+  });
+
   it('reports a failed post without throwing into the scheduler', async () => {
     const errors: Error[] = [];
     const { fetchImpl } = harness([new Error('ECONNRESET')]);
@@ -145,6 +169,113 @@ describe('YouTube live captions', () => {
   it('formats timestamps as UTC with no zone suffix', () => {
     expect(formatCaptionTimestamp(EPOCH)).toBe('2026-08-02T18:30:00.000');
     expect(formatCaptionTimestamp(EPOCH)).not.toContain('Z');
+  });
+});
+
+describe('checkIngestionUrl', () => {
+  it('accepts the URL YouTube hands back', () => {
+    const result = checkIngestionUrl('https://upload.youtube.com/closedcaption?cid=abc-123');
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('refuses something that is not a URL', () => {
+    expect(checkIngestionUrl('paste the url here').ok).toBe(false);
+    expect(checkIngestionUrl('').error).toContain('empty');
+  });
+
+  it('refuses a non-http scheme', () => {
+    expect(checkIngestionUrl('ftp://upload.test/cc?cid=abc').ok).toBe(false);
+  });
+
+  it('warns rather than refuses when the cid is missing', () => {
+    // The wire format is not verifiable from this codebase, so a surprising
+    // URL is flagged, never rejected.
+    const result = checkIngestionUrl('https://upload.youtube.com/closedcaption');
+    expect(result.ok).toBe(true);
+    expect(result.warnings.join(' ')).toContain('cid');
+  });
+
+  it('warns about a seq the operator pasted in', () => {
+    const result = checkIngestionUrl('https://upload.test/cc?cid=abc&seq=7');
+    expect(result.ok).toBe(true);
+    expect(result.warnings.join(' ')).toContain('seq');
+  });
+});
+
+/**
+ * The reviewer's decisions have to reach YouTube.
+ *
+ * The closed-caption output is registered under its own name while carrying the
+ * `stream` output's schedule. Scoping a drop to `'stream'` alone therefore
+ * skipped it, and a line the reviewer had rejected still went out as a caption
+ * on the public stream — the one place a bad translation is permanent.
+ */
+describe('reviewer decisions reach the YouTube output', () => {
+  const STREAM: OutputConfig = {
+    name: 'stream',
+    delayMs: 184_000,
+    reviewed: true,
+    minDisplayMs: 1500,
+    lateSkipMs: 2000,
+  };
+
+  function setup() {
+    const { posts, fetchImpl } = harness();
+    const queue = new CaptionQueue({ sessionEpoch: EPOCH });
+    const overlay = new StubAdapter('stream');
+    const youtube = new YoutubeLiveAdapter({
+      ingestionUrl: 'http://upload.test/cc?cid=abc',
+      sessionEpoch: EPOCH,
+      fetchImpl,
+    });
+
+    queue.addOutput(STREAM, overlay);
+    queue.addOutput({ ...STREAM, name: 'youtube' }, youtube);
+
+    // What runLive scopes reviewer actions to once both outputs exist.
+    const reviewed = ['stream', 'youtube'];
+    return { queue, overlay, posts, reviewed };
+  }
+
+  it('a dropped line is never posted', async () => {
+    const { queue, overlay, posts, reviewed } = setup();
+
+    queue.add(line('a', 0, 'A bad translation.'));
+    queue.drop('a', 'reviewer', reviewed);
+    queue.tick(EPOCH + 184_000 + 1);
+    await Promise.resolve();
+
+    expect(overlay.shown()).toEqual([]);
+    expect(posts).toEqual([]);
+  });
+
+  it('an edited line is posted with the correction', async () => {
+    const { queue, posts, reviewed } = setup();
+
+    queue.add(line('a', 0, 'Machine wording.'));
+    queue.editLine('a', 'The corrected line.', 'reviewer', reviewed);
+    queue.tick(EPOCH + 184_000 + 1);
+    await Promise.resolve();
+
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.body).toContain('The corrected line.');
+    expect(posts[0]?.body).not.toContain('Machine wording.');
+  });
+
+  it('still leaves unreviewed outputs alone', async () => {
+    const { queue, reviewed } = setup();
+    const venue = new StubAdapter('venue');
+    queue.addOutput({ ...STREAM, name: 'venue', delayMs: 4000, reviewed: false }, venue);
+
+    queue.add(line('a', 0, 'Machine wording.'));
+    queue.drop('a', 'reviewer', reviewed);
+    queue.tick(EPOCH + 4001);
+    await Promise.resolve();
+
+    // The venue screen showed it four seconds in; a drop three minutes later
+    // cannot un-show it, and must not try.
+    expect(venue.shown()).toHaveLength(1);
   });
 });
 

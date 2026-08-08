@@ -41,10 +41,26 @@ export function defaultFormat(): CaptureFormat {
   return 'pulse';
 }
 
+/**
+ * avfoundation takes `"[video]:[audio]"`, so a bare device name is read as a
+ * *video* device and fails with "Video device not found". The device list and
+ * the dropdown built from it hand over bare names, so the colon is added here
+ * rather than expected of every caller — while leaving an explicit `":Name"`
+ * or `"0:1"` alone, since the docs tell people to write it that way.
+ */
+export function avfoundationInput(device: string): string {
+  return device.includes(':') ? device : `:${device}`;
+}
+
 export function buildCaptureArgs(options: CaptureOptions): string[] {
   const format = options.format ?? defaultFormat();
   const sampleRate = options.sampleRate ?? 16000;
-  const input = format === 'dshow' ? `audio=${options.device}` : options.device;
+  const input =
+    format === 'dshow'
+      ? `audio=${options.device}`
+      : format === 'avfoundation'
+        ? avfoundationInput(options.device)
+        : options.device;
   return [
     '-nostdin',
     '-hide_banner',

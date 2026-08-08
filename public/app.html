@@ -1,0 +1,867 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Caption bridge</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23171210'/%3E%3Crect x='3' y='6' width='10' height='1.6' rx='.8' fill='%23F0A92C'/%3E%3Crect x='3' y='9' width='7' height='1.6' rx='.8' fill='%23F7F1E8'/%3E%3C/svg%3E">
+<style>
+  /*
+    The one place everything is set up and run. Same warm dark palette as the
+    reviewer and setup pages, because they are the same product and often open
+    side by side on the same machine.
+
+    No framework and no build step, matching the rest of public/. No browser
+    storage either (SPEC §8) — the token lives in the URL and nowhere else.
+  */
+  :root {
+    --ink:        #171210;
+    --ink-raised: #221A15;
+    --ink-sunk:   #100C0A;
+    --hairline:   #3A2E25;
+    --marble:     #F7F1E8;
+    --marble-dim: #A99C8C;
+    --flame:      #F0A92C;
+    --kumkum:     #C33A52;
+    --leaf:       #6FA860;
+    --english:  'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia,
+                'Times New Roman', serif;
+    --utility:  ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--ink);
+    color: var(--marble);
+    font-family: var(--english);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* ---- tab bar ---------------------------------------------------------- */
+
+  .bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 20px;
+    background: var(--ink-sunk);
+    border-bottom: 1px solid var(--hairline);
+    overflow-x: auto;
+  }
+
+  .brand {
+    margin-right: 18px;
+    padding: 16px 0;
+    font-size: 0.95rem;
+    color: var(--marble-dim);
+    white-space: nowrap;
+  }
+
+  .tab {
+    padding: 16px 14px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--marble-dim);
+    font-family: var(--english);
+    font-size: 1rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tab:hover { color: var(--marble); }
+  .tab[aria-selected="true"] { color: var(--marble); border-bottom-color: var(--flame); }
+  /* A tab with something needing attention says so before you open it. */
+  .tab .pip {
+    display: inline-block;
+    width: 7px; height: 7px;
+    margin-left: 7px;
+    border-radius: 50%;
+    background: var(--flame);
+    vertical-align: middle;
+  }
+
+  .shell { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; }
+  .wide { max-width: 1180px; }
+
+  h1 { margin: 0 0 6px; font-size: 1.5rem; font-weight: 400; }
+  h2 { margin: 0 0 14px; font-size: 1.1rem; font-weight: 400; }
+  .sub { margin: 0 0 26px; color: var(--marble-dim); }
+
+  .panel {
+    padding: 22px;
+    border-radius: 12px;
+    background: var(--ink-raised);
+    border: 1px solid var(--hairline);
+    margin-bottom: 16px;
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 10px;
+    font-family: var(--utility);
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--marble-dim);
+  }
+
+  input, select, textarea {
+    width: 100%;
+    padding: 14px;
+    min-height: 52px;
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    background: var(--ink-sunk);
+    color: var(--marble);
+    font-family: var(--english);
+    font-size: 1.05rem;
+  }
+  input[type="password"], input.mono { font-family: var(--utility); font-size: 0.95rem; }
+  textarea { min-height: 92px; resize: vertical; line-height: 1.5; }
+
+  .hint { margin: 10px 0 0; color: var(--marble-dim); font-size: 0.92rem; line-height: 1.5; }
+  .hint strong { color: var(--flame); font-weight: 400; }
+
+  .row { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+
+  button {
+    flex: 1 1 auto;
+    padding: 16px;
+    min-height: 56px;
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--marble);
+    font-family: var(--english);
+    font-size: 1.05rem;
+    cursor: pointer;
+  }
+  button.primary { border: 0; background: var(--flame); color: var(--ink); }
+  button.slim { flex: 0 0 auto; min-height: 44px; padding: 10px 16px; font-size: 0.95rem; }
+  button:disabled { color: var(--marble-dim); cursor: default; }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  button.primary:disabled { background: transparent; border: 1px solid var(--hairline); }
+
+  /* ---- status checks ---------------------------------------------------- */
+
+  .check {
+    display: flex;
+    gap: 14px;
+    padding: 16px 0;
+    border-top: 1px solid var(--hairline);
+  }
+  .check:first-of-type { border-top: 0; }
+  .dot {
+    flex: 0 0 auto;
+    width: 10px; height: 10px;
+    margin-top: 7px;
+    border-radius: 50%;
+    background: var(--marble-dim);
+  }
+  .dot.ok      { background: var(--leaf); }
+  .dot.missing { background: var(--flame); }
+  .dot.error   { background: var(--kumkum); }
+  .check-body { flex: 1 1 auto; min-width: 0; }
+  .check-name { margin: 0; }
+  .check-detail {
+    margin: 4px 0 0;
+    color: var(--marble-dim);
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+  }
+  .check-fix { margin: 6px 0 0; color: var(--flame); font-size: 0.9rem; }
+
+  /* ---- level meter, matching the setup page ----------------------------- */
+
+  .meter {
+    position: relative;
+    height: 14px;
+    margin-top: 6px;
+    border-radius: 7px;
+    background: rgba(240, 169, 44, 0.16);
+    overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 7px;
+    background: var(--flame);
+    transition: width 120ms linear;
+  }
+
+  .status-line { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .status-line .dot { margin-top: 0; }
+
+  /* ---- links to paste into vMix ----------------------------------------- */
+
+  .url {
+    display: block;
+    padding: 12px 14px;
+    margin-top: 8px;
+    border-radius: 8px;
+    background: var(--ink-sunk);
+    border: 1px solid var(--hairline);
+    color: var(--flame);
+    font-family: var(--utility);
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+    text-decoration: none;
+  }
+
+  .field { margin-bottom: 20px; }
+  .field:last-child { margin-bottom: 0; }
+  .applies {
+    margin-left: 8px;
+    font-family: var(--utility);
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--marble-dim);
+  }
+
+  .notice {
+    padding: 14px 16px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+  .notice.warn { background: rgba(240, 169, 44, 0.12); color: var(--flame); }
+  .notice.bad  { background: rgba(195, 58, 82, 0.14); color: #F2A3B0; }
+  .notice.good { background: rgba(111, 168, 96, 0.14); color: #A8CF9C; }
+
+  .frame { width: 100%; height: calc(100vh - 54px); border: 0; display: block; }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<nav class="bar" role="tablist" aria-label="Sections">
+  <span class="brand">Caption bridge</span>
+  <button class="tab" role="tab" data-tab="dashboard" aria-selected="true">Overview</button>
+  <button class="tab" role="tab" data-tab="live" aria-selected="false">Captions</button>
+  <button class="tab" role="tab" data-tab="review" aria-selected="false">Reviewer</button>
+  <button class="tab" role="tab" data-tab="sermons" aria-selected="false">Sermons</button>
+  <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+</nav>
+
+<!-- ---- overview ------------------------------------------------------- -->
+<main class="shell" data-panel="dashboard">
+  <h1>Overview</h1>
+  <p class="sub" id="overview-sub">Checking what this machine can do…</p>
+
+  <div class="panel">
+    <span class="label">Setup</span>
+    <div id="checks"></div>
+    <div class="row">
+      <button class="slim" id="recheck">Check again</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <span class="label">Captions</span>
+    <div class="status-line">
+      <span class="dot" id="dash-dot"></span>
+      <span id="dash-session">Not running</span>
+    </div>
+    <p class="hint" id="dash-overlays">No screens connected.</p>
+  </div>
+
+  <div class="panel">
+    <span class="label">The stream</span>
+    <p class="hint">
+      A player showing the broadcast with its captions belongs here, so the
+      reviewer can judge a translation against the picture rather than against
+      text alone. It needs a video feed off the vMix machine, which is a
+      separate piece of work — see the plan.
+    </p>
+  </div>
+</main>
+
+<!-- ---- captions ------------------------------------------------------- -->
+<main class="shell" data-panel="live" hidden>
+  <h1>Captions</h1>
+  <p class="sub">Pick the sound coming from the pulpit microphone, then start.</p>
+
+  <div id="live-blocked"></div>
+
+  <div class="panel">
+    <span class="label">Sound input</span>
+    <select id="device"></select>
+    <p class="hint">
+      Choose the <strong>virtual cable</strong> carrying the speaker's microphone on
+      its own — not the main mix. Anything else feeds the music and the
+      congregation into the translation as well.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="status-line">
+      <span class="dot" id="live-dot"></span>
+      <span id="live-state">Not running</span>
+    </div>
+    <span class="label">Sound coming in</span>
+    <div class="meter"><div class="meter-fill" id="meter"></div></div>
+    <p class="hint">
+      The bar moves when someone is speaking. If it stays flat, the cable is not
+      carrying sound.
+    </p>
+    <div class="row">
+      <button class="primary" id="start">Start captions</button>
+      <button id="stop">Stop</button>
+    </div>
+    <p class="hint">
+      Stop leaves everything already spoken to finish going out — it does not
+      throw away the minutes still waiting.
+    </p>
+  </div>
+
+  <div class="panel">
+    <span class="label">Screens</span>
+    <p class="hint">Point a vMix Browser input at these.</p>
+    <div id="overlay-urls"></div>
+  </div>
+</main>
+
+<!-- ---- reviewer ------------------------------------------------------- -->
+<div data-panel="review" hidden>
+  <!--
+    The reviewer page itself, not a copy of it. It is the surface a tablet opens
+    directly and the one the contract tests cover; running it here as well means
+    the vMix operator can review without a second implementation drifting from
+    the first.
+  -->
+  <iframe class="frame" id="review-frame" title="Reviewer"></iframe>
+</div>
+
+<!-- ---- sermons -------------------------------------------------------- -->
+<main class="shell" data-panel="sermons" hidden>
+  <h1>Sermons</h1>
+  <p class="sub">Recorded services, their subtitles, and corrections.</p>
+  <div class="panel">
+    <p class="hint">
+      Not built yet. For now this work is done from a terminal:
+    </p>
+    <span class="url">npx tsx src/cli.ts list</span>
+    <span class="url">npx tsx src/cli.ts show &lt;video&gt; --from 40 --limit 5</span>
+    <span class="url">npx tsx src/cli.ts edit &lt;video&gt; --cue 42 --text "…"</span>
+    <span class="url">npx tsx src/cli.ts export &lt;video&gt;</span>
+  </div>
+</main>
+
+<!-- ---- settings ------------------------------------------------------- -->
+<main class="shell" data-panel="settings" hidden>
+  <h1>Settings</h1>
+  <p class="sub">Credentials are kept in .env, which is never committed. Everything else lives in config.json.</p>
+
+  <div id="settings-notice"></div>
+
+  <div class="panel">
+    <span class="label">Credentials</span>
+    <div id="secrets"></div>
+  </div>
+
+  <div class="panel">
+    <span class="label">YouTube captions</span>
+    <p class="hint">
+      Send one real caption to the ingestion URL and see what YouTube says. Worth
+      doing on a private test stream before a festival — the wire format is the
+      one part of this path that cannot be checked from the code.
+    </p>
+    <div class="row">
+      <button class="slim" id="test-yt">Send a test caption</button>
+    </div>
+    <div id="yt-result"></div>
+  </div>
+
+  <div id="settings-groups"></div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(location.search);
+  var token = params.get('token') || '';
+  var qs = token ? '?token=' + encodeURIComponent(token) : '';
+
+  function el(id) { return document.getElementById(id); }
+  function api(path, options) {
+    var join = path.indexOf('?') === -1 ? qs : (token ? '&token=' + encodeURIComponent(token) : '');
+    return fetch(path + join, options).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (body) {
+        if (!res.ok) throw new Error(body.error || ('request failed: ' + res.status));
+        return body;
+      });
+    });
+  }
+  function text(node, value) { node.textContent = value == null ? '' : String(value); }
+
+  /* ---- tabs ----------------------------------------------------------- */
+
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  var panels = {};
+  Array.prototype.forEach.call(document.querySelectorAll('[data-panel]'), function (panel) {
+    panels[panel.getAttribute('data-panel')] = panel;
+  });
+
+  function show(name) {
+    tabs.forEach(function (tab) {
+      tab.setAttribute('aria-selected', String(tab.getAttribute('data-tab') === name));
+    });
+    Object.keys(panels).forEach(function (key) { panels[key].hidden = key !== name; });
+    // The reviewer is only loaded when asked for — an idle iframe holding a
+    // websocket open would count as an operator that is not there.
+    if (name === 'review') {
+      var frame = el('review-frame');
+      if (!frame.getAttribute('src')) frame.setAttribute('src', '/operator' + qs);
+    }
+    if (name === 'settings') loadSettings();
+    if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+  }
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () { show(tab.getAttribute('data-tab')); });
+  });
+
+  /* ---- status --------------------------------------------------------- */
+
+  var lastStatus = null;
+
+  function dotClass(state) {
+    if (state === 'ok') return 'dot ok';
+    if (state === 'error') return 'dot error';
+    if (state === 'missing') return 'dot missing';
+    return 'dot';
+  }
+
+  function renderChecks(status) {
+    var host = el('checks');
+    host.innerHTML = '';
+    status.checks.forEach(function (check) {
+      var row = document.createElement('div');
+      row.className = 'check';
+
+      var dot = document.createElement('span');
+      dot.className = dotClass(check.state);
+      row.appendChild(dot);
+
+      var body = document.createElement('div');
+      body.className = 'check-body';
+
+      var name = document.createElement('p');
+      name.className = 'check-name';
+      text(name, check.label);
+      body.appendChild(name);
+
+      if (check.detail) {
+        var detail = document.createElement('p');
+        detail.className = 'check-detail';
+        text(detail, check.detail);
+        body.appendChild(detail);
+      }
+      if (check.fix && check.state !== 'ok') {
+        var fix = document.createElement('p');
+        fix.className = 'check-fix';
+        text(fix, check.fix);
+        body.appendChild(fix);
+      }
+
+      row.appendChild(body);
+      host.appendChild(row);
+    });
+
+    var unresolved = status.checks.filter(function (c) {
+      return c.state !== 'ok' && c.state !== 'unknown';
+    });
+    text(
+      el('overview-sub'),
+      unresolved.length === 0
+        ? 'Everything is set up.'
+        : unresolved.length + (unresolved.length === 1 ? ' thing needs' : ' things need') + ' attention.'
+    );
+
+    // Mark the Settings tab when something there would fix a problem.
+    tabs.forEach(function (tab) {
+      if (tab.getAttribute('data-tab') !== 'settings') return;
+      var pip = tab.querySelector('.pip');
+      if (unresolved.length > 0 && !pip) {
+        pip = document.createElement('span');
+        pip.className = 'pip';
+        tab.appendChild(pip);
+      } else if (unresolved.length === 0 && pip) {
+        pip.remove();
+      }
+    });
+  }
+
+  function renderSession(status) {
+    var running = status.session && status.session.running;
+    var state = status.session ? status.session.state : 'idle';
+
+    el('dash-dot').className = running ? 'dot ok' : 'dot';
+    el('live-dot').className = running ? 'dot ok' : 'dot';
+
+    var label = running
+      ? 'Captions are going out'
+      : state === 'paused'
+        ? 'Paused — what is already queued is still going out'
+        : 'Not running';
+    text(el('dash-session'), label);
+    text(el('live-state'), label);
+
+    var level = (status.session && status.session.level) || 0;
+    el('meter').style.width = Math.min(100, Math.round(level * 320)) + '%';
+
+    el('start').disabled = running;
+    el('stop').disabled = !running;
+
+    var counts = status.overlays || {};
+    var connected = Object.keys(counts).filter(function (k) { return counts[k] > 0; });
+    text(
+      el('dash-overlays'),
+      connected.length === 0
+        ? 'No screens connected.'
+        : connected.map(function (k) { return counts[k] + ' on ' + k; }).join(', ') + '.'
+    );
+
+    var blocked = status.capabilities && status.capabilities.live;
+    var host = el('live-blocked');
+    host.innerHTML = '';
+    if (blocked && !blocked.ready) {
+      var note = document.createElement('div');
+      note.className = 'notice warn';
+      var names = blocked.blockedBy.map(function (id) {
+        var check = status.checks.filter(function (c) { return c.id === id; })[0];
+        return check ? check.label.toLowerCase() : id;
+      });
+      text(note, 'Captions cannot start yet — ' + names.join(' and ') + ' still needed. See Settings.');
+      host.appendChild(note);
+    }
+  }
+
+  function renderOverlayUrls(status) {
+    var host = el('overlay-urls');
+    if (host.childElementCount > 0) return;
+    Object.keys(status.overlays || {}).forEach(function (name) {
+      var a = document.createElement('a');
+      a.className = 'url';
+      a.href = '/overlay' + qs + (token ? '&' : '?') + 'output=' + name;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      text(a, location.origin + a.getAttribute('href'));
+      host.appendChild(a);
+    });
+  }
+
+  function poll() {
+    api('/api/status').then(function (status) {
+      lastStatus = status;
+      renderChecks(status);
+      renderSession(status);
+      renderOverlayUrls(status);
+    }).catch(function (err) {
+      text(el('overview-sub'), 'Cannot reach the bridge: ' + err.message);
+    });
+  }
+
+  el('recheck').addEventListener('click', function () {
+    api('/api/checks/refresh', { method: 'POST' }).then(poll).catch(function () {});
+  });
+
+  /* ---- devices and session -------------------------------------------- */
+
+  function loadDevices() {
+    api('/api/devices').then(function (body) {
+      var select = el('device');
+      var chosen = select.value;
+      select.innerHTML = '';
+      (body.devices || []).forEach(function (device) {
+        var option = document.createElement('option');
+        option.value = device.name;
+        option.textContent = device.name + (device.likelyBus ? ' — likely the right one' : '');
+        select.appendChild(option);
+      });
+      if (chosen) select.value = chosen;
+      else if (lastStatus && lastStatus.session && lastStatus.session.device) {
+        select.value = lastStatus.session.device;
+      }
+    }).catch(function () {});
+  }
+
+  function session(action) {
+    return api('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: action, device: el('device').value })
+    }).then(poll).catch(function (err) {
+      var host = el('live-blocked');
+      host.innerHTML = '';
+      var note = document.createElement('div');
+      note.className = 'notice bad';
+      text(note, err.message);
+      host.appendChild(note);
+    });
+  }
+
+  el('start').addEventListener('click', function () { session('start'); });
+  el('stop').addEventListener('click', function () { session('stop'); });
+
+  /* ---- settings -------------------------------------------------------- */
+
+  var settingsLoaded = false;
+
+  function notice(host, kind, message) {
+    host.innerHTML = '';
+    var node = document.createElement('div');
+    node.className = 'notice ' + kind;
+    text(node, message);
+    host.appendChild(node);
+  }
+
+  function renderSecrets(secrets) {
+    var host = el('secrets');
+    host.innerHTML = '';
+    secrets.forEach(function (secret) {
+      var field = document.createElement('div');
+      field.className = 'field';
+
+      var label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = secret.label + (secret.optional ? ' (optional)' : '');
+      field.appendChild(label);
+
+      var input = document.createElement('input');
+      input.type = 'password';
+      input.autocomplete = 'off';
+      input.placeholder = secret.set ? 'Saved — ends ' + secret.hint : 'Not set';
+      field.appendChild(input);
+
+      var help = document.createElement('p');
+      help.className = 'hint';
+      text(help, secret.help);
+      field.appendChild(help);
+
+      if (secret.fromShell) {
+        var shell = document.createElement('p');
+        shell.className = 'hint';
+        shell.innerHTML = '<strong>Set in the shell, not in .env</strong> — the shell wins, so saving here will not take effect.';
+        field.appendChild(shell);
+      }
+
+      var row = document.createElement('div');
+      row.className = 'row';
+      var save = document.createElement('button');
+      save.className = 'slim primary';
+      save.textContent = 'Save';
+      save.addEventListener('click', function () {
+        if (!input.value) return;
+        var updates = {};
+        updates[secret.name] = input.value;
+        api('/api/secrets', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates: updates })
+        }).then(function () {
+          input.value = '';
+          notice(el('settings-notice'), 'good', secret.label + ' saved. It takes effect straight away.');
+          settingsLoaded = false;
+          loadSettings();
+          poll();
+        }).catch(function (err) {
+          notice(el('settings-notice'), 'bad', err.message);
+        });
+      });
+      row.appendChild(save);
+      field.appendChild(row);
+
+      host.appendChild(field);
+    });
+  }
+
+  var GROUP_LABELS = {
+    captions: 'Subtitle shape',
+    live: 'Live timing',
+    names: 'Names and terms',
+    server: 'Where this is reachable',
+    paths: 'Folders',
+    search: 'Search',
+    youtube: 'YouTube'
+  };
+
+  function valueToInput(setting, value) {
+    if (setting.type === 'string[]') return (value || []).join('\n');
+    if (setting.type === 'termPairs') {
+      return (value || []).map(function (t) { return t.source + ' = ' + t.target; }).join('\n');
+    }
+    return value == null ? '' : String(value);
+  }
+
+  function inputToValue(setting, raw) {
+    if (setting.type === 'number') {
+      var n = Number(raw);
+      if (raw.trim() === '' || Number.isNaN(n)) throw new Error(setting.label + ' must be a number');
+      return n;
+    }
+    if (setting.type === 'string[]') {
+      return raw.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    }
+    if (setting.type === 'termPairs') {
+      return raw.split('\n').map(function (s) { return s.trim(); }).filter(Boolean).map(function (line) {
+        var parts = line.split('=');
+        var source = parts.shift().trim();
+        var target = parts.join('=').trim();
+        if (!source || !target) throw new Error('Write each term as: Gujarati = English');
+        return { source: source, target: target };
+      });
+    }
+    return raw;
+  }
+
+  var APPLIES = {
+    immediate: 'applies now',
+    'next-session': 'applies next start',
+    restart: 'needs a restart'
+  };
+
+  function renderSettings(body) {
+    var host = el('settings-groups');
+    host.innerHTML = '';
+
+    var groups = {};
+    body.settings.forEach(function (setting) {
+      (groups[setting.group] = groups[setting.group] || []).push(setting);
+    });
+
+    Object.keys(groups).forEach(function (group) {
+      var panel = document.createElement('div');
+      panel.className = 'panel';
+
+      var heading = document.createElement('span');
+      heading.className = 'label';
+      heading.textContent = GROUP_LABELS[group] || group;
+      panel.appendChild(heading);
+
+      var inputs = [];
+      groups[group].forEach(function (setting) {
+        var field = document.createElement('div');
+        field.className = 'field';
+
+        var label = document.createElement('label');
+        label.className = 'label';
+        label.textContent = setting.label + (setting.unit ? ' (' + setting.unit + ')' : '');
+        var applies = document.createElement('span');
+        applies.className = 'applies';
+        applies.textContent = APPLIES[setting.appliesTo] || '';
+        label.appendChild(applies);
+        field.appendChild(label);
+
+        var multiline = setting.type === 'string[]' || setting.type === 'termPairs';
+        var input = document.createElement(multiline ? 'textarea' : 'input');
+        if (!multiline) input.type = setting.type === 'number' ? 'number' : 'text';
+        input.value = valueToInput(setting, body.values[setting.path]);
+        field.appendChild(input);
+        inputs.push({ setting: setting, input: input });
+
+        var help = document.createElement('p');
+        help.className = 'hint';
+        text(help, setting.help);
+        field.appendChild(help);
+
+        panel.appendChild(field);
+      });
+
+      var row = document.createElement('div');
+      row.className = 'row';
+      var save = document.createElement('button');
+      save.className = 'slim primary';
+      save.textContent = 'Save';
+      save.addEventListener('click', function () {
+        var patch = {};
+        try {
+          inputs.forEach(function (entry) {
+            patch[entry.setting.path] = inputToValue(entry.setting, entry.input.value);
+          });
+        } catch (err) {
+          notice(el('settings-notice'), 'bad', err.message);
+          return;
+        }
+        api('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ patch: patch, expectedMtimeMs: body.config.mtimeMs })
+        }).then(function (result) {
+          var message = 'Saved.';
+          if (result.restartRequired && result.restartRequired.length > 0) {
+            message += ' Restart the bridge for it to take effect.';
+          }
+          notice(el('settings-notice'), 'good', message);
+          settingsLoaded = false;
+          loadSettings();
+          poll();
+        }).catch(function (err) {
+          // The value was understood and refused, and nothing was written.
+          notice(el('settings-notice'), 'bad', err.message);
+        });
+      });
+      row.appendChild(save);
+      panel.appendChild(row);
+
+      host.appendChild(panel);
+    });
+  }
+
+  function loadSettings() {
+    if (settingsLoaded) return;
+    settingsLoaded = true;
+    api('/api/settings').then(function (body) {
+      renderSecrets(body.secrets);
+      renderSettings(body);
+      if (body.config.error) {
+        notice(el('settings-notice'), 'bad',
+          'config.json cannot be read (' + body.config.error + '), so the built-in defaults are in use.');
+      }
+    }).catch(function (err) {
+      settingsLoaded = false;
+      notice(el('settings-notice'), 'bad', err.message);
+    });
+  }
+
+  el('test-yt').addEventListener('click', function () {
+    var host = el('yt-result');
+    notice(host, 'warn', 'Sending…');
+    api('/api/youtube/test-captions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    }).then(function (result) {
+      if (result.ok) {
+        notice(host, 'good', 'YouTube accepted it.' +
+          (result.warnings && result.warnings.length ? ' Note: ' + result.warnings.join('; ') : ''));
+      } else {
+        notice(host, 'bad', result.error || 'YouTube did not accept it.');
+      }
+    }).catch(function (err) {
+      notice(host, 'bad', err.message);
+    });
+  });
+
+  /* ---- go -------------------------------------------------------------- */
+
+  var initial = (location.hash || '#dashboard').slice(1);
+  show(panels[initial] ? initial : 'dashboard');
+  poll();
+  loadDevices();
+  setInterval(poll, 1000);
+  setInterval(loadDevices, 15000);
+})();
+</script>
+</body>
+</html>

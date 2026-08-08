@@ -271,6 +271,37 @@ describe('control page contract', () => {
   });
 });
 
+describe('app page contract', () => {
+  const page = fileURLToPath(new URL('../public/app.html', import.meta.url));
+
+  it('never stores anything in localStorage or sessionStorage (§8)', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/localStorage|sessionStorage/);
+  });
+
+  it('requests no external resources', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+  });
+
+  it('warns against picking the main mix (INVARIANT 6)', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('not the main mix');
+  });
+
+  it('says what Stop does, since it does not discard the backlog', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('throw away the minutes still waiting');
+  });
+
+  it('runs the reviewer page itself rather than a second copy of it', async () => {
+    // Two implementations of the queue would drift, and only one of them is
+    // covered by the reviewer contract tests below.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain("'/operator'");
+  });
+});
+
 describe('operator command parsing', () => {
   it('accepts the commands the reviewer page sends', () => {
     expect(parseOperatorCommand('{"type":"drop","lineId":"line-3"}')).toEqual({

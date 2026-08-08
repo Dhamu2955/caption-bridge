@@ -19,6 +19,9 @@ recordings/
 *.log
 .DS_Store
 
+# Backups the settings writer keeps beside config.json and .env
+*.bak
+
 # Editor-local settings
 .vscode/
 
