@@ -214,6 +214,29 @@
     text-decoration: none;
   }
 
+  /* Numbers read as a row of facts rather than a table to parse. */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    gap: 14px;
+  }
+  .tile {
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--ink-sunk);
+    border: 1px solid var(--hairline);
+  }
+  .tile-value { font-size: 1.5rem; }
+  .tile-value.warn { color: var(--flame); }
+  .tile-name {
+    margin-top: 4px;
+    font-family: var(--utility);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--marble-dim);
+  }
+
   .field { margin-bottom: 20px; }
   .field:last-child { margin-bottom: 0; }
   .applies {
@@ -275,12 +298,24 @@
   </div>
 
   <div class="panel">
+    <span class="label">This session</span>
+    <div class="tiles" id="live-stats"></div>
+    <p class="hint" id="live-stats-note">Nothing has gone out yet.</p>
+  </div>
+
+  <div class="panel">
+    <span class="label">The archive</span>
+    <div class="tiles" id="archive-stats"></div>
+    <p class="hint" id="archive-stats-note"></p>
+  </div>
+
+  <div class="panel">
     <span class="label">The stream</span>
     <p class="hint">
-      A player showing the broadcast with its captions belongs here, so the
-      reviewer can judge a translation against the picture rather than against
-      text alone. It needs a video feed off the vMix machine, which is a
-      separate piece of work — see the plan.
+      A live picture belongs here, so the reviewer can judge a translation
+      against the broadcast rather than against text alone. That needs a video
+      feed off the vMix machine and is still to do — but when the bridge is fed
+      a <strong>recording</strong>, the Reviewer tab already shows it.
     </p>
   </div>
 </main>
@@ -598,6 +633,69 @@
     }).catch(function (err) {
       text(el('overview-sub'), 'Cannot reach the bridge: ' + err.message);
     });
+  }
+
+  /* ---- stats ----------------------------------------------------------- */
+
+  function tiles(host, entries) {
+    host.innerHTML = '';
+    entries.forEach(function (entry) {
+      var tile = document.createElement('div');
+      tile.className = 'tile';
+      var value = document.createElement('div');
+      value.className = 'tile-value' + (entry.warn ? ' warn' : '');
+      text(value, entry.value);
+      var name = document.createElement('div');
+      name.className = 'tile-name';
+      text(name, entry.name);
+      tile.appendChild(value);
+      tile.appendChild(name);
+      host.appendChild(tile);
+    });
+  }
+
+  function duration(ms) {
+    if (!ms) return '0m';
+    var hours = Math.floor(ms / 3600000);
+    var minutes = Math.round((ms % 3600000) / 60000);
+    return hours > 0 ? hours + 'h ' + minutes + 'm' : minutes + 'm';
+  }
+
+  function loadStats() {
+    api('/api/stats').then(function (body) {
+      var live = body.live;
+      tiles(el('live-stats'), [
+        { name: 'Gone out', value: live.released },
+        { name: 'Dropped', value: live.dropped },
+        { name: 'Corrected', value: live.edited },
+        // Skips mean a caption missed its moment — worth colouring.
+        { name: 'Missed', value: live.skipped, warn: live.skipped > 0 },
+        { name: 'Audio gaps', value: live.gaps, warn: live.gaps > 0 },
+        { name: 'Running', value: duration(live.runningForMs) }
+      ]);
+
+      var note = [];
+      if (live.released > 0) note.push('Typically ' + live.meanLatenessMs + 'ms past their scheduled instant, at worst ' + live.maxLatenessMs + 'ms.');
+      if (live.rejected > 0) note.push(live.rejected + ' reviewer decisions arrived too late to apply.');
+      if (live.gapMs > 0) note.push(duration(live.gapMs) + ' of audio was missing.');
+      text(el('live-stats-note'), note.length ? note.join(' ') : 'Nothing has gone out yet.');
+
+      if (body.archive) {
+        tiles(el('archive-stats'), [
+          { name: 'Services', value: body.archive.services },
+          { name: 'Subtitles', value: body.archive.cues },
+          { name: 'Corrected', value: body.archive.correctedCues },
+          { name: 'On YouTube', value: body.archive.servicesOnYoutube },
+          { name: 'Transcribed', value: duration(body.archive.transcribedMs) }
+        ]);
+        text(el('archive-stats-note'),
+          'Transcribed hours are what Soniox was asked to process, which is what it bills for.');
+      } else {
+        el('archive-stats').innerHTML = '';
+        text(el('archive-stats-note'),
+          'Needs the database: ' + (body.archiveError || 'not available.'));
+      }
+    }).catch(function () {});
   }
 
   el('recheck').addEventListener('click', function () {
@@ -1062,9 +1160,18 @@
 
   var initial = (location.hash || '#dashboard').slice(1);
   show(panels[initial] ? initial : 'dashboard');
+
+  // So a link to #settings works on a tab that is already open, and the back
+  // button moves between sections rather than leaving the page.
+  window.addEventListener('hashchange', function () {
+    var name = location.hash.slice(1);
+    if (panels[name]) show(name);
+  });
   poll();
   loadDevices();
+  loadStats();
   setInterval(poll, 1000);
+  setInterval(loadStats, 3000);
   setInterval(loadDevices, 15000);
 })();
 </script>

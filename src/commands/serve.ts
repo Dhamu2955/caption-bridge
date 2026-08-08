@@ -14,6 +14,7 @@ import type { CaptureFormat } from '../live/capture.js';
 import { listAudioDevices } from '../live/devices.js';
 import { OverlayRegistry, OVERLAY_NAMES } from '../live/overlays.js';
 import { capabilitiesFrom, PreflightChecks } from '../live/preflight.js';
+import { QueueCounters } from '../live/counters.js';
 import { BridgeServer } from '../live/server.js';
 import { LiveSessionManager, NotConfiguredError } from '../live/sessionManager.js';
 import { info, warn } from '../util/log.js';
@@ -76,6 +77,8 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     getYoutubeCaptionsUrl: () => secrets.get('live.youtubeCaptionsUrlEnv'),
   });
 
+  const counters = new QueueCounters();
+
   const api = Router();
 
   const guard: RequestHandler = (req, res, next) => {
@@ -110,6 +113,46 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
         overlays: overlays.connections(),
         operators: server.operatorCount,
       });
+    })();
+  });
+
+  api.get('/api/stats', guard, (_req, res) => {
+    void (async () => {
+      const session = manager.status;
+      const live = {
+        ...counters.snapshot,
+        state: session.state,
+        startedAt: session.startedAt ?? null,
+        runningForMs: session.startedAt ? Date.now() - session.startedAt : 0,
+      };
+
+      // The archive half needs Postgres. Without it the live half is still
+      // worth showing, so this degrades rather than failing.
+      let archive: unknown = null;
+      let archiveError: string | null = null;
+      try {
+        const prisma = await database.get();
+        const [services, cues, corrected, published, durations] = await Promise.all([
+          prisma.service.count(),
+          prisma.segment.count(),
+          prisma.segment.count({ where: { editedAt: { not: null } } }),
+          prisma.service.count({ where: { youtubeVideoId: { not: null } } }),
+          prisma.service.aggregate({ _sum: { durationMs: true } }),
+        ]);
+        archive = {
+          services,
+          cues,
+          correctedCues: corrected,
+          servicesOnYoutube: published,
+          // The closest thing to a Soniox usage figure that exists: every
+          // ingest records the audio it was billed for.
+          transcribedMs: durations._sum.durationMs ?? 0,
+        };
+      } catch (err) {
+        archiveError = (err as Error).message;
+      }
+
+      res.json({ live, archive, archiveError });
     })();
   });
 
@@ -274,7 +317,15 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     onCommand: (command) => manager.command(command),
   });
 
-  manager.attachSink(server);
+  // Counts every queue event on its way to the reviewer, so the numbers cost
+  // nothing and cannot drift from what actually happened.
+  manager.attachSink({
+    publish: (view) => server.publish(view),
+    notify: (event) => {
+      counters.record(event);
+      server.notify(event);
+    },
+  });
 
   await server.start();
 
