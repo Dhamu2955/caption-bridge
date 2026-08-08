@@ -144,6 +144,21 @@
   .card[data-showing="true"] { border-color: var(--flame); }
   .card .gu[title] { cursor: pointer; }
 
+  /* Shown while the recording is still catching up to its own trail. */
+  .feed-waiting {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 24px;
+    background: var(--ink-sunk);
+    color: var(--marble-dim);
+    text-align: center;
+    text-wrap: balance;
+  }
+
   /* Sits under "Back to live" when both are showing, so neither moves as the
      other appears. */
   .sound {
@@ -442,6 +457,7 @@
   <section class="feed" id="feed" data-empty="true" aria-label="Reviewer video">
     <video id="video" playsinline muted hidden></video>
     <p class="feed-caption" id="feedCaption" hidden></p>
+    <p class="feed-waiting" id="feedWaiting" hidden></p>
     <button class="follow" id="followBtn" type="button" hidden>Back to live</button>
     <button class="sound" id="soundBtn" type="button" aria-pressed="false" hidden>Sound on</button>
     <div class="feed-empty" id="feedEmpty">
@@ -572,18 +588,45 @@
     lastSeek: 0
   };
 
+  /** Negative until the capture point reaches the trail window. */
   function mediaTimeNow() {
     if (!state.sessionEpoch) return 0;
-    return Math.max(0, Date.now() - state.sessionEpoch - media.trailMs) / 1000;
+    return (Date.now() - state.sessionEpoch - media.trailMs) / 1000;
   }
 
   function syncVideo() {
     if (!media.url || el.video.hidden || !el.video.duration) return;
     if (!media.following) return;
+
     var want = mediaTimeNow();
+
+    // For the first `trailMs` of a session there is nothing to show yet — the
+    // recording has not been playing long enough to be this far behind itself.
+    // Left alone the video runs on and the drift check drags it back, so it
+    // replays the opening seconds once every couple of seconds until the delay
+    // elapses. Hold at the start instead, and say why.
+    if (want < 0) {
+      if (!el.video.paused) el.video.pause();
+      if (el.video.currentTime > 0.1) el.video.currentTime = 0;
+      showWaiting(Math.ceil(-want));
+      return;
+    }
+
+    showWaiting(0);
+    if (el.video.paused) el.video.play().catch(function () {});
     if (want > el.video.duration) return;
     // Only correct a real drift. Nudging every tick makes the picture stutter.
     if (Math.abs(el.video.currentTime - want) > 1.5) el.video.currentTime = want;
+  }
+
+  function showWaiting(seconds) {
+    var node = document.getElementById('feedWaiting');
+    if (!node) return;
+    node.hidden = seconds <= 0;
+    if (seconds > 0) {
+      node.textContent = 'Catching up — the picture starts in ' + seconds + 's, ' +
+        'so each caption lands on the words it describes.';
+    }
   }
 
   function seekTo(ms, id) {
