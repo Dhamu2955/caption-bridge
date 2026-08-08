@@ -11,12 +11,16 @@
     The setup and running surface. Same tokens as the reviewer — they are the
     same product and often open side by side.
 
-    Each screen is organised by the question it answers, and the answer sits in
-    a band across the top rather than at the bottom of a column of panels:
+    One tab per job, and nothing that is merely a view:
 
-      Overview  is this machine ready, and what is going out
-      Captions  what am I listening to, and where does it appear
-      Settings  the thing I came to change, reached in one click
+      Captions  run a service — is this machine ready, what is it listening to,
+                where does it appear, and what has gone out
+      Reviewer  correct it while it runs
+      Sermons   work on what was recorded
+      Settings  set the machine up
+
+    Whether captions are going out is the one fact wanted from any of them, so
+    it lives in the bar rather than on a screen of its own.
   */
 
   .bar {
@@ -132,18 +136,18 @@
   .check-fix { margin: 4px 0 0; font-size: 0.78rem; color: var(--soon); }
   .check[data-state="error"] .check-fix { color: var(--stop); }
 
+  /*
+    Counters, not cards. Six bordered boxes each holding a single digit was more
+    furniture than fact — every one of them 150px wide to say "0". Set on a rule
+    instead, they read as one row of numbers, which is what they are.
+  */
   .tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
-    gap: var(--s2);
+    display: flex; flex-wrap: wrap;
+    gap: var(--s3) var(--s5);
+    margin-top: var(--s1);
   }
-  .tile {
-    padding: var(--s3);
-    border-radius: var(--radius);
-    background: var(--raised);
-    border: 1px solid var(--rule);
-  }
-  .tile-value { font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+  .tile { min-width: 54px; }
+  .tile-value { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
   .tile-value.warn { color: var(--soon); }
   .tile-name {
     margin-top: 2px; font-family: var(--mono); font-size: 0.62rem;
@@ -180,6 +184,15 @@
     overflow-wrap: anywhere; text-decoration: none;
   }
   .url:hover { border-color: var(--live); }
+
+  .screen { padding: var(--s3) 0; border-top: 1px solid var(--rule-soft); }
+  .screen-name {
+    margin: 0; font-family: var(--mono); font-size: 0.72rem;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink);
+  }
+  .screen-why {
+    margin: 3px 0 0; font-size: 0.82rem; line-height: 1.45; color: var(--ink-soft);
+  }
 
   /* ---- settings: a rail, so one click reaches anything ---------------- */
 
@@ -233,8 +246,7 @@
 
 <nav class="bar" role="tablist" aria-label="Sections">
   <span class="brand">Caption bridge</span>
-  <button class="tab" role="tab" data-tab="dashboard" aria-selected="true">Overview</button>
-  <button class="tab" role="tab" data-tab="live" aria-selected="false">Captions</button>
+  <button class="tab" role="tab" data-tab="live" aria-selected="true">Captions</button>
   <button class="tab" role="tab" data-tab="review" aria-selected="false">Reviewer</button>
   <button class="tab" role="tab" data-tab="sermons" aria-selected="false">Sermons</button>
   <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
@@ -246,10 +258,16 @@
   </span>
 </nav>
 
-<!-- ---- overview ------------------------------------------------------- -->
-<main class="shell" data-panel="dashboard">
-  <h1>Overview</h1>
-  <p class="sub" id="overview-sub">Checking what this machine can do…</p>
+<!-- ---- captions ------------------------------------------------------- -->
+<!--
+  The running surface, and the tab this opens on. Overview used to sit in front
+  of it holding a readiness strip and a row of counters, but neither is somewhere
+  you navigate *to* — they are things you glance at while running a service. Both
+  now live here, either side of the controls they describe.
+-->
+<main class="shell" data-panel="live">
+  <h1>Captions</h1>
+  <p class="sub">Pick the sound coming from the pulpit microphone, then start.</p>
 
   <div class="setup" id="setup">
     <div class="setup-head">
@@ -258,36 +276,6 @@
     </div>
     <div class="checks" id="checks"></div>
   </div>
-
-  <p class="hint" id="dash-overlays" style="margin-bottom:var(--s5)">No screens connected.</p>
-
-  <div class="panel">
-    <span class="label">This session</span>
-    <div class="tiles" id="live-stats"></div>
-    <p class="hint" id="live-stats-note">Nothing has gone out yet.</p>
-  </div>
-
-  <div class="panel">
-    <span class="label">The archive</span>
-    <div class="tiles" id="archive-stats"></div>
-    <p class="hint" id="archive-stats-note"></p>
-  </div>
-
-  <div class="panel">
-    <span class="label">The stream</span>
-    <p class="hint">
-      A live picture belongs here, so the reviewer can judge a translation
-      against the broadcast rather than against text alone. That needs a video
-      feed off the vMix machine and is still to do — but when the bridge is fed
-      a <strong>recording</strong>, the Reviewer tab already shows it.
-    </p>
-  </div>
-</main>
-
-<!-- ---- captions ------------------------------------------------------- -->
-<main class="shell" data-panel="live" hidden>
-  <h1>Captions</h1>
-  <p class="sub">Pick the sound coming from the pulpit microphone, then start.</p>
 
   <div id="live-blocked"></div>
 
@@ -342,9 +330,27 @@
 
   <div class="box">
     <span class="label">Screens</span>
-    <p class="hint">Point a vMix Browser input at these.</p>
+    <p class="hint">
+      Words have to be <strong>drawn</strong> to appear in a picture. Each of
+      these is a web page with a transparent background showing the line that is
+      current right now — open one as a vMix <strong>Browser input</strong> and
+      lay it over the video. One page per destination, because each gets
+      different words at a different moment.
+    </p>
+    <p class="hint">
+      <strong>YouTube captions do not use these.</strong> They are sent to
+      YouTube as text and the viewer switches them on, so there is no page to
+      point anything at. Set that URL under Settings → YouTube.
+    </p>
     <div id="overlay-urls"></div>
+    <p class="hint" id="dash-overlays">No screens connected.</p>
   </div>
+  </div>
+
+  <div class="panel" style="margin-top:var(--s5)">
+    <span class="label">This session</span>
+    <div class="tiles" id="live-stats"></div>
+    <p class="hint" id="live-stats-note">Nothing has gone out yet.</p>
   </div>
 </main>
 
@@ -367,6 +373,12 @@
   <p class="sub" id="sermons-sub">Recorded services, their subtitles, and corrections.</p>
 
   <div id="sermons-notice"></div>
+
+  <div class="panel">
+    <span class="label">The archive</span>
+    <div class="tiles" id="archive-stats"></div>
+    <p class="hint" id="archive-stats-note"></p>
+  </div>
 
   <div class="panel" id="service-list-panel">
     <span class="label">Services</span>
@@ -524,9 +536,6 @@
         ? 'Set up — ' + ready + ' checks pass'
         : ready + ' ready · ' + problems.length + (problems.length === 1 ? ' needs' : ' need') + ' attention');
 
-    text(el('overview-sub'),
-      problems.length === 0 ? 'Everything is ready.' : 'Fix the items below to use every feature.');
-
     tabs.forEach(function (tab) {
       if (tab.getAttribute('data-tab') !== 'settings') return;
       var pip = tab.querySelector('.pip');
@@ -585,17 +594,43 @@
     }
   }
 
+  // Four near-identical URLs differing by one word told nobody which to point
+  // vMix at. The name is the only part that matters, so it leads.
+  var OVERLAY_PURPOSE = {
+    venue: 'The screen in the hall. Appears as soon as the line is translated.',
+    overflow: 'The screen in the overflow room. Same words, same moment as the hall.',
+    reviewer: 'A monitor beside the reviewer, showing what the hall is seeing.',
+    stream: 'Burned into the broadcast picture. The only one that waits for the reviewer, so it runs further behind.'
+  };
+
   function renderOverlayUrls(status) {
     var host = el('overlay-urls');
     if (host.childElementCount > 0) return;
     Object.keys(status.overlays || {}).forEach(function (name) {
+      var wrap = document.createElement('div');
+      wrap.className = 'screen';
+
+      var head = document.createElement('p');
+      head.className = 'screen-name';
+      text(head, name);
+      wrap.appendChild(head);
+
+      if (OVERLAY_PURPOSE[name]) {
+        var why = document.createElement('p');
+        why.className = 'screen-why';
+        text(why, OVERLAY_PURPOSE[name]);
+        wrap.appendChild(why);
+      }
+
       var a = document.createElement('a');
       a.className = 'url';
       a.href = '/overlay' + qs + (token ? '&' : '?') + 'output=' + name;
       a.target = '_blank';
       a.rel = 'noopener';
       text(a, location.origin + a.getAttribute('href'));
-      host.appendChild(a);
+      wrap.appendChild(a);
+
+      host.appendChild(wrap);
     });
   }
 
@@ -606,7 +641,8 @@
       renderSession(status);
       renderOverlayUrls(status);
     }).catch(function (err) {
-      text(el('overview-sub'), 'Cannot reach the bridge: ' + err.message);
+      el('setup').setAttribute('data-clear', 'false');
+      text(el('setup-summary'), 'Cannot reach the bridge — ' + err.message);
     });
   }
 
@@ -1211,13 +1247,17 @@
 
   /* ---- go -------------------------------------------------------------- */
 
-  var initial = (location.hash || '#dashboard').slice(1);
-  show(panels[initial] ? initial : 'dashboard');
+  // #dashboard is kept working: it was a real tab until the readiness strip and
+  // the counters moved onto Captions, and someone has it bookmarked.
+  var initial = (location.hash || '#live').slice(1);
+  if (initial === 'dashboard') initial = 'live';
+  show(panels[initial] ? initial : 'live');
 
   // So a link to #settings works on a tab that is already open, and the back
   // button moves between sections rather than leaving the page.
   window.addEventListener('hashchange', function () {
     var name = location.hash.slice(1);
+    if (name === 'dashboard') name = 'live';
     if (panels[name]) show(name);
   });
   poll();

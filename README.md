@@ -120,14 +120,16 @@ It prints a URL. Open it and everything else is set up from there — the Soniox
 key, the database, the audio input, the YouTube caption URL.
 
 **It starts before any of that exists.** A fresh clone with no `.env`, no
-database and no ffmpeg still serves the page; the Overview tab lists what is
-missing and what to do about each one, rather than refusing to run. Steps 2–4 of
-Setup below are the same work done from a terminal instead.
+database and no ffmpeg still serves the page; the top of the Captions tab lists
+what is missing and what to do about each one, rather than refusing to run.
+Steps 2–4 of Setup below are the same work done from a terminal instead.
+
+One tab per job. Whether captions are going out is shown in the bar, from
+whichever tab you are on.
 
 | Tab | |
 |---|---|
-| **Overview** | What is set up and what is not, and whether captions are going out |
-| **Captions** | Pick the sound input, start and stop, watch the level meter, copy the overlay URLs for vMix |
+| **Captions** | What is still to set up, the sound input, start and stop, the level meter, the overlay URLs for vMix, and what has gone out |
 | **Reviewer** | The reviewer queue, for correcting lines from the vMix machine rather than a tablet |
 | **Sermons** | Every service, its subtitles, corrections, and re-export |
 | **Settings** | Credentials, subtitle shape, live timing, names and terms |
