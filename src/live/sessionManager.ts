@@ -60,6 +60,7 @@ export class LiveSessionManager {
   private session: LiveSession | undefined;
   /** Remembered so the control page can offer it again after a stop. */
   private lastDevice: string | undefined;
+  private lastFormat: CaptureFormat | undefined;
 
   constructor(options: LiveSessionManagerOptions) {
     this.options = options;
@@ -127,7 +128,12 @@ export class LiveSessionManager {
     session.start();
     this.session = session;
     this.lastDevice = merged.device;
-    info(`captions started on ${merged.device}`);
+    this.lastFormat = merged.format;
+    info(
+      merged.format === 'file'
+        ? `captions started, playing in ${merged.device}`
+        : `captions started on ${merged.device}`,
+    );
     return session;
   }
 
@@ -147,7 +153,11 @@ export class LiveSessionManager {
    * draining so everything already spoken still reaches air. Ending a session
    * outright — which discards that backlog — is the separate `end` action.
    */
-  async handle(action: 'start' | 'stop' | 'end', device?: string): Promise<void> {
+  async handle(
+    action: 'start' | 'stop' | 'end',
+    device?: string,
+    options: { format?: CaptureFormat | undefined } = {},
+  ): Promise<void> {
     if (action === 'end') {
       await this.stop();
       return;
@@ -158,13 +168,20 @@ export class LiveSessionManager {
       return;
     }
 
-    if (this.session) {
+    // Switching between a microphone and a recording changes how ffmpeg is
+    // invoked, so it needs a new session rather than a resume.
+    const formatChanged = options.format !== undefined && options.format !== this.lastFormat;
+
+    if (this.session && !formatChanged) {
       this.session.resumeCapture(device);
       if (device) this.lastDevice = device;
       return;
     }
 
-    await this.start({ device: device ?? this.lastDevice ?? '' });
+    await this.start({
+      device: device ?? this.lastDevice ?? '',
+      ...(options.format ? { format: options.format } : {}),
+    });
   }
 
   /** Advisory, and harmless when nothing is running. */

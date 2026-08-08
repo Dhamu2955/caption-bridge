@@ -300,6 +300,21 @@
       its own — not the main mix. Anything else feeds the music and the
       congregation into the translation as well.
     </p>
+
+    <div class="row" style="margin-top:18px">
+      <label class="hint" style="flex:1 1 100%;display:flex;gap:10px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="use-file" style="width:auto;min-height:0">
+        Play a recording instead, to rehearse without a microphone
+      </label>
+    </div>
+    <div id="file-row" hidden>
+      <input id="file-path" class="mono" placeholder="./test-clip.mp4">
+      <p class="hint">
+        Played at the speed it was recorded, so the delays behave exactly as they
+        would live. Costs Soniox time like a real service does — stop when you
+        have seen enough.
+      </p>
+    </div>
   </div>
 
   <div class="panel">
@@ -596,11 +611,23 @@
     }).catch(function () {});
   }
 
+  el('use-file').addEventListener('change', function () {
+    el('file-row').hidden = !this.checked;
+  });
+
   function session(action) {
+    var fromFile = el('use-file').checked;
+    var body = { action: action };
+    if (fromFile) {
+      body.device = el('file-path').value.trim() || './test-clip.mp4';
+      body.format = 'file';
+    } else {
+      body.device = el('device').value;
+    }
     return api('/api/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: action, device: el('device').value })
+      body: JSON.stringify(body)
     }).then(poll).catch(function (err) {
       var host = el('live-blocked');
       host.innerHTML = '';

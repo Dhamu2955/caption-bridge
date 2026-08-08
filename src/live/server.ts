@@ -107,7 +107,11 @@ export interface BridgeServerOptions {
    * everything already spoken still reaches air. `end` tears the session down
    * and discards that backlog, which is why it is a separate word.
    */
-  onSession?: (action: 'start' | 'stop' | 'end', device?: string) => Promise<void> | void;
+  onSession?: (
+    action: 'start' | 'stop' | 'end',
+    device?: string,
+    options?: { format?: string },
+  ) => Promise<void> | void;
   /** Reported on the control page so the operator can see what is running. */
   sessionStatus?: () => { running: boolean; device?: string | undefined; level?: number };
   /**
@@ -182,15 +186,16 @@ export class BridgeServer {
 
     app.post('/api/session', guard, (req, res) => {
       void (async () => {
-        const body = req.body as { action?: unknown; device?: unknown };
+        const body = req.body as { action?: unknown; device?: unknown; format?: unknown };
         const action = body?.action;
         if (action !== 'start' && action !== 'stop' && action !== 'end') {
           res.status(400).json({ error: 'action must be start, stop or end' });
           return;
         }
         const device = typeof body.device === 'string' ? body.device : undefined;
+        const format = typeof body.format === 'string' ? body.format : undefined;
         try {
-          await this.options.onSession?.(action, device);
+          await this.options.onSession?.(action, device, format ? { format } : undefined);
           res.json(this.options.sessionStatus?.() ?? { running: action === 'start' });
         } catch (err) {
           res.status(500).json({ error: (err as Error).message });

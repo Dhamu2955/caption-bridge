@@ -236,9 +236,11 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
         level: status.level ?? 0,
       };
     },
-    onSession: async (action, device) => {
+    onSession: async (action, device, options) => {
       try {
-        await manager.handle(action, device);
+        await manager.handle(action, device, {
+          format: options?.format as CaptureFormat | undefined,
+        });
       } catch (err) {
         // A start that cannot happen yet is a message for the operator, not a
         // stack trace — the route layer turns this into a 500 with the text.

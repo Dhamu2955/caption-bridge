@@ -151,6 +151,25 @@ describe('audio capture', () => {
     expect(args).toContain('0:1');
   });
 
+  it('plays a recording in at its own speed', () => {
+    const args = buildCaptureArgs({ device: './test-clip.mp4', format: 'file' });
+    // -re is the whole point. Without it ffmpeg reads as fast as the disk
+    // allows, a 69-minute sermon arrives in seconds, and a pipeline whose job
+    // is timing has been tested against nothing.
+    expect(args).toContain('-re');
+    expect(args).toContain('./test-clip.mp4');
+    // Not a capture device, so no -f before the input.
+    expect(args.join(' ')).not.toContain('-f file');
+    // Still the same PCM the rest of the pipeline expects.
+    expect(args.join(' ')).toContain('-ar 16000');
+    expect(args.join(' ')).toContain('pcm_s16le');
+  });
+
+  it('can loop a recording for a longer rehearsal', () => {
+    const args = buildCaptureArgs({ device: './clip.mp4', format: 'file', loop: true });
+    expect(args.join(' ')).toContain('-stream_loop -1');
+  });
+
   it('reports silence as zero level — this is what catches a dead cable', () => {
     expect(rmsLevel(Buffer.alloc(3840))).toBe(0);
   });
