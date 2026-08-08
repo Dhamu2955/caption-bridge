@@ -43,6 +43,76 @@ describe('LineBuilder', () => {
     expect(builder.flush()).toEqual([]);
   });
 
+  /**
+   * Found on a real sermon: a third of the captions went out in Gujarati.
+   *
+   * Soniox sends a run's translation shortly after its speech, and always
+   * before the endpoint that closes it. But the overflow flush does not wait
+   * for an endpoint — so speech that ran past `maxBufferMs` was emitted alone,
+   * `buildSegments` had nothing to pair it with and fell back to the original,
+   * and the English arrived moments later into an emptied buffer and was lost.
+   */
+  describe('speech that outruns its translation', () => {
+    /** 12 seconds of speech with no endpoint and no translation yet. */
+    const longRun = (): SonioxToken[] => [
+      final('સર્વોપરી', 0, 4000),
+      final(' સર્વાવતારી', 4000, 8000),
+      final(' પૂર્ણ પુરુષોત્તમ', 8000, 12_000),
+    ];
+
+    it('holds the speech rather than captioning it in Gujarati', () => {
+      const builder = new LineBuilder();
+      // Well past maxBufferMs, but the translation has not arrived.
+      expect(builder.push(longRun())).toEqual([]);
+    });
+
+    it('emits it in English once the translation catches up', () => {
+      const builder = new LineBuilder();
+      builder.push(longRun());
+
+      const lines = builder.push([
+        translated('The supreme'),
+        translated(', the incarnated one.'),
+        { text: '<end>', is_final: true },
+      ]);
+
+      // A 12-second run is split across several captions by maxSegmentMs; what
+      // matters is that the English arrived and no Gujarati leaked into it.
+      expect(lines.length).toBeGreaterThan(0);
+      const english = lines.map((line) => line.translation).join(' ');
+      expect(english).toContain('The supreme');
+      expect(english).toContain('incarnated');
+      expect(english).not.toMatch(/[઀-૿]/);
+    });
+
+    it('does not lose the English when an overflow lands mid-run', () => {
+      const builder = new LineBuilder();
+      // A completed pair, then more speech still awaiting translation.
+      builder.push([final('એક', 0, 4000), translated('One.')]);
+      const lines = builder.push([final(' બે', 4000, 12_000)]);
+
+      // The finished pair goes out...
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.translation).toBe('One.');
+
+      // ...and the unfinished speech is still held, not discarded.
+      const rest = builder.push([translated('Two.'), { text: '<end>', is_final: true }]);
+      expect(rest).toHaveLength(1);
+      expect(rest[0]?.translation).toBe('Two.');
+    });
+
+    it('gives up and captions in Gujarati rather than never captioning at all', () => {
+      const builder = new LineBuilder({ maxUntranslatedMs: 10_000 });
+      const lines = builder.push([
+        final('એક', 0, 6000),
+        final(' બે', 6000, 14_000),
+      ]);
+      // Past the point of waiting: a caption in the wrong language beats none.
+      expect(lines.length).toBeGreaterThan(0);
+      expect(lines.map((line) => line.translation).join(' ')).toContain('એક');
+    });
+  });
+
   it('emits a line when an endpoint token arrives', () => {
     const builder = new LineBuilder();
     const lines = builder.push([
