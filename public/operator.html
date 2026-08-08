@@ -508,6 +508,23 @@
     if (sound) sound.hidden = !(opts && opts.sound);
   }
 
+  function hideVideo() {
+    media.url = null;
+    media.following = true;
+    el.video.pause();
+    el.video.removeAttribute('src');
+    el.video.load();
+    el.video.hidden = true;
+    el.feedEmpty.style.display = '';
+    document.getElementById('feed').setAttribute('data-empty', 'true');
+    var caption = document.getElementById('feedCaption');
+    if (caption) caption.hidden = true;
+    var sound = document.getElementById('soundBtn');
+    if (sound) sound.hidden = true;
+    var followButton = document.getElementById('followBtn');
+    if (followButton) followButton.hidden = true;
+  }
+
   function toggleSound() {
     // The click itself is the gesture the autoplay policy wants, so a play()
     // here is what actually starts audible playback.
@@ -904,6 +921,11 @@
           { sound: true });
         renderSound();
       }
+
+      // The session has ended. The player is a browser element with a life of
+      // its own — nothing stops it unless we do, so it would sit there playing
+      // a recording that is no longer being captioned.
+      if (!videoUrl && media.url && !message.media) hideVideo();
 
       render();
       renderStatus();

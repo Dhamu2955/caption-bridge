@@ -107,6 +107,18 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     appliesTo: 'next-session',
   },
   {
+    path: 'live.maxBufferMs',
+    label: 'Cut a line after',
+    help:
+      'The biggest lever on how soon a caption appears. A caption cannot exist until ' +
+      'the sentence it covers has finished being spoken, so long sentences are late ones. ' +
+      'Cutting sooner gets captions up faster, at the cost of splitting sentences.',
+    type: 'number',
+    unit: 'ms',
+    group: 'live',
+    appliesTo: 'next-session',
+  },
+  {
     path: 'live.streamOffsetMs',
     label: 'Encoder to YouTube delay',
     help:

@@ -82,6 +82,15 @@ export interface AppConfig {
     youtubeCaptionsUrlEnv: string;
     /** Delay between this machine's encoder and YouTube receiving the video. */
     streamOffsetMs: number;
+    /**
+     * How long a speaker may run without a pause before the line is cut.
+     *
+     * The single biggest lever on how soon a caption appears. A caption cannot
+     * exist until the sentence it covers has finished being spoken, so a long
+     * utterance is inherently a late caption — cutting sooner trades whole
+     * sentences for speed.
+     */
+    maxBufferMs: number;
   };
 }
 
@@ -134,6 +143,7 @@ const DEFAULTS = {
     lateSkipMs: 2000,
     youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
     streamOffsetMs: 0,
+    maxBufferMs: 8000,
   },
 } satisfies AppConfig;
 
@@ -258,6 +268,7 @@ export function parseConfig(raw: unknown): AppConfig {
         DEFAULTS.live.youtubeCaptionsUrlEnv,
       ),
       streamOffsetMs: num(live['streamOffsetMs'], 'live.streamOffsetMs', DEFAULTS.live.streamOffsetMs),
+      maxBufferMs: num(live['maxBufferMs'], 'live.maxBufferMs', DEFAULTS.live.maxBufferMs),
     },
   };
 

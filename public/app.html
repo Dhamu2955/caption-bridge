@@ -365,11 +365,15 @@
     </p>
     <div class="row">
       <button class="primary" id="start">Start captions</button>
-      <button id="stop">Stop</button>
+      <button id="stop">Pause</button>
+      <button id="end">End session</button>
     </div>
     <p class="hint">
-      Stop leaves everything already spoken to finish going out — it does not
-      throw away the minutes still waiting.
+      <strong>Pause</strong> stops listening but lets everything already spoken
+      finish going out — it does not throw away the minutes still waiting.
+      <strong>End session</strong> stops everything at once: the queue is
+      discarded, the screens go blank, and a recording being played in stops
+      playing.
     </p>
   </div>
 
@@ -751,6 +755,7 @@
 
   el('start').addEventListener('click', function () { session('start'); });
   el('stop').addEventListener('click', function () { session('stop'); });
+  el('end').addEventListener('click', function () { session('end'); });
 
   /* ---- settings -------------------------------------------------------- */
 
