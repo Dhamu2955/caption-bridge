@@ -62,7 +62,14 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
   const manager = new LiveSessionManager({
     getConfig,
     overlays,
-    defaults: { format: args.format, verbose: args.verbose ?? false },
+    defaults: {
+      format: args.format,
+      verbose: args.verbose ?? false,
+      // Every overlay the page offers a URL for, so none of them is a dead
+      // link. Outputs are cheap by design (INVARIANT 7) — it is sessions that
+      // cost, and there is still only one.
+      outputs: [...OVERLAY_NAMES],
+    },
     // Read at start time, so a URL pasted into Settings is picked up by the
     // next session without restarting anything.
     getYoutubeCaptionsUrl: () => secrets.get('live.youtubeCaptionsUrlEnv'),
