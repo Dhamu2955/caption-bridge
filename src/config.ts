@@ -392,7 +392,9 @@ export function resolveYoutubeCredentials(
     if (!value || value.trim() === '') {
       throw new ConfigError(
         `${name} is not set. Put it in .env — never in config.json. ` +
-          `Run \`sermon-captions publish --auth\` to mint a refresh token.`,
+          // The same invocation the README and the preflight fix use — the bare
+          // `sermon-captions` binary only exists once the package is linked.
+          `Run \`npx tsx src/cli.ts publish --auth\` to mint a refresh token.`,
       );
     }
     return value.trim();

@@ -40,6 +40,14 @@
   .status-text { font-size: 0.95rem; }
   .status-spacer { flex: 1 1 auto; }
 
+  /*
+    Framed inside the app, the shell's own bar already says whether captions are
+    going out, ten pixels above this. Standing alone on a tablet — the usual
+    case — this is the only place it is said, so it stays.
+  */
+  body[data-framed="true"] .status > .dot,
+  body[data-framed="true"] .status-text { display: none; }
+
   /* ---- video beside the queue ----------------------------------------- */
 
   .stage { display: grid; gap: var(--s4); align-items: start; }
@@ -354,8 +362,11 @@
     <button class="follow" id="followBtn" type="button" hidden>Back to live</button>
     <button class="sound" id="soundBtn" type="button" aria-pressed="false" hidden>Sound on</button>
     <div class="feed-empty" id="feedEmpty">
+      <!-- The delay is configurable, so it is filled in from the live view
+           rather than written here, where it went stale at four seconds while
+           the setting had moved to fifteen. -->
       <p>The reviewer video goes here — the picture with the caption already on
-         it, about four seconds behind the room.</p>
+         it, <span id="feedTrail">a few seconds</span> behind the room.</p>
       <p><code>?video=&lt;stream url&gt;</code></p>
     </div>
   </section>
@@ -388,6 +399,12 @@
   var token = params.get('token') || '';
   var videoUrl = params.get('video');
   var demo = params.get('demo') === '1';
+
+  // Same page either way; it just stops repeating what the shell around it is
+  // already saying.
+  try {
+    if (window.self !== window.top) document.body.setAttribute('data-framed', 'true');
+  } catch (err) { /* cross-origin parent: treat it as standalone */ }
 
   var el = {
     dot: document.getElementById('dot'),
@@ -1007,7 +1024,11 @@
       state.pending = message.pending || [];
       state.windowMs = message.windowMs || 0;
       state.sessionEpoch = message.sessionEpoch || 0;
-      if (message.assemblyMs) media.trailMs = message.assemblyMs;
+      if (message.assemblyMs) {
+        media.trailMs = message.assemblyMs;
+        var trail = document.getElementById('feedTrail');
+        if (trail) trail.textContent = Math.round(message.assemblyMs / 1000) + ' seconds';
+      }
 
       // A recording is only offered when the bridge is being fed one. An
       // explicit ?video= always wins — that is someone pointing at their own

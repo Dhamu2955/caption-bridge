@@ -246,9 +246,9 @@ export const SECRETS: readonly SecretDescriptor[] = [
     configPath: 'live.youtubeCaptionsUrlEnv',
     label: 'YouTube caption URL',
     help:
-      'Enable closed captions with the "POST to URL" method in the stream settings, and ' +
-      'YouTube gives you this. It carries a cid that identifies the stream, so treat it ' +
-      'like a password.',
+      'This is the one that puts captions on a live stream. Turn on closed captions with ' +
+      'the "POST to URL" method in YouTube\'s stream settings and it hands you this URL. ' +
+      'It carries a cid identifying the stream, so treat it like a password.',
     group: 'youtube',
     blocks: [],
     optional: true,
@@ -256,7 +256,9 @@ export const SECRETS: readonly SecretDescriptor[] = [
   {
     configPath: 'youtube.clientIdEnv',
     label: 'YouTube client id',
-    help: 'Only needed to put caption tracks on your own channel.',
+    help:
+      'For adding caption tracks to recordings after the event. Live captions do not use ' +
+      'this — leave it empty if that is all you do.',
     group: 'youtube',
     blocks: ['publish'],
     optional: true,
@@ -273,7 +275,8 @@ export const SECRETS: readonly SecretDescriptor[] = [
     configPath: 'youtube.refreshTokenEnv',
     label: 'YouTube refresh token',
     help:
-      'Minted once by `publish --auth`. Set the consent screen to Production, or Google ' +
+      'Minted once by `npx tsx src/cli.ts publish --auth`. Set the consent screen to ' +
+      'Production, or Google ' +
       'expires it after seven days — exactly the length of festival week.',
     group: 'youtube',
     blocks: ['publish'],

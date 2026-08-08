@@ -224,6 +224,32 @@
   .field { margin-bottom: var(--s4); }
   .field:last-of-type { margin-bottom: 0; }
   .field > .label { margin-bottom: var(--s1); }
+
+  /*
+    An API key stretched to the full width of a 1440px screen, with two lines of
+    explanation underneath it, made six credentials into a page you scroll. The
+    control takes the width it needs and its explanation sits beside it, which
+    both halves the height and gives the empty right-hand side something to do.
+  */
+  @media (min-width: 900px) {
+    .field {
+      display: grid;
+      grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+      column-gap: var(--s5);
+      align-items: start;
+    }
+    .field > .label { grid-column: 1 / -1; }
+    .field > .hint { grid-column: 2; margin-top: 0; }
+  }
+  .field input[type="number"] { max-width: 170px; }
+
+  /* A rule per field, so it is unambiguous which description belongs to which
+     control once they sit side by side. */
+  .settings-pane .field {
+    padding-top: var(--s4);
+    border-top: 1px solid var(--rule-soft);
+  }
+  .settings-pane .field:first-of-type { padding-top: 0; border-top: 0; }
   .applies {
     margin-left: var(--s2); font-family: var(--mono); font-size: 0.58rem;
     letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint);
@@ -340,7 +366,9 @@
     <p class="hint">
       <strong>YouTube captions do not use these.</strong> They are sent to
       YouTube as text and the viewer switches them on, so there is no page to
-      point anything at. Set that URL under Settings → YouTube.
+      point anything at. YouTube hands you that URL when you switch the stream's
+      captions to "POST to URL"; it goes in
+      <strong>Settings → Keys and passwords</strong>.
     </p>
     <div id="overlay-urls"></div>
     <p class="hint" id="dash-overlays">No screens connected.</p>
@@ -409,13 +437,13 @@
   <nav class="rail" id="settings-rail" aria-label="Settings sections"></nav>
   <div class="settings-pane">
 
+  <!-- No heading in the pane: the rail beside it already names the section, and
+       naming it twice in two different words is worse than naming it twice. -->
   <section class="box" data-section="credentials" hidden>
-    <span class="label">Credentials</span>
     <div id="secrets"></div>
   </section>
 
   <section class="box" data-section="youtube-test" hidden>
-    <span class="label">YouTube captions</span>
     <p class="hint">
       Send one real caption to the ingestion URL and see what YouTube says. Worth
       doing on a private test stream before a festival — the wire format is the
@@ -885,6 +913,13 @@
     restart: 'needs a restart'
   };
 
+  // Said once for the group, so the badge is left to mark the odd one out.
+  var USUALLY = {
+    immediate: 'Changes here take effect straight away, even mid-service.',
+    'next-session': 'Changes here take effect the next time captions are started.',
+    restart: 'Changes here need the bridge restarted.'
+  };
+
   function renderSettings(body) {
     var groupHost = el('settings-groups');
     groupHost.innerHTML = '';
@@ -901,30 +936,24 @@
       var panel = document.createElement('div');
       panel.className = 'panel';
 
-      // Rarely-wanted settings fold away rather than sitting between the ones
-      // that change every week.
+      // No heading, and no fold for the rarely-wanted groups: the rail names
+      // the section and shows one at a time, so both were a second click to
+      // read something already on screen.
       var host = panel;
-      if (info.collapsed) {
-        var details = document.createElement('details');
-        var summary = document.createElement('summary');
-        summary.className = 'label';
-        summary.style.cursor = 'pointer';
-        summary.textContent = info.title;
-        details.appendChild(summary);
-        panel.appendChild(details);
-        host = details;
-      } else {
-        var heading = document.createElement('span');
-        heading.className = 'label';
-        heading.textContent = info.title;
-        panel.appendChild(heading);
-      }
 
-      if (info.blurb) {
+      // When a badge is on every field it has stopped being information. State
+      // the group's rule once, and badge only the settings that break it.
+      var tally = {};
+      groups[info.id].forEach(function (s) {
+        tally[s.appliesTo] = (tally[s.appliesTo] || 0) + 1;
+      });
+      var usual = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; })[0];
+
+      if (info.blurb || USUALLY[usual]) {
         var blurb = document.createElement('p');
         blurb.className = 'hint';
         blurb.style.marginBottom = '18px';
-        text(blurb, info.blurb);
+        text(blurb, [info.blurb, USUALLY[usual]].filter(Boolean).join(' '));
         host.appendChild(blurb);
       }
 
@@ -936,10 +965,12 @@
         var label = document.createElement('label');
         label.className = 'label';
         label.textContent = setting.label + (setting.unit ? ' (' + setting.unit + ')' : '');
-        var applies = document.createElement('span');
-        applies.className = 'applies';
-        applies.textContent = APPLIES[setting.appliesTo] || '';
-        label.appendChild(applies);
+        if (setting.appliesTo !== usual && APPLIES[setting.appliesTo]) {
+          var applies = document.createElement('span');
+          applies.className = 'applies';
+          applies.textContent = APPLIES[setting.appliesTo];
+          label.appendChild(applies);
+        }
         field.appendChild(label);
 
         var multiline = setting.type === 'string[]' || setting.type === 'termPairs';

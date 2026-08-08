@@ -146,7 +146,7 @@ export class PreflightChecks {
         label: 'Soniox API key',
         state: 'missing',
         detail: (err as Error).message,
-        fix: 'Paste your key on the Settings tab',
+        fix: 'Paste it on Settings → Keys and passwords',
         blocks: ['live', 'ingest'],
         checkedAt: Date.now(),
       };
@@ -236,7 +236,7 @@ export class PreflightChecks {
         label: 'Database',
         state: 'missing',
         detail: (err as Error).message,
-        fix: 'Run `docker compose up -d`, then paste the URL on the Settings tab',
+        fix: 'Run `docker compose up -d`, then paste the URL on Settings → Keys and passwords',
         blocks,
         checkedAt: Date.now(),
       };
@@ -295,7 +295,7 @@ export class PreflightChecks {
         label: 'YouTube',
         state: 'missing',
         detail: (err as Error).message,
-        fix: 'Only needed to put captions on your own channel — add the OAuth pair on Settings',
+        fix: 'Only needed to put captions on your own channel — add the OAuth pair on Settings → Keys and passwords',
         blocks: ['publish'],
         checkedAt: Date.now(),
       };
