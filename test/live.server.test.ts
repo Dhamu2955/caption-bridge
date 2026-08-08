@@ -271,6 +271,40 @@ describe('control page contract', () => {
   });
 });
 
+describe('reviewer video contract', () => {
+  const page = fileURLToPath(new URL('../public/operator.html', import.meta.url));
+
+  it('takes the recording from the bridge rather than a path in the URL', async () => {
+    // /api/media serves whatever the running session is playing and accepts no
+    // path of its own, so there is nothing for a crafted URL to reach.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('message.media');
+  });
+
+  it('lets an explicit ?video= win', async () => {
+    // Someone pointing at their own feed knows better than we do.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('!videoUrl && message.media');
+  });
+
+  it('maps caption time to file time with no offset to calibrate', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('Date.now() - state.sessionEpoch');
+  });
+
+  it('seeks from the words, never from the buttons', async () => {
+    // A mis-tap must not drop a line that was about to go out.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain("gu.addEventListener('click'");
+    expect(html).not.toMatch(/drop\.addEventListener\('click',\s*function\s*\(\)\s*\{\s*seekTo/);
+  });
+
+  it('still requests no external resources', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+  });
+});
+
 describe('app page contract', () => {
   const page = fileURLToPath(new URL('../public/app.html', import.meta.url));
 

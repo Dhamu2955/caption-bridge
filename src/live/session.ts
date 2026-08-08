@@ -201,6 +201,16 @@ export class LiveSession {
     this.capture.on('error', (err) => warn(`capture: ${err.message}`));
   }
 
+  /**
+   * The recording being played in, if this session is fed from a file.
+   *
+   * The media route serves exactly this and takes no path of its own, so there
+   * is no parameter for anyone to point at /etc/passwd.
+   */
+  get mediaPath(): string | undefined {
+    return this.options.format === 'file' ? resolve(this.options.device) : undefined;
+  }
+
   get status(): SessionStatus {
     return {
       state: this.state,
@@ -337,6 +347,8 @@ export class LiveSession {
         edited: this.edited.has(line.id),
       })),
       windowMs: this.options.config.live.delayReviewMs,
+      sessionEpoch: this.sessionEpoch,
+      ...(this.options.format === 'file' ? { media: { url: '/api/media', kind: 'file' as const } } : {}),
     });
   }
 }

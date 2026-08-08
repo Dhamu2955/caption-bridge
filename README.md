@@ -411,6 +411,17 @@ drains to show the time left, a "Don't show this", and a "Fix wording" for the
 occasional line worth correcting rather than dropping. Plus a clearly separated
 "Turn captions off".
 
+When the bridge is being fed a **recording** rather than a microphone, the page
+also shows the video, with the caption on it. Tap the Gujarati of any queued
+line and the picture jumps to the moment it was spoken, so a doubtful
+translation is judged against what was actually said; "Back to live" returns to
+following the playhead. The mapping needs no calibration — audio position 0 is
+the session's start instant and the file plays at its own speed, so a line at
+`audioStartMs` is at `audioStartMs` in the file.
+
+There is no equivalent for a live service yet: that needs a video feed off the
+vMix machine. See [docs/vmix-routing.md](docs/vmix-routing.md).
+
 ### Captions on the YouTube stream
 
 ```sh

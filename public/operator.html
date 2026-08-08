@@ -125,6 +125,38 @@
      which would otherwise leave an empty video box holding open the layout. */
   .feed video[hidden] { display: none; }
 
+  /* The caption sitting on the picture, so the two are judged together rather
+     than by looking back and forth between a video and a list. */
+  .feed-caption {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    margin: 0;
+    padding: 14px 18px;
+    background: linear-gradient(transparent, rgba(16, 12, 10, 0.86) 42%);
+    color: var(--marble);
+    font-size: clamp(1rem, 2.1vw, 1.4rem);
+    line-height: 1.35;
+    text-align: center;
+    text-wrap: balance;
+  }
+
+  /* The line the picture is parked on. */
+  .card[data-showing="true"] { border-color: var(--flame); }
+  .card .gu[title] { cursor: pointer; }
+
+  .follow {
+    position: absolute;
+    top: 12px; right: 12px;
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--flame);
+    color: var(--ink);
+    font-family: var(--english);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
   .feed-empty {
     display: flex;
     flex-wrap: wrap;
@@ -393,6 +425,8 @@
 
   <section class="feed" id="feed" data-empty="true" aria-label="Reviewer video">
     <video id="video" playsinline muted hidden></video>
+    <p class="feed-caption" id="feedCaption" hidden></p>
+    <button class="follow" id="followBtn" type="button" hidden>Back to live</button>
     <div class="feed-empty" id="feedEmpty">
       <p>The reviewer video goes here — the picture with the caption already on
          it, about four seconds behind the room.</p>
@@ -433,17 +467,86 @@
     feedEmpty: document.getElementById('feedEmpty')
   };
 
-  if (videoUrl) {
-    el.video.src = videoUrl;
+  function showVideo(src, opts) {
+    if (el.video.getAttribute('src') === src) return;
+    el.video.setAttribute('src', src);
     el.video.hidden = false;
     el.video.autoplay = true;
+    if (opts && opts.seekable) el.video.removeAttribute('muted');
     el.feedEmpty.style.display = 'none';
     document.getElementById('feed').setAttribute('data-empty', 'false');
+  }
+
+  if (videoUrl) showVideo(videoUrl);
+
+  /* ---- keeping the picture on the words ------------------------------- */
+
+  /**
+   * When the bridge is being fed a recording rather than a microphone, the file
+   * is on disk and seekable, so the reviewer can watch the moment a line was
+   * spoken instead of judging the English on its own.
+   *
+   * The mapping is exact: audio position 0 is `sessionEpoch`, and the file is
+   * played in at its own speed, so a line spoken at `audioStartMs` is at
+   * `audioStartMs` in the file. No offset to calibrate.
+   *
+   * A live service has no equivalent — that needs a video feed off the vMix
+   * machine, which is a separate piece of work.
+   */
+  var media = {
+    url: null,
+    /** Following the playhead, or parked on a line the reviewer picked. */
+    following: true,
+    /** How far behind the capture point to sit while following. */
+    trailMs: 4000,
+    lastSeek: 0
+  };
+
+  function mediaTimeNow() {
+    if (!state.sessionEpoch) return 0;
+    return Math.max(0, Date.now() - state.sessionEpoch - media.trailMs) / 1000;
+  }
+
+  function syncVideo() {
+    if (!media.url || el.video.hidden || !el.video.duration) return;
+    if (!media.following) return;
+    var want = mediaTimeNow();
+    if (want > el.video.duration) return;
+    // Only correct a real drift. Nudging every tick makes the picture stutter.
+    if (Math.abs(el.video.currentTime - want) > 1.5) el.video.currentTime = want;
+  }
+
+  function seekTo(ms, id) {
+    if (!media.url || el.video.hidden) return;
+    media.following = false;
+    media.lastSeek = Date.now();
+    el.video.currentTime = Math.max(0, ms / 1000);
+    el.video.play().catch(function () {});
+    state.seekedTo = id || null;
+    renderFollow();
+    render();
+  }
+
+  function follow() {
+    media.following = true;
+    state.seekedTo = null;
+    var want = mediaTimeNow();
+    if (el.video.duration && want <= el.video.duration) el.video.currentTime = want;
+    el.video.play().catch(function () {});
+    renderFollow();
+    render();
+  }
+
+  function renderFollow() {
+    var button = document.getElementById('followBtn');
+    if (button) button.hidden = media.following;
   }
 
   var state = {
     pending: [],
     windowMs: 0,
+    sessionEpoch: 0,
+    seekedTo: null,  // line the picture is parked on, if any
     dropped: {},     // ids the reviewer has hidden
     edited: {},      // id -> corrected text the reviewer sent
     editing: null,   // id currently open in the editor
@@ -488,6 +591,14 @@
     var gu = document.createElement('p');
     gu.className = 'gu';
     gu.lang = 'gu';
+
+    // Tapping the words jumps the picture to where they were spoken, so a
+    // doubtful translation is judged against what was actually said. Only the
+    // text, never the buttons — a mis-tap must not drop a line.
+    if (media.url) {
+      gu.title = 'Show this moment';
+      gu.addEventListener('click', function () { seekTo(line.audioStartMs, line.id); });
+    }
 
     var rule = document.createElement('hr');
     rule.className = 'rule';
@@ -593,6 +704,26 @@
     return card;
   }
 
+  /** The line the picture is currently on, shown over it. */
+  function renderFeedCaption() {
+    var node = document.getElementById('feedCaption');
+    if (!node) return;
+    if (!media.url || el.video.hidden) {
+      node.hidden = true;
+      return;
+    }
+
+    var at = el.video.currentTime * 1000;
+    var showing = null;
+    for (var i = 0; i < state.pending.length; i++) {
+      var line = state.pending[i];
+      if (at >= line.audioStartMs && at <= line.audioEndMs) { showing = line; break; }
+    }
+
+    node.hidden = !showing;
+    if (showing) node.textContent = state.edited[showing.id] || showing.translation || '';
+  }
+
   function render() {
     var now = Date.now();
     el.queueEmpty.style.display = state.pending.length ? 'none' : '';
@@ -633,6 +764,8 @@
       card.drop.textContent = dropped ? 'Hidden' : "Don't show this";
       card.fix.textContent = edited ? 'Fix again' : 'Fix wording';
 
+      card.li.setAttribute('data-showing', state.seekedTo === line.id ? 'true' : 'false');
+
       if (card.li.parentNode !== el.queue) el.queue.appendChild(card.li);
       // Keep DOM order matching the queue order without rebuilding the cards.
       if (el.queue.children[index] !== card.li) {
@@ -666,9 +799,14 @@
       card.fill.style.transform = 'scaleY(' + clamped + ')';
       card.drain.setAttribute('aria-valuenow', String(Math.round(clamped * 100)));
     });
+    syncVideo();
+    renderFeedCaption();
     requestAnimationFrame(animateDrain);
   }
   requestAnimationFrame(animateDrain);
+
+  var followBtn = document.getElementById('followBtn');
+  if (followBtn) followBtn.addEventListener('click', follow);
 
   // ---- actions --------------------------------------------------------
 
@@ -706,6 +844,17 @@
     if (message.type === 'state') {
       state.pending = message.pending || [];
       state.windowMs = message.windowMs || 0;
+      state.sessionEpoch = message.sessionEpoch || 0;
+
+      // A recording is only offered when the bridge is being fed one. An
+      // explicit ?video= always wins — that is someone pointing at their own
+      // feed and knowing better than we do.
+      if (!videoUrl && message.media && message.media.url && media.url !== message.media.url) {
+        media.url = message.media.url;
+        showVideo(message.media.url + (token ? '?token=' + encodeURIComponent(token) : ''),
+          { seekable: true });
+      }
+
       render();
       renderStatus();
       return;

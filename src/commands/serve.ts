@@ -117,6 +117,28 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     res.json({ ok: true });
   });
 
+  /**
+   * The recording the current session is playing in, for the reviewer's player.
+   *
+   * Takes no path parameter on purpose. It serves whatever file the running
+   * session was started with and nothing else, so there is no traversal to
+   * defend against — and nothing at all to serve when a real microphone is
+   * being used. Unguarded like the overlay, because a video element cannot
+   * carry a token any more than a vMix Browser input can.
+   */
+  api.get('/api/media', (req, res) => {
+    const path = manager.current?.mediaPath;
+    if (!path) {
+      res.status(404).json({ error: 'no recording is playing' });
+      return;
+    }
+    // sendFile handles Range itself, which is what makes the player seekable.
+    res.sendFile(path, { acceptRanges: true }, (err) => {
+      if (err && !res.headersSent) res.status(404).end();
+    });
+    void req;
+  });
+
   api.get('/api/settings', guard, (_req, res) => {
     res.json({
       settings: SETTINGS,

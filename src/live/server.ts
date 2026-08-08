@@ -88,6 +88,17 @@ export interface OperatorView {
   pending: PendingLine[];
   /** Size of the review window, so the page can label it. */
   windowMs: number;
+  /**
+   * Wall clock for audio position 0, so the page can put a picture where the
+   * words are. Absent when nothing is running.
+   */
+  sessionEpoch?: number;
+  /**
+   * A recording the reviewer can watch alongside the queue, when the session is
+   * being fed from a file rather than a microphone. There is no equivalent for
+   * a live service yet — that needs a video feed off the vMix machine.
+   */
+  media?: { url: string; kind: 'file' } | undefined;
 }
 
 export interface BridgeServerOptions {
