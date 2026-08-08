@@ -5,6 +5,7 @@ import { Router, type RequestHandler } from 'express';
 import type { AppConfig, LoadedConfig } from '../config.js';
 import { resolveDatabaseUrl } from '../db/client.js';
 import { PrismaProvider } from '../db/provider.js';
+import { createArchiveRouter } from '../web/archive.js';
 import { ConfigStore } from '../settings/configStore.js';
 import { SecretsService } from '../settings/secrets.js';
 import { SETTINGS } from '../settings/schema.js';
@@ -248,7 +249,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     port: getConfig().server.port,
     outputs: overlays.map,
     token,
-    routers: [api],
+    routers: [api, createArchiveRouter({ getConfig, database, guard })],
     listDevices: () => listAudioDevices(args.format),
     sessionStatus: () => {
       const status = manager.status;

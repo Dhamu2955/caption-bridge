@@ -129,7 +129,7 @@ Setup below are the same work done from a terminal instead.
 | **Overview** | What is set up and what is not, and whether captions are going out |
 | **Captions** | Pick the sound input, start and stop, watch the level meter, copy the overlay URLs for vMix |
 | **Reviewer** | The reviewer queue, for correcting lines from the vMix machine rather than a tablet |
-| **Sermons** | Not built yet — the recorded-sermon workflow is still the CLI below |
+| **Sermons** | Every service, its subtitles, corrections, and re-export |
 | **Settings** | Credentials, subtitle shape, live timing, names and terms |
 
 `/control`, `/operator` and `/overlay` still work at their own URLs and are

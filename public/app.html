@@ -359,17 +359,27 @@
 </div>
 
 <!-- ---- sermons -------------------------------------------------------- -->
-<main class="shell" data-panel="sermons" hidden>
+<main class="shell wide" data-panel="sermons" hidden>
   <h1>Sermons</h1>
-  <p class="sub">Recorded services, their subtitles, and corrections.</p>
-  <div class="panel">
-    <p class="hint">
-      Not built yet. For now this work is done from a terminal:
-    </p>
-    <span class="url">npx tsx src/cli.ts list</span>
-    <span class="url">npx tsx src/cli.ts show &lt;video&gt; --from 40 --limit 5</span>
-    <span class="url">npx tsx src/cli.ts edit &lt;video&gt; --cue 42 --text "…"</span>
-    <span class="url">npx tsx src/cli.ts export &lt;video&gt;</span>
+  <p class="sub" id="sermons-sub">Recorded services, their subtitles, and corrections.</p>
+
+  <div id="sermons-notice"></div>
+
+  <div class="panel" id="service-list-panel">
+    <span class="label">Services</span>
+    <div id="service-list"></div>
+  </div>
+
+  <div class="panel" id="cue-panel" hidden>
+    <span class="label">Subtitles — <span id="cue-service"></span></span>
+    <div class="row" style="margin-bottom:16px">
+      <button class="slim" id="cue-back">All services</button>
+      <button class="slim" id="cue-prev">Earlier</button>
+      <button class="slim" id="cue-next">Later</button>
+      <button class="slim primary" id="cue-export">Write the .srt files</button>
+    </div>
+    <p class="hint" id="cue-range"></p>
+    <div id="cues"></div>
   </div>
 </main>
 
@@ -441,6 +451,7 @@
       if (!frame.getAttribute('src')) frame.setAttribute('src', '/operator' + qs);
     }
     if (name === 'settings') loadSettings();
+    if (name === 'sermons') loadServices();
     if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   }
 
@@ -862,6 +873,171 @@
       notice(el('settings-notice'), 'bad', err.message);
     });
   }
+
+  /* ---- sermons --------------------------------------------------------- */
+
+  var sermons = { ref: null, from: 1, limit: 25, total: 0 };
+
+  /**
+   * A route that answers 503 with a check id is saying "not set up yet", which
+   * is a card to render rather than an error to report as a failure.
+   */
+  function sermonsProblem(err) {
+    notice(el('sermons-notice'), 'warn', err.message);
+    el('service-list-panel').hidden = true;
+    el('cue-panel').hidden = true;
+  }
+
+  function loadServices() {
+    el('sermons-notice').innerHTML = '';
+    el('cue-panel').hidden = true;
+    el('service-list-panel').hidden = false;
+
+    api('/api/services').then(function (body) {
+      var host = el('service-list');
+      host.innerHTML = '';
+
+      if (!body.services.length) {
+        text(el('sermons-sub'), 'Nothing ingested yet.');
+        var empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = 'Run an ingest from a terminal and it will appear here.';
+        host.appendChild(empty);
+        return;
+      }
+
+      text(el('sermons-sub'),
+        body.services.length === 1 ? 'One service.' : body.services.length + ' services.');
+      body.services.forEach(function (service) {
+        var row = document.createElement('div');
+        row.className = 'check';
+
+        var body2 = document.createElement('div');
+        body2.className = 'check-body';
+
+        var name = document.createElement('p');
+        name.className = 'check-name';
+        name.textContent = service.date + ' — ' + service.speaker + (service.title ? ' · ' + service.title : '');
+        body2.appendChild(name);
+
+        var detail = document.createElement('p');
+        detail.className = 'check-detail';
+        detail.textContent = service.cues + ' subtitles · ' + service.videoPath;
+        body2.appendChild(detail);
+
+        row.appendChild(body2);
+
+        var open = document.createElement('button');
+        open.className = 'slim';
+        open.style.flex = '0 0 auto';
+        open.textContent = 'Open';
+        open.addEventListener('click', function () { openService(service); });
+        row.appendChild(open);
+
+        host.appendChild(row);
+      });
+    }).catch(sermonsProblem);
+  }
+
+  function openService(service) {
+    sermons.ref = service.id;
+    sermons.from = 1;
+    text(el('cue-service'), service.date + ' — ' + service.speaker);
+    loadCues();
+  }
+
+  function loadCues() {
+    el('service-list-panel').hidden = true;
+    el('cue-panel').hidden = false;
+
+    api('/api/services/' + encodeURIComponent(sermons.ref) + '/segments?from=' + sermons.from +
+        '&limit=' + sermons.limit)
+      .then(function (body) {
+        sermons.total = body.total;
+        text(el('cue-range'),
+          'Showing ' + sermons.from + '–' + Math.min(sermons.from + sermons.limit - 1, body.total) +
+          ' of ' + body.total + '. Corrections are saved to the database; press "Write the .srt files" to put them on disk.');
+        el('cue-prev').disabled = sermons.from <= 1;
+        el('cue-next').disabled = sermons.from + sermons.limit > body.total;
+
+        var host = el('cues');
+        host.innerHTML = '';
+        body.rows.forEach(function (row) { host.appendChild(cueRow(row)); });
+      })
+      .catch(sermonsProblem);
+  }
+
+  function cueRow(row) {
+    var wrap = document.createElement('div');
+    wrap.className = 'field';
+
+    var label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = 'Cue ' + row.cue + (row.editedAt ? ' — corrected' : '');
+    wrap.appendChild(label);
+
+    var gu = document.createElement('p');
+    gu.className = 'hint';
+    gu.lang = 'gu';
+    gu.style.fontSize = '1.05rem';
+    gu.style.color = 'var(--marble)';
+    text(gu, row.original);
+    wrap.appendChild(gu);
+
+    var input = document.createElement('textarea');
+    input.value = row.translation;
+    wrap.appendChild(input);
+
+    if (row.previousTranslation) {
+      var was = document.createElement('p');
+      was.className = 'hint';
+      text(was, 'Was: ' + row.previousTranslation);
+      wrap.appendChild(was);
+    }
+
+    var actions = document.createElement('div');
+    actions.className = 'row';
+    var save = document.createElement('button');
+    save.className = 'slim';
+    save.style.flex = '0 0 auto';
+    save.textContent = 'Save';
+    save.addEventListener('click', function () {
+      api('/api/services/' + encodeURIComponent(sermons.ref) + '/segments/' + row.cue, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: input.value })
+      }).then(function (result) {
+        notice(el('sermons-notice'), 'good',
+          result.unchanged ? 'Cue ' + row.cue + ' was already that.' : 'Cue ' + row.cue + ' saved.');
+        loadCues();
+      }).catch(function (err) {
+        notice(el('sermons-notice'), 'bad', err.message);
+      });
+    });
+    actions.appendChild(save);
+    wrap.appendChild(actions);
+
+    return wrap;
+  }
+
+  el('cue-back').addEventListener('click', loadServices);
+  el('cue-prev').addEventListener('click', function () {
+    sermons.from = Math.max(1, sermons.from - sermons.limit);
+    loadCues();
+  });
+  el('cue-next').addEventListener('click', function () {
+    sermons.from = sermons.from + sermons.limit;
+    loadCues();
+  });
+  el('cue-export').addEventListener('click', function () {
+    api('/api/services/' + encodeURIComponent(sermons.ref) + '/export', { method: 'POST' })
+      .then(function (result) {
+        notice(el('sermons-notice'), 'good',
+          'Written: ' + result.targetSrt.split('/').pop() + ' and ' + result.sourceSrt.split('/').pop() +
+          ' (' + result.cues + ' subtitles).');
+      })
+      .catch(function (err) { notice(el('sermons-notice'), 'bad', err.message); });
+  });
 
   el('test-yt').addEventListener('click', function () {
     var host = el('yt-result');

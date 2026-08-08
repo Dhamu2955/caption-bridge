@@ -344,6 +344,13 @@ describe('app page contract', () => {
     expect(html).toContain('throw away the minutes still waiting');
   });
 
+  it('says corrections go to the database, not to the .srt', async () => {
+    // Hand-editing an .srt is silently overwritten by the next export; the page
+    // has to make the direction of travel obvious.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('Corrections are saved to the database');
+  });
+
   it('lets the framed reviewer play sound', async () => {
     // Without allow, "Sound on" works at /operator and silently does nothing
     // inside the tab.
