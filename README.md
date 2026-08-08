@@ -63,66 +63,27 @@ On macOS: `brew install node ffmpeg` and install Docker Desktop.
 
 ---
 
-## Setup
-
-Five steps, from a fresh clone.
-
-### 1. Install dependencies
+## Start here
 
 ```sh
 npm install
-```
-
-### 2. Add your API key
-
-```sh
-cp .env.example .env
-```
-
-Open `.env` and paste your key after `SONIOX_API_KEY=`.
-
-`.env` is gitignored and never committed. **Never put the key in
-`config.json`** — that file *is* committed.
-
-### 3. Start the database
-
-```sh
-docker compose up -d
-```
-
-Postgres 16 with pgvector, on **port 5433**. That's deliberate — 5432 is the
-default and often already taken by another project. It listens on localhost
-only; nothing on your network can reach it.
-
-### 4. Create the tables
-
-```sh
-npx prisma migrate deploy
-```
-
-### 5. Check it works
-
-```sh
-npm test
-```
-
-273 tests, no API calls, nothing spent. If they pass, you're set up correctly.
-
----
-
-## Running the app
-
-```sh
 npm run dev
 ```
 
-It prints a URL. Open it and everything else is set up from there — the Soniox
-key, the database, the audio input, the YouTube caption URL.
+That's it. It prints a URL — open it, and everything else is set up from the
+app: the Soniox key, the database, the audio input, the YouTube caption URL.
 
 **It starts before any of that exists.** A fresh clone with no `.env`, no
-database and no ffmpeg still serves the page; the top of the Captions tab lists
-what is missing and what to do about each one, rather than refusing to run.
-Steps 2–4 of Setup below are the same work done from a terminal instead.
+database and no ffmpeg still serves every page. The top of the Captions tab
+lists what is missing and one thing to do about each, rather than refusing to
+run.
+
+Prefer a terminal, or setting up a machine you won't be sitting at? [Setup by
+hand](#setup-by-hand) below does the same work.
+
+---
+
+## The app
 
 One tab per job. Whether captions are going out is shown in the bar, from
 whichever tab you are on.
@@ -141,6 +102,52 @@ To reach it from the vMix machine and a tablet, set **Listen on** to `0.0.0.0`
 in Settings and restart. Note what that means: anyone on the mandir network can
 then open the app, and the app can write API keys. Only do it on a network you
 trust — there are no user accounts yet.
+
+---
+
+## Setup by hand
+
+The same four things the app does for you, from a terminal. Skip this if you
+used the app.
+
+### 1. Secrets
+
+```sh
+cp .env.example .env
+```
+
+Open `.env` and fill in what you need — it explains each line. The short
+version: `SONIOX_API_KEY` for any captions at all, `DATABASE_URL` (already
+filled in) to keep them, `YOUTUBE_INGESTION_URL` for live YouTube captions.
+
+`.env` is gitignored and never committed. **Never put a key in `config.json`**
+— that file *is* committed.
+
+### 2. The database
+
+```sh
+docker compose up -d
+```
+
+Postgres 16 with pgvector, on **port 5433**. That's deliberate — 5432 is the
+default and often already taken by another project. It listens on localhost
+only; nothing on your network can reach it.
+
+### 3. The tables
+
+```sh
+npx prisma migrate deploy
+```
+
+### 4. Check it works
+
+```sh
+npm test
+```
+
+364 tests, no API calls, nothing spent. If they pass, you're set up correctly.
+
+---
 
 ## Running commands
 
@@ -436,24 +443,54 @@ and YouTube gives you the ingestion URL. Every reviewed line is posted there as
 a real closed caption — toggleable by the viewer, and never burned into the
 picture, which is why this path needs no second composite in vMix.
 
+You can leave the flag off and put the URL in `YOUTUBE_INGESTION_URL` instead,
+or paste it into **Settings → Keys and passwords** in the app. It carries a
+`cid` identifying your stream, so treat it like a password.
+
+This is the *only* thing live YouTube captions need. The `YOUTUBE_CLIENT_ID`
+/ `_SECRET` / `_REFRESH_TOKEN` trio is a separate job — attaching caption tracks
+to recordings after the event — and is not involved here.
+
 `--stream-offset` is the delay between your encoder and YouTube receiving the
 video; it is what puts each caption on the right words. **Confirm it on a
 private test stream before a festival.**
 
-### How long the reviewer gets
+### The two delays
 
-`live.delayReviewMs` in `config.json`, three minutes by default, up to ten.
+There are two, and they add up — they are never collapsed into one.
 
-At the original 25 seconds a reviewer could realistically only drop a line —
-reading the Gujarati, judging the English and typing a fix does not fit. Minutes
-make correcting one workable. The cost is that the stream runs that far behind
-the room, and that the delay can no longer live in vMix's Video Delay, which
-buffers uncompressed frames in RAM: it has to move after the encoder, to OBS's
-stream delay or a disk relay. See [docs/vmix-routing.md](docs/vmix-routing.md).
+| | | What it buys |
+|---|---|---|
+| **A** `live.delayAssemblyMs` | 15s | Time for Soniox to hear a whole sentence and translate it. Below this, captions are scheduled for an instant already past and get dropped |
+| **B** `live.delayReviewMs` | 3min | Time for a human to read the Gujarati, judge the English, and type a correction |
 
-The venue screens are unaffected — they stay about four seconds behind the
-speaker, because a congregation in the room cannot watch captions three minutes
-late.
+Every destination waits **A**. Only the reviewed one — the broadcast — waits
+**A + B** as well:
+
+```
+speech ──▶ A ──▶ venue, overflow, reviewer's monitor
+              └▶ B ──▶ the stream, YouTube captions
+```
+
+That gap is the whole point: a reviewer's correction lands while the line is
+still inside **B**, so it changes what goes out rather than trying to un-say it.
+
+**Why A is 15 seconds.** Measured across all 594 cues of a real sermon: the
+median caption is ready 7s after its first word, 90% within 12s, the worst at
+21s. A caption cannot exist until the sentence it covers has finished being
+spoken, so this is a floor set by speech, not by the software. Set it lower and
+lines go missing; the symptom is someone talking with nothing on screen.
+
+**Why B is minutes.** At the original 25 seconds a reviewer could realistically
+only drop a line. The cost is that the stream runs that far behind the room, and
+that a delay this long can no longer live in vMix's Video Delay, which buffers
+uncompressed frames in RAM: it has to move after the encoder, to OBS's stream
+delay or a disk relay. See [docs/vmix-routing.md](docs/vmix-routing.md).
+Tunable up to ten minutes.
+
+The venue screens are unaffected — they stay `delayAssemblyMs` behind the
+speaker (15 seconds by default), because a congregation in the room cannot
+watch captions three minutes late.
 
 **`/overlay?output=venue`** — the caption block that goes on screen.
 Transparent background so vMix can key it. English only by default; add
@@ -514,12 +551,18 @@ reason to run this weekly — see [SPEC.md](SPEC.md) §5.
 ## Troubleshooting
 
 **`SONIOX_API_KEY is not set`**
-`.env` is missing or the key line is empty. `cp .env.example .env` and paste
-your key.
+`.env` is missing or the key line is empty. Paste the key into **Settings → Keys
+and passwords** in the app, or `cp .env.example .env` and put it there.
 
 **`DATABASE_URL is not set`**
-Same file. It should already contain the `postgresql://...5433/...` line from
-`.env.example`.
+Same two places. `.env.example` already contains the
+`postgresql://...5433/...` line, so copying the file is usually enough.
+
+**Someone is speaking and no caption appears**
+`live.delayAssemblyMs` is too low. A caption cannot exist until the sentence it
+covers has finished being spoken, so anything under about 12 seconds routinely
+schedules lines for an instant already past, and they are dropped. See
+[The two delays](#the-two-delays).
 
 **`ffmpeg not found on PATH`**
 `brew install ffmpeg` on macOS.
@@ -584,7 +627,7 @@ public/
   overlay.html        on-air caption block
 prisma/schema.prisma  database schema
 docs/                 architecture and vMix routing
-test/                 273 tests
+test/                 364 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else

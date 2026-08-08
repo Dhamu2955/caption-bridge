@@ -132,7 +132,12 @@ const DEFAULTS = {
   database: { urlEnv: 'DATABASE_URL' },
   server: { host: '127.0.0.1', port: 3000 },
   live: {
-    delayAssemblyMs: 4000,
+    // Measured, not guessed: across all 594 cues of a real 69-minute sermon, the
+    // median caption was ready 7s after its first word, 90% within 12s and the
+    // worst at 21s. At the old 4000 a caption is routinely scheduled for an
+    // instant already past, which `lateSkipMs` then drops — speech on screen
+    // with no words under it. 15s clears nine cues in ten.
+    delayAssemblyMs: 15_000,
     // Three minutes, not the 25 seconds phase 5 was designed around. At 25s a
     // reviewer can realistically only drop a line; correcting one needs time to
     // read the Gujarati, judge the English, and type. Tunable up to 10 minutes

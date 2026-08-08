@@ -375,8 +375,15 @@ describe('review window length', () => {
   it('defaults to three minutes, so correcting a line is realistic', () => {
     // At 25 seconds a reviewer can only drop; reading the Gujarati, judging
     // the English and typing a fix does not fit.
-    const outputs = outputConfigs(parseConfig({}));
-    expect(outputs.stream.delayMs).toBe(184_000);
+    //
+    // Asserted as A + B rather than as one number: the sum moved when the
+    // assembly delay was corrected to 15s, and the claim being made here is
+    // about the review window, not about what the two happen to add up to.
+    const config = parseConfig({});
+    expect(config.live.delayReviewMs).toBe(180_000);
+    expect(outputConfigs(config).stream.delayMs).toBe(
+      config.live.delayAssemblyMs + config.live.delayReviewMs,
+    );
   });
 
   it('carries a longer window straight through to the reviewed output', () => {
