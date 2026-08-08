@@ -166,5 +166,9 @@ html, body {
 .dot[data-state="live"] { background: var(--live); }
 .dot[data-state="retry"] { background: var(--soon); animation: breathe 1.4s ease-in-out infinite; }
 .dot[data-state="off"] { background: var(--stop); }
+/* The status pages set these as classes rather than attributes. */
+.dot.ok { background: var(--live); }
+.dot.missing { background: var(--soon); }
+.dot.error { background: var(--stop); }
 
 @keyframes breathe { 50% { opacity: 0.25; } }
