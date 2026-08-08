@@ -299,6 +299,22 @@ describe('reviewer video contract', () => {
     expect(html).not.toMatch(/drop\.addEventListener\('click',\s*function\s*\(\)\s*\{\s*seekTo/);
   });
 
+  it('starts muted, because a video with sound is not allowed to autoplay', async () => {
+    // Unmuted, the browser refuses to play it at all and the picture sits
+    // frozen with nothing saying why.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('el.video.muted = true');
+  });
+
+  it('turns sound on by a press, not by removing an attribute', async () => {
+    // The muted content attribute only sets defaultMuted; removing it later
+    // does nothing. The property is what mutes, and the press is the gesture
+    // the autoplay policy is waiting for.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('el.video.muted = !el.video.muted');
+    expect(html).not.toContain("removeAttribute('muted')");
+  });
+
   it('still requests no external resources', async () => {
     const html = await readFile(page, 'utf8');
     expect(html).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
@@ -326,6 +342,13 @@ describe('app page contract', () => {
   it('says what Stop does, since it does not discard the backlog', async () => {
     const html = await readFile(page, 'utf8');
     expect(html).toContain('throw away the minutes still waiting');
+  });
+
+  it('lets the framed reviewer play sound', async () => {
+    // Without allow, "Sound on" works at /operator and silently does nothing
+    // inside the tab.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('allow="autoplay"');
   });
 
   it('runs the reviewer page itself rather than a second copy of it', async () => {

@@ -353,7 +353,9 @@
     the vMix operator can review without a second implementation drifting from
     the first.
   -->
-  <iframe class="frame" id="review-frame" title="Reviewer"></iframe>
+  <!-- Without allow, the framed page cannot play sound at all and the Sound on
+       button would do nothing here while working at /operator directly. -->
+  <iframe class="frame" id="review-frame" title="Reviewer" allow="autoplay"></iframe>
 </div>
 
 <!-- ---- sermons -------------------------------------------------------- -->

@@ -144,6 +144,22 @@
   .card[data-showing="true"] { border-color: var(--flame); }
   .card .gu[title] { cursor: pointer; }
 
+  /* Sits under "Back to live" when both are showing, so neither moves as the
+     other appears. */
+  .sound {
+    position: absolute;
+    top: 12px; left: 12px;
+    padding: 8px 14px;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    background: rgba(16, 12, 10, 0.72);
+    color: var(--marble);
+    font-family: var(--english);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .sound[aria-pressed="true"] { border-color: var(--flame); color: var(--flame); }
+
   .follow {
     position: absolute;
     top: 12px; right: 12px;
@@ -427,6 +443,7 @@
     <video id="video" playsinline muted hidden></video>
     <p class="feed-caption" id="feedCaption" hidden></p>
     <button class="follow" id="followBtn" type="button" hidden>Back to live</button>
+    <button class="sound" id="soundBtn" type="button" aria-pressed="false" hidden>Sound on</button>
     <div class="feed-empty" id="feedEmpty">
       <p>The reviewer video goes here — the picture with the caption already on
          it, about four seconds behind the room.</p>
@@ -467,14 +484,43 @@
     feedEmpty: document.getElementById('feedEmpty')
   };
 
+  /**
+   * Starts muted, and stays muted until asked.
+   *
+   * Two reasons, and they agree. Browsers refuse to autoplay anything with
+   * sound, so a video that began unmuted would simply not play — the picture
+   * would sit frozen with no indication why. And the reviewer is often on a
+   * tablet in the room, where sound coming out of it is feedback into the very
+   * microphone being captioned.
+   *
+   * So sound is a deliberate press, and the button says so.
+   */
   function showVideo(src, opts) {
     if (el.video.getAttribute('src') === src) return;
     el.video.setAttribute('src', src);
     el.video.hidden = false;
+    el.video.muted = true;
     el.video.autoplay = true;
-    if (opts && opts.seekable) el.video.removeAttribute('muted');
+    el.video.play().catch(function () {});
     el.feedEmpty.style.display = 'none';
     document.getElementById('feed').setAttribute('data-empty', 'false');
+    var sound = document.getElementById('soundBtn');
+    if (sound) sound.hidden = !(opts && opts.sound);
+  }
+
+  function toggleSound() {
+    // The click itself is the gesture the autoplay policy wants, so a play()
+    // here is what actually starts audible playback.
+    el.video.muted = !el.video.muted;
+    if (!el.video.muted) el.video.play().catch(function () {});
+    renderSound();
+  }
+
+  function renderSound() {
+    var button = document.getElementById('soundBtn');
+    if (!button) return;
+    button.textContent = el.video.muted ? 'Sound on' : 'Sound off';
+    button.setAttribute('aria-pressed', el.video.muted ? 'false' : 'true');
   }
 
   if (videoUrl) showVideo(videoUrl);
@@ -808,6 +854,9 @@
   var followBtn = document.getElementById('followBtn');
   if (followBtn) followBtn.addEventListener('click', follow);
 
+  var soundBtn = document.getElementById('soundBtn');
+  if (soundBtn) soundBtn.addEventListener('click', toggleSound);
+
   // ---- actions --------------------------------------------------------
 
   el.pause.addEventListener('click', function () {
@@ -852,7 +901,8 @@
       if (!videoUrl && message.media && message.media.url && media.url !== message.media.url) {
         media.url = message.media.url;
         showVideo(message.media.url + (token ? '?token=' + encodeURIComponent(token) : ''),
-          { seekable: true });
+          { sound: true });
+        renderSound();
       }
 
       render();
