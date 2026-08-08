@@ -63,28 +63,67 @@ On macOS: `brew install node ffmpeg` and install Docker Desktop.
 
 ---
 
-## Setup
-
-Five steps, from a fresh clone.
-
-### 1. Install dependencies
+## Start here
 
 ```sh
 npm install
+npm run dev
 ```
 
-### 2. Add your API key
+That's it. It prints a URL — open it, and everything else is set up from the
+app: the Soniox key, the database, the audio input, the YouTube caption URL.
+
+**It starts before any of that exists.** A fresh clone with no `.env`, no
+database and no ffmpeg still serves every page. The top of the Captions tab
+lists what is missing and one thing to do about each, rather than refusing to
+run.
+
+Prefer a terminal, or setting up a machine you won't be sitting at? [Setup by
+hand](#setup-by-hand) below does the same work.
+
+---
+
+## The app
+
+One tab per job. Whether captions are going out is shown in the bar, from
+whichever tab you are on.
+
+| Tab | |
+|---|---|
+| **Captions** | What is still to set up, the sound input, start and stop, the level meter, the overlay URLs for vMix, and what has gone out |
+| **Reviewer** | The reviewer queue, for correcting lines from the vMix machine rather than a tablet |
+| **Sermons** | Every service, its subtitles, corrections, and re-export |
+| **Settings** | Credentials, subtitle shape, live timing, names and terms |
+
+`/control`, `/operator` and `/overlay` still work at their own URLs and are
+unchanged, so a tablet or a saved vMix Browser input is unaffected.
+
+To reach it from the vMix machine and a tablet, set **Listen on** to `0.0.0.0`
+in Settings and restart. Note what that means: anyone on the mandir network can
+then open the app, and the app can write API keys. Only do it on a network you
+trust — there are no user accounts yet.
+
+---
+
+## Setup by hand
+
+The same four things the app does for you, from a terminal. Skip this if you
+used the app.
+
+### 1. Secrets
 
 ```sh
 cp .env.example .env
 ```
 
-Open `.env` and paste your key after `SONIOX_API_KEY=`.
+Open `.env` and fill in what you need — it explains each line. The short
+version: `SONIOX_API_KEY` for any captions at all, `DATABASE_URL` (already
+filled in) to keep them, `YOUTUBE_INGESTION_URL` for live YouTube captions.
 
-`.env` is gitignored and never committed. **Never put the key in
-`config.json`** — that file *is* committed.
+`.env` is gitignored and never committed. **Never put a key in `config.json`**
+— that file *is* committed.
 
-### 3. Start the database
+### 2. The database
 
 ```sh
 docker compose up -d
@@ -94,19 +133,19 @@ Postgres 16 with pgvector, on **port 5433**. That's deliberate — 5432 is the
 default and often already taken by another project. It listens on localhost
 only; nothing on your network can reach it.
 
-### 4. Create the tables
+### 3. The tables
 
 ```sh
 npx prisma migrate deploy
 ```
 
-### 5. Check it works
+### 4. Check it works
 
 ```sh
 npm test
 ```
 
-273 tests, no API calls, nothing spent. If they pass, you're set up correctly.
+364 tests, no API calls, nothing spent. If they pass, you're set up correctly.
 
 ---
 
@@ -381,6 +420,17 @@ drains to show the time left, a "Don't show this", and a "Fix wording" for the
 occasional line worth correcting rather than dropping. Plus a clearly separated
 "Turn captions off".
 
+When the bridge is being fed a **recording** rather than a microphone, the page
+also shows the video, with the caption on it. Tap the Gujarati of any queued
+line and the picture jumps to the moment it was spoken, so a doubtful
+translation is judged against what was actually said; "Back to live" returns to
+following the playhead. The mapping needs no calibration — audio position 0 is
+the session's start instant and the file plays at its own speed, so a line at
+`audioStartMs` is at `audioStartMs` in the file.
+
+There is no equivalent for a live service yet: that needs a video feed off the
+vMix machine. See [docs/vmix-routing.md](docs/vmix-routing.md).
+
 ### Captions on the YouTube stream
 
 ```sh
@@ -393,24 +443,54 @@ and YouTube gives you the ingestion URL. Every reviewed line is posted there as
 a real closed caption — toggleable by the viewer, and never burned into the
 picture, which is why this path needs no second composite in vMix.
 
+You can leave the flag off and put the URL in `YOUTUBE_INGESTION_URL` instead,
+or paste it into **Settings → Keys and passwords** in the app. It carries a
+`cid` identifying your stream, so treat it like a password.
+
+This is the *only* thing live YouTube captions need. The `YOUTUBE_CLIENT_ID`
+/ `_SECRET` / `_REFRESH_TOKEN` trio is a separate job — attaching caption tracks
+to recordings after the event — and is not involved here.
+
 `--stream-offset` is the delay between your encoder and YouTube receiving the
 video; it is what puts each caption on the right words. **Confirm it on a
 private test stream before a festival.**
 
-### How long the reviewer gets
+### The two delays
 
-`live.delayReviewMs` in `config.json`, three minutes by default, up to ten.
+There are two, and they add up — they are never collapsed into one.
 
-At the original 25 seconds a reviewer could realistically only drop a line —
-reading the Gujarati, judging the English and typing a fix does not fit. Minutes
-make correcting one workable. The cost is that the stream runs that far behind
-the room, and that the delay can no longer live in vMix's Video Delay, which
-buffers uncompressed frames in RAM: it has to move after the encoder, to OBS's
-stream delay or a disk relay. See [docs/vmix-routing.md](docs/vmix-routing.md).
+| | | What it buys |
+|---|---|---|
+| **A** `live.delayAssemblyMs` | 15s | Time for Soniox to hear a whole sentence and translate it. Below this, captions are scheduled for an instant already past and get dropped |
+| **B** `live.delayReviewMs` | 3min | Time for a human to read the Gujarati, judge the English, and type a correction |
 
-The venue screens are unaffected — they stay about four seconds behind the
-speaker, because a congregation in the room cannot watch captions three minutes
-late.
+Every destination waits **A**. Only the reviewed one — the broadcast — waits
+**A + B** as well:
+
+```
+speech ──▶ A ──▶ venue, overflow, reviewer's monitor
+              └▶ B ──▶ the stream, YouTube captions
+```
+
+That gap is the whole point: a reviewer's correction lands while the line is
+still inside **B**, so it changes what goes out rather than trying to un-say it.
+
+**Why A is 15 seconds.** Measured across all 594 cues of a real sermon: the
+median caption is ready 7s after its first word, 90% within 12s, the worst at
+21s. A caption cannot exist until the sentence it covers has finished being
+spoken, so this is a floor set by speech, not by the software. Set it lower and
+lines go missing; the symptom is someone talking with nothing on screen.
+
+**Why B is minutes.** At the original 25 seconds a reviewer could realistically
+only drop a line. The cost is that the stream runs that far behind the room, and
+that a delay this long can no longer live in vMix's Video Delay, which buffers
+uncompressed frames in RAM: it has to move after the encoder, to OBS's stream
+delay or a disk relay. See [docs/vmix-routing.md](docs/vmix-routing.md).
+Tunable up to ten minutes.
+
+The venue screens are unaffected — they stay `delayAssemblyMs` behind the
+speaker (15 seconds by default), because a congregation in the room cannot
+watch captions three minutes late.
 
 **`/overlay?output=venue`** — the caption block that goes on screen.
 Transparent background so vMix can key it. English only by default; add
@@ -471,12 +551,18 @@ reason to run this weekly — see [SPEC.md](SPEC.md) §5.
 ## Troubleshooting
 
 **`SONIOX_API_KEY is not set`**
-`.env` is missing or the key line is empty. `cp .env.example .env` and paste
-your key.
+`.env` is missing or the key line is empty. Paste the key into **Settings → Keys
+and passwords** in the app, or `cp .env.example .env` and put it there.
 
 **`DATABASE_URL is not set`**
-Same file. It should already contain the `postgresql://...5433/...` line from
-`.env.example`.
+Same two places. `.env.example` already contains the
+`postgresql://...5433/...` line, so copying the file is usually enough.
+
+**Someone is speaking and no caption appears**
+`live.delayAssemblyMs` is too low. A caption cannot exist until the sentence it
+covers has finished being spoken, so anything under about 12 seconds routinely
+schedules lines for an instant already past, and they are dropped. See
+[The two delays](#the-two-delays).
 
 **`ffmpeg not found on PATH`**
 `brew install ffmpeg` on macOS.
@@ -541,7 +627,7 @@ public/
   overlay.html        on-air caption block
 prisma/schema.prisma  database schema
 docs/                 architecture and vMix routing
-test/                 273 tests
+test/                 364 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else
@@ -576,6 +662,28 @@ a word boundary, and discarding it fuses two words together.
 are meaningless. Reading them at face value would drag every subtitle to
 `00:00:00`. Timing always comes from the spoken tokens; the translation
 inherits it.
+
+### A reviewer's decisions used not to reach YouTube
+
+Fixed, and worth recording because it changes what the live path actually did.
+
+The closed-caption output is registered under its own name (`youtube`) while
+carrying the `stream` output's schedule. Reviewer drops and edits were scoped to
+`'stream'` alone, and `CaptionQueue` skips any output whose name does not match —
+so **"Don't show this" removed a line from the overlay but still posted it to
+YouTube**, and "Fix wording" corrected the overlay while YouTube received the
+machine translation. The comment claiming otherwise was written before the
+output was given a separate name.
+
+`drop` and `editLine` now take a list of output names rather than one.
+`test/live.youtube.test.ts` covers it: register both outputs, drop a line,
+assert no POST happens.
+
+Two smaller things fixed alongside it. A failed POST used to consume a sequence
+number, leaving a gap in a series the endpoint counts on — the number is now
+only spent by a request YouTube accepted. And the ingestion URL is checked when
+it is set rather than at the first caption, so a truncated paste is caught
+before a service instead of during one.
 
 ### Where this differs from SPEC.md
 

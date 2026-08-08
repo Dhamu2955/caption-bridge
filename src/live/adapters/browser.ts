@@ -6,6 +6,13 @@ import type { CaptionLine, OutputAdapter } from '../types.js';
  * One adapter per output name. INVARIANT 7: several overlays can share a
  * single Soniox session, each with its own delay — needing a second session to
  * feed another screen would be a design error.
+ *
+ * DO NOT GIVE THIS CLASS A `close()`. These instances outlive the caption
+ * session that feeds them (see `OverlayRegistry`), and `CaptionQueue.close()`
+ * calls `adapter.close?.()` on every output. Adding one here would therefore
+ * tear down every overlay socket each time captions were stopped, and a vMix
+ * Browser input does not reconnect on its own — the screen would simply stay
+ * dark for the rest of the service. Blanking is `clear()`, which is safe.
  */
 
 export interface OverlaySocket {

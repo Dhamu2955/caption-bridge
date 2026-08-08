@@ -49,6 +49,21 @@ export interface CaptionQueueOptions {
   clock?: Clock;
 }
 
+/**
+ * Which outputs an operator action applies to.
+ *
+ * A single name is the common case, but it must be possible to name several:
+ * the YouTube closed-caption output is registered under its own name while
+ * carrying the `stream` output's schedule, so scoping a drop to `'stream'`
+ * alone silently let dropped lines reach YouTube anyway.
+ */
+export type OutputScope = string | readonly string[];
+
+function inScope(name: string, scope: OutputScope | undefined): boolean {
+  if (scope === undefined) return true;
+  return typeof scope === 'string' ? name === scope : scope.includes(name);
+}
+
 export class CaptionQueue {
   private readonly outputs = new Map<string, OutputState>();
   private readonly listeners = new Set<QueueListener>();
@@ -103,9 +118,9 @@ export class CaptionQueue {
    * Operator action. Advisory: rejected once the line has gone out, because
    * removing it then would mean un-burning pixels.
    */
-  drop(lineId: string, by = 'operator', outputName?: string): void {
+  drop(lineId: string, by = 'operator', outputs?: OutputScope): void {
     for (const state of this.outputs.values()) {
-      if (outputName && state.config.name !== outputName) continue;
+      if (!inScope(state.config.name, outputs)) continue;
 
       if (state.released.has(lineId)) {
         this.emit({
@@ -144,9 +159,9 @@ export class CaptionQueue {
    * the original rather than mutating it. Nothing that has already been handed
    * to an adapter can be reached from here.
    */
-  editLine(lineId: string, translation: string, by = 'operator', outputName?: string): void {
+  editLine(lineId: string, translation: string, by = 'operator', outputs?: OutputScope): void {
     for (const state of this.outputs.values()) {
-      if (outputName && state.config.name !== outputName) continue;
+      if (!inScope(state.config.name, outputs)) continue;
 
       if (state.released.has(lineId)) {
         this.emit({

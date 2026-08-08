@@ -18,6 +18,14 @@ export interface LineBuilderOptions extends BuildOptions {
   /** Flush without waiting for an endpoint once the buffer spans this long,
    *  so a speaker who never pauses still produces captions. */
   maxBufferMs: number;
+  /**
+   * How long to keep holding speech whose translation has not arrived.
+   *
+   * Past this the line goes out untranslated, because a caption in the wrong
+   * language beats no caption at all. Generous on purpose: it is the last
+   * resort, not the normal path.
+   */
+  maxUntranslatedMs: number;
 }
 
 export const DEFAULT_LINE_OPTIONS: LineBuilderOptions = {
@@ -26,6 +34,7 @@ export const DEFAULT_LINE_OPTIONS: LineBuilderOptions = {
   maxSegmentMs: 7000,
   minDisplayMs: 1500,
   maxBufferMs: 8000,
+  maxUntranslatedMs: 30_000,
 };
 
 /** Soniox marks a detected endpoint with this token when the feature is on. */
@@ -64,9 +73,51 @@ export class LineBuilder {
 
     this.preview = nonFinal.join('').replace(/\s+/g, ' ').trim();
 
+    // Soniox delivers a run's translation before the endpoint that closes it,
+    // so an endpoint flush always has everything it needs.
     if (sawEndpoint) return this.flush();
-    if (this.bufferSpanMs() >= this.options.maxBufferMs) return this.flush();
+
+    if (this.bufferSpanMs() >= this.options.maxBufferMs) return this.flushTranslated();
     return [];
+  }
+
+  /**
+   * Overflow flush: emit only speech whose translation has already arrived.
+   *
+   * The buffer fills faster than Soniox translates, so a speaker who runs past
+   * `maxBufferMs` without an endpoint used to have their spoken tokens flushed
+   * on their own. `buildSegments` finds no translation to pair them with and
+   * falls back to the original — so the caption went out in Gujarati, and the
+   * English arrived moments later into an emptied buffer and was dropped on the
+   * floor. On a real sermon that was a third of the captions.
+   *
+   * So the trailing untranslated run stays buffered and leaves with its
+   * translation next time. Only `maxUntranslatedMs` overrides that, because
+   * waiting forever is its own failure.
+   */
+  private flushTranslated(): CaptionLine[] {
+    const cut = this.lastCompletePairEnd();
+
+    if (cut === 0) {
+      // Nothing is translated yet. Hold, unless it has been far too long.
+      if (this.bufferSpanMs() < this.options.maxUntranslatedMs) return [];
+      return this.flush();
+    }
+
+    const ready = this.buffer.slice(0, cut);
+    this.buffer = this.buffer.slice(cut);
+    return this.emit(ready);
+  }
+
+  /**
+   * Index just past the last translation run, i.e. the end of the last
+   * spoken-then-translated pair. Everything after it is speech still waiting.
+   */
+  private lastCompletePairEnd(): number {
+    for (let i = this.buffer.length - 1; i >= 0; i--) {
+      if (this.buffer[i]!.translation_status === 'translation') return i + 1;
+    }
+    return 0;
   }
 
   /** Rolling non-final text, for the reviewer's early preview only (§4). */
@@ -85,11 +136,15 @@ export class LineBuilder {
     return Number.isFinite(min) && Number.isFinite(max) ? max - min : 0;
   }
 
-  /** Emit whatever is buffered. Called on endpoint, overflow, and at stream end. */
+  /** Emit whatever is buffered. Called on endpoint and at stream end. */
   flush(): CaptionLine[] {
-    if (this.buffer.length === 0) return [];
     const tokens = this.buffer;
     this.buffer = [];
+    return this.emit(tokens);
+  }
+
+  private emit(tokens: SonioxToken[]): CaptionLine[] {
+    if (tokens.length === 0) return [];
 
     return buildSegments(tokens, this.options).map((segment) => ({
       id: `line-${++this.counter}`,

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
@@ -76,6 +76,21 @@ export interface AppConfig {
     delayReviewMs: number;
     minDisplayMs: number;
     lateSkipMs: number;
+    /** Names the variable holding YouTube's caption ingestion URL. The URL
+     *  embeds a `cid` that identifies the stream, so it is a credential and
+     *  lives in .env with the rest — never in this committed file. */
+    youtubeCaptionsUrlEnv: string;
+    /** Delay between this machine's encoder and YouTube receiving the video. */
+    streamOffsetMs: number;
+    /**
+     * How long a speaker may run without a pause before the line is cut.
+     *
+     * The single biggest lever on how soon a caption appears. A caption cannot
+     * exist until the sentence it covers has finished being spoken, so a long
+     * utterance is inherently a late caption — cutting sooner trades whole
+     * sentences for speed.
+     */
+    maxBufferMs: number;
   };
 }
 
@@ -117,7 +132,12 @@ const DEFAULTS = {
   database: { urlEnv: 'DATABASE_URL' },
   server: { host: '127.0.0.1', port: 3000 },
   live: {
-    delayAssemblyMs: 4000,
+    // Measured, not guessed: across all 594 cues of a real 69-minute sermon, the
+    // median caption was ready 7s after its first word, 90% within 12s and the
+    // worst at 21s. At the old 4000 a caption is routinely scheduled for an
+    // instant already past, which `lateSkipMs` then drops — speech on screen
+    // with no words under it. 15s clears nine cues in ten.
+    delayAssemblyMs: 15_000,
     // Three minutes, not the 25 seconds phase 5 was designed around. At 25s a
     // reviewer can realistically only drop a line; correcting one needs time to
     // read the Gujarati, judge the English, and type. Tunable up to 10 minutes
@@ -126,6 +146,9 @@ const DEFAULTS = {
     delayReviewMs: 180_000,
     minDisplayMs: 1500,
     lateSkipMs: 2000,
+    youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
+    streamOffsetMs: 0,
+    maxBufferMs: 8000,
   },
 } satisfies AppConfig;
 
@@ -244,6 +267,13 @@ export function parseConfig(raw: unknown): AppConfig {
       delayReviewMs: num(live['delayReviewMs'], 'live.delayReviewMs', DEFAULTS.live.delayReviewMs),
       minDisplayMs: num(live['minDisplayMs'], 'live.minDisplayMs', DEFAULTS.live.minDisplayMs),
       lateSkipMs: num(live['lateSkipMs'], 'live.lateSkipMs', DEFAULTS.live.lateSkipMs),
+      youtubeCaptionsUrlEnv: str(
+        live['youtubeCaptionsUrlEnv'],
+        'live.youtubeCaptionsUrlEnv',
+        DEFAULTS.live.youtubeCaptionsUrlEnv,
+      ),
+      streamOffsetMs: num(live['streamOffsetMs'], 'live.streamOffsetMs', DEFAULTS.live.streamOffsetMs),
+      maxBufferMs: num(live['maxBufferMs'], 'live.maxBufferMs', DEFAULTS.live.maxBufferMs),
     },
   };
 
@@ -264,6 +294,67 @@ export function parseConfig(raw: unknown): AppConfig {
   }
 
   return config;
+}
+
+/** The built-in configuration, for a machine that has no `config.json` yet. */
+export function defaultConfig(): AppConfig {
+  return parseConfig({});
+}
+
+export interface LoadedConfig {
+  config: AppConfig;
+  /** Why the file was not used, if it was not. */
+  error: string | undefined;
+  /** False when `config` is the built-in defaults rather than the file. */
+  fromFile: boolean;
+  /** No file at all — normal on a fresh machine, and not a problem. */
+  missing: boolean;
+  path: string;
+  mtimeMs: number | undefined;
+}
+
+/**
+ * Load `config.json` but never fail on it.
+ *
+ * The CLI is right to refuse to run against a broken config — a transcription
+ * run costs money and should not proceed on assumptions. The server is not:
+ * it has to come up and *show* the operator what is wrong, which it cannot do
+ * if a stray comma stops it from starting. So a missing or malformed file
+ * yields the defaults plus an error to display.
+ */
+export function loadConfigSafe(path = 'config.json'): LoadedConfig {
+  const full = resolve(path);
+  let mtimeMs: number | undefined;
+  try {
+    mtimeMs = statSync(full).mtimeMs;
+  } catch {
+    /* no file — reported below */
+  }
+
+  const missing = mtimeMs === undefined;
+
+  try {
+    return {
+      config: loadConfig(path),
+      error: undefined,
+      fromFile: true,
+      missing: false,
+      path: full,
+      mtimeMs,
+    };
+  } catch (err) {
+    return {
+      config: defaultConfig(),
+      // An absent file is not an error — the defaults are a working setup and
+      // writing one is what the settings page does. A file that exists but
+      // cannot be parsed is a different matter, and keeps its message.
+      error: missing ? undefined : (err as Error).message,
+      fromFile: false,
+      missing,
+      path: full,
+      mtimeMs,
+    };
+  }
 }
 
 export function loadConfig(path = 'config.json'): AppConfig {
@@ -306,7 +397,9 @@ export function resolveYoutubeCredentials(
     if (!value || value.trim() === '') {
       throw new ConfigError(
         `${name} is not set. Put it in .env — never in config.json. ` +
-          `Run \`sermon-captions publish --auth\` to mint a refresh token.`,
+          // The same invocation the README and the preflight fix use — the bare
+          // `sermon-captions` binary only exists once the package is linked.
+          `Run \`npx tsx src/cli.ts publish --auth\` to mint a refresh token.`,
       );
     }
     return value.trim();

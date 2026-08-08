@@ -37,6 +37,53 @@ export function formatCaptionTimestamp(at: number): string {
   return new Date(at).toISOString().replace('Z', '');
 }
 
+export interface IngestionUrlCheck {
+  ok: boolean;
+  /** Fatal — the URL cannot be used at all. */
+  error?: string;
+  /** Usable, but probably not what the operator meant to paste. */
+  warnings: string[];
+}
+
+/**
+ * Sanity-check an ingestion URL before a service rather than during one.
+ *
+ * Deliberately lenient about everything except being a URL: the wire format is
+ * the one part of this path not verifiable from the codebase, so guessing at
+ * what a valid `cid` looks like would reject working URLs. Anything doubtful is
+ * a warning, never a refusal.
+ */
+export function checkIngestionUrl(raw: string): IngestionUrlCheck {
+  const warnings: string[] = [];
+  const trimmed = raw.trim();
+
+  if (trimmed === '') return { ok: false, error: 'the ingestion URL is empty', warnings };
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return { ok: false, error: `not a URL: ${trimmed}`, warnings };
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return { ok: false, error: `the ingestion URL must be http or https, got ${url.protocol}`, warnings };
+  }
+  if (url.protocol === 'http:') {
+    warnings.push('the URL is http, not https — captions would go out in the clear');
+  }
+  // YouTube hands back a URL carrying a cid parameter; without one the endpoint
+  // has no way to tell which stream the captions belong to.
+  if (!url.searchParams.has('cid')) {
+    warnings.push('no "cid" parameter — check you copied the whole URL from the stream settings');
+  }
+  if (url.searchParams.has('seq')) {
+    warnings.push('the URL already carries a "seq" parameter; the bridge appends its own');
+  }
+
+  return { ok: true, warnings };
+}
+
 export class YoutubeLiveAdapter implements OutputAdapter {
   readonly name: string;
   private readonly ingestionUrl: string;
@@ -62,9 +109,9 @@ export class YoutubeLiveAdapter implements OutputAdapter {
     return formatCaptionTimestamp(this.sessionEpoch + line.audioStartMs + this.streamOffsetMs);
   }
 
-  private url(): string {
+  private url(sequence: number): string {
     const separator = this.ingestionUrl.includes('?') ? '&' : '?';
-    return `${this.ingestionUrl}${separator}seq=${++this.sequence}`;
+    return `${this.ingestionUrl}${separator}seq=${sequence}`;
   }
 
   show(line: CaptionLine): Promise<void> {
@@ -73,8 +120,12 @@ export class YoutubeLiveAdapter implements OutputAdapter {
     const body = `${this.timestampFor(line)}\n${line.translation}\n`;
 
     this.queue = this.queue.then(async () => {
+      // The sequence number is only spent by a POST YouTube actually accepted.
+      // Incrementing before the request meant a failed one burned a number and
+      // left a gap in the series the endpoint is counting on.
+      const sequence = this.sequence + 1;
       try {
-        const response = await this.fetchImpl(this.url(), {
+        const response = await this.fetchImpl(this.url(sequence), {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
           body,
@@ -82,6 +133,7 @@ export class YoutubeLiveAdapter implements OutputAdapter {
         if (!response.ok) {
           throw new Error(`YouTube caption POST failed: ${response.status} ${response.statusText}`);
         }
+        this.sequence = sequence;
       } catch (err) {
         // A caption that does not land must never take the broadcast with it.
         this.onError?.(err instanceof Error ? err : new Error(String(err)));

@@ -14,7 +14,15 @@ import { EventEmitter } from 'node:events';
  *   macOS    ffmpeg -f avfoundation -i ":BlackHole 2ch"
  */
 
-export type CaptureFormat = 'dshow' | 'avfoundation' | 'pulse' | 'alsa';
+/**
+ * `file` is not a capture device — it plays a recording in at the speed it was
+ * recorded, so the whole live path can be exercised without a microphone, a
+ * mixer, or anyone speaking. Everything downstream is identical: the same
+ * chunks, the same Soniox session, the same queue and delays.
+ *
+ * It is for testing and rehearsal. A real service uses a device.
+ */
+export type CaptureFormat = 'dshow' | 'avfoundation' | 'pulse' | 'alsa' | 'file';
 
 export interface CaptureOptions {
   /** Device name as ffmpeg expects it for the chosen format. */
@@ -25,6 +33,8 @@ export interface CaptureOptions {
   /** Bytes per emitted chunk. 3840 = 120ms at 16kHz mono s16le, matching the
    *  pacing used for replay in docs/architecture.mermaid. */
   chunkBytes?: number;
+  /** `file` format only: start again at the end, for a long rehearsal. */
+  loop?: boolean;
 }
 
 export interface CaptureEvents {
@@ -41,21 +51,58 @@ export function defaultFormat(): CaptureFormat {
   return 'pulse';
 }
 
+/**
+ * avfoundation takes `"[video]:[audio]"`, so a bare device name is read as a
+ * *video* device and fails with "Video device not found". The device list and
+ * the dropdown built from it hand over bare names, so the colon is added here
+ * rather than expected of every caller — while leaving an explicit `":Name"`
+ * or `"0:1"` alone, since the docs tell people to write it that way.
+ */
+export function avfoundationInput(device: string): string {
+  return device.includes(':') ? device : `:${device}`;
+}
+
 export function buildCaptureArgs(options: CaptureOptions): string[] {
   const format = options.format ?? defaultFormat();
   const sampleRate = options.sampleRate ?? 16000;
-  const input = format === 'dshow' ? `audio=${options.device}` : options.device;
+
+  const output = [
+    '-ac', '1',
+    '-ar', String(sampleRate),
+    '-acodec', 'pcm_s16le',
+    '-f', 's16le',
+    '-',
+  ];
+
+  if (format === 'file') {
+    // -re paces the read at the recording's own speed. Without it ffmpeg reads
+    // as fast as the disk allows and a 69-minute sermon arrives in seconds,
+    // which tells you nothing about a pipeline whose whole job is timing.
+    return [
+      '-nostdin',
+      '-hide_banner',
+      '-loglevel', 'error',
+      ...(options.loop ? ['-stream_loop', '-1'] : []),
+      '-re',
+      '-i', options.device,
+      ...output,
+    ];
+  }
+
+  const input =
+    format === 'dshow'
+      ? `audio=${options.device}`
+      : format === 'avfoundation'
+        ? avfoundationInput(options.device)
+        : options.device;
+
   return [
     '-nostdin',
     '-hide_banner',
     '-loglevel', 'error',
     '-f', format,
     '-i', input,
-    '-ac', '1',
-    '-ar', String(sampleRate),
-    '-acodec', 'pcm_s16le',
-    '-f', 's16le',
-    '-',
+    ...output,
   ];
 }
 

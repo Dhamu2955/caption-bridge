@@ -1,0 +1,1303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Caption bridge</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23171210'/%3E%3Crect x='3' y='6' width='10' height='1.6' rx='.8' fill='%23F0A92C'/%3E%3Crect x='3' y='9' width='7' height='1.6' rx='.8' fill='%23F7F1E8'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/theme.css">
+<style>
+  /*
+    The setup and running surface. Same tokens as the reviewer — they are the
+    same product and often open side by side.
+
+    One tab per job, and nothing that is merely a view:
+
+      Captions  run a service — is this machine ready, what is it listening to,
+                where does it appear, and what has gone out
+      Reviewer  correct it while it runs
+      Sermons   work on what was recorded
+      Settings  set the machine up
+
+    Whether captions are going out is the one fact wanted from any of them, so
+    it lives in the bar rather than on a screen of its own.
+  */
+
+  .bar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: var(--s1);
+    padding: 0 var(--s4);
+    background: var(--ground);
+    border-bottom: 1px solid var(--rule);
+    overflow-x: auto;
+  }
+  .brand {
+    margin-right: var(--s4); padding: var(--s3) 0;
+    font-size: 0.85rem; color: var(--ink-faint); white-space: nowrap;
+  }
+  .tab {
+    padding: var(--s3) var(--s3);
+    border: 0; border-bottom: 2px solid transparent;
+    background: transparent; color: var(--ink-faint);
+    font-family: var(--sans); font-size: 0.92rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--live); }
+  .tab .pip {
+    display: inline-block; width: 6px; height: 6px; margin-left: 6px;
+    border-radius: 50%; background: var(--soon); vertical-align: middle;
+  }
+
+  .shell { max-width: 1180px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .wide { max-width: 1500px; }
+
+  h1 { margin: 0 0 var(--s1); font-size: 1.25rem; font-weight: 500; }
+  .sub { margin: 0 0 var(--s5); color: var(--ink-soft); font-size: 0.92rem; }
+
+  .panel { margin-bottom: var(--s4); }
+
+  .label {
+    display: block; margin-bottom: var(--s2);
+    font-family: var(--mono); font-size: 0.66rem;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint);
+  }
+
+  input, select, textarea {
+    width: 100%; padding: 9px var(--s3); min-height: 38px;
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    background: var(--sunk); color: var(--ink);
+    font-family: var(--sans); font-size: 0.95rem;
+  }
+  input[type="password"], input.mono { font-family: var(--mono); font-size: 0.88rem; }
+  textarea { min-height: 76px; resize: vertical; line-height: 1.45; }
+  input[type="checkbox"] { width: auto; min-height: 0; }
+
+  .hint { margin: var(--s2) 0 0; color: var(--ink-soft); font-size: 0.85rem; line-height: 1.5; }
+  .hint strong { color: var(--ink); font-weight: 500; }
+
+  .row { display: flex; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
+
+  button {
+    flex: 0 0 auto; padding: 9px var(--s4); min-height: 38px;
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    background: transparent; color: var(--ink);
+    font-family: var(--sans); font-size: 0.92rem; cursor: pointer;
+  }
+  button.primary { border-color: transparent; background: var(--live); color: var(--raised); }
+  button.wide-btn { flex: 1 1 auto; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button:hover:not(:disabled) { filter: brightness(1.06); }
+
+  .bar-spacer { flex: 1 1 auto; }
+  .bar-status {
+    display: flex; align-items: center; gap: var(--s2);
+    padding-right: var(--s1);
+    font-size: 0.85rem; color: var(--ink-soft); white-space: nowrap;
+  }
+
+  /* ---- overview: setup states its result, not its working ------------- */
+
+  /*
+    Six green cells told you nothing you could act on and took a third of the
+    screen doing it. The strip states the count; only what needs attention gets
+    a row, and a fully configured machine collapses to one line.
+  */
+  .setup {
+    margin-bottom: var(--s5);
+    padding: var(--s3) var(--s4);
+    border: 1px solid var(--rule); border-radius: var(--radius);
+    background: var(--raised);
+  }
+  .setup-head { display: flex; align-items: center; gap: var(--s3); }
+  .setup-head .label { flex: 1 1 auto; margin: 0; }
+  .setup-head button { padding: 5px var(--s3); min-height: 0; font-size: 0.82rem; }
+  .setup[data-clear="true"] .checks { display: none; }
+
+  /*
+    Seven checks in a vertical list made the page tall and made "everything is
+    fine" take as long to read as "one thing is broken". As a band each check
+    is a glance, and the eye only stops on the ones with a colour.
+  */
+  .checks { margin-top: var(--s3); }
+  .check {
+    display: flex; gap: var(--s2); align-items: baseline;
+    padding: var(--s2) 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .check:first-child { border-top: 0; padding-top: var(--s1); }
+  .check .dot { margin-top: 4px; }
+  .check-body { min-width: 0; }
+  .check-name { margin: 0; font-size: 0.92rem; }
+  .check-detail {
+    margin: 2px 0 0; font-size: 0.78rem; color: var(--ink-soft);
+    overflow-wrap: anywhere;
+  }
+  .check-fix { margin: 4px 0 0; font-size: 0.78rem; color: var(--soon); }
+  .check[data-state="error"] .check-fix { color: var(--stop); }
+
+  /*
+    Counters, not cards. Six bordered boxes each holding a single digit was more
+    furniture than fact — every one of them 150px wide to say "0". Set on a rule
+    instead, they read as one row of numbers, which is what they are.
+  */
+  .tiles {
+    display: flex; flex-wrap: wrap;
+    gap: var(--s3) var(--s5);
+    margin-top: var(--s1);
+  }
+  .tile { min-width: 54px; }
+  .tile-value { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+  .tile-value.warn { color: var(--soon); }
+  .tile-name {
+    margin-top: 2px; font-family: var(--mono); font-size: 0.62rem;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint);
+  }
+
+  /* ---- captions: source on the left, where it lands on the right ------- */
+
+  .two { display: grid; gap: var(--s4); align-items: start; }
+  @media (min-width: 860px) { .two { grid-template-columns: 1fr 1fr; } }
+
+  .box {
+    padding: var(--s4);
+    border: 1px solid var(--rule); border-radius: var(--radius);
+    background: var(--raised);
+  }
+
+  .meter {
+    position: relative; height: 8px; margin-top: var(--s1);
+    border-radius: 4px; background: var(--rule-soft); overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%; width: 0%; border-radius: 4px;
+    background: var(--live); transition: width 120ms linear;
+  }
+
+  .status-line { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
+
+  .url {
+    display: block; padding: 8px var(--s3); margin-top: var(--s1);
+    border-radius: var(--radius-sm); background: var(--sunk);
+    border: 1px solid var(--rule); color: var(--ink);
+    font-family: var(--mono); font-size: 0.74rem;
+    overflow-wrap: anywhere; text-decoration: none;
+  }
+  .url:hover { border-color: var(--live); }
+
+  .screen { padding: var(--s3) 0; border-top: 1px solid var(--rule-soft); }
+  .screen-name {
+    margin: 0; font-family: var(--mono); font-size: 0.72rem;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink);
+  }
+  .screen-why {
+    margin: 3px 0 0; font-size: 0.82rem; line-height: 1.45; color: var(--ink-soft);
+  }
+
+  /* ---- settings: a rail, so one click reaches anything ---------------- */
+
+  /*
+    Every section stacked meant scrolling past six subtitle knobs tuned once a
+    year to reach the caption URL that changes every broadcast. The rail puts
+    them one click apart and orders them by how often they are wanted.
+  */
+  .settings { display: grid; gap: var(--s4); align-items: start; }
+  @media (min-width: 820px) { .settings { grid-template-columns: 190px minmax(0, 1fr); } }
+
+  .rail { display: flex; flex-wrap: wrap; gap: var(--s1); }
+  @media (min-width: 820px) {
+    .rail { position: sticky; top: 64px; flex-direction: column; flex-wrap: nowrap; }
+  }
+  .rail button {
+    width: 100%; justify-content: flex-start; text-align: left;
+    padding: 8px var(--s3); border-color: transparent;
+    color: var(--ink-soft); font-size: 0.9rem;
+  }
+  .rail button[aria-current="true"] {
+    background: var(--sunk); border-color: var(--rule); color: var(--ink);
+  }
+  .rail .rail-note {
+    margin: 0; padding: 0 var(--s3);
+    font-size: 0.72rem; color: var(--ink-faint);
+  }
+
+  .field { margin-bottom: var(--s4); }
+  .field:last-of-type { margin-bottom: 0; }
+  .field > .label { margin-bottom: var(--s1); }
+
+  /*
+    An API key stretched to the full width of a 1440px screen, with two lines of
+    explanation underneath it, made six credentials into a page you scroll. The
+    control takes the width it needs and its explanation sits beside it, which
+    both halves the height and gives the empty right-hand side something to do.
+  */
+  @media (min-width: 900px) {
+    .field {
+      display: grid;
+      grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+      column-gap: var(--s5);
+      align-items: start;
+    }
+    .field > .label { grid-column: 1 / -1; }
+    .field > .hint { grid-column: 2; margin-top: 0; }
+  }
+  .field input[type="number"] { max-width: 170px; }
+
+  /* A rule per field, so it is unambiguous which description belongs to which
+     control once they sit side by side. */
+  .settings-pane .field {
+    padding-top: var(--s4);
+    border-top: 1px solid var(--rule-soft);
+  }
+  .settings-pane .field:first-of-type { padding-top: 0; border-top: 0; }
+  .applies {
+    margin-left: var(--s2); font-family: var(--mono); font-size: 0.58rem;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint);
+  }
+
+  .notice {
+    padding: var(--s3); border-radius: var(--radius-sm);
+    margin-bottom: var(--s3); font-size: 0.88rem; line-height: 1.5;
+  }
+  .notice.warn { background: var(--soon-bg); color: var(--soon); }
+  .notice.bad  { background: var(--stop-bg); color: var(--stop); }
+  .notice.good { background: var(--live-bg); color: var(--live); }
+
+  .frame { width: 100%; height: calc(100vh - 46px); border: 0; display: block; }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<nav class="bar" role="tablist" aria-label="Sections">
+  <span class="brand">Caption bridge</span>
+  <button class="tab" role="tab" data-tab="live" aria-selected="true">Captions</button>
+  <button class="tab" role="tab" data-tab="review" aria-selected="false">Reviewer</button>
+  <button class="tab" role="tab" data-tab="sermons" aria-selected="false">Sermons</button>
+  <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+  <span class="bar-spacer"></span>
+  <!-- The one fact worth knowing from any screen: is anything going out? -->
+  <span class="bar-status" id="bar-status">
+    <span class="dot" id="bar-dot"></span>
+    <span id="bar-state">Not running</span>
+  </span>
+</nav>
+
+<!-- ---- captions ------------------------------------------------------- -->
+<!--
+  The running surface, and the tab this opens on. Overview used to sit in front
+  of it holding a readiness strip and a row of counters, but neither is somewhere
+  you navigate *to* — they are things you glance at while running a service. Both
+  now live here, either side of the controls they describe.
+-->
+<main class="shell" data-panel="live">
+  <h1>Captions</h1>
+  <p class="sub">Pick the sound coming from the pulpit microphone, then start.</p>
+
+  <div class="setup" id="setup">
+    <div class="setup-head">
+      <span class="label" id="setup-summary">Checking…</span>
+      <button id="recheck">Check again</button>
+    </div>
+    <div class="checks" id="checks"></div>
+  </div>
+
+  <div id="live-blocked"></div>
+
+  <div class="two">
+  <div class="box">
+    <span class="label">Sound input</span>
+    <select id="device"></select>
+    <p class="hint">
+      Choose the <strong>virtual cable</strong> carrying the speaker's microphone on
+      its own — not the main mix. Anything else feeds the music and the
+      congregation into the translation as well.
+    </p>
+
+    <div class="row" style="margin-top:18px">
+      <label class="hint" style="flex:1 1 100%;display:flex;gap:10px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="use-file" style="width:auto;min-height:0">
+        Play a recording instead, to rehearse without a microphone
+      </label>
+    </div>
+    <div id="file-row" hidden>
+      <input id="file-path" class="mono" placeholder="./test-clip.mp4">
+      <p class="hint">
+        Played at the speed it was recorded, so the delays behave exactly as they
+        would live. Costs Soniox time like a real service does — stop when you
+        have seen enough.
+      </p>
+    </div>
+
+    <div class="status-line" style="margin-top:var(--s4)">
+      <span class="dot" id="live-dot"></span>
+      <span id="live-state">Not running</span>
+    </div>
+    <span class="label">Sound coming in</span>
+    <div class="meter"><div class="meter-fill" id="meter"></div></div>
+    <p class="hint">
+      The bar moves when someone is speaking. If it stays flat, the cable is not
+      carrying sound.
+    </p>
+    <div class="row">
+      <button class="primary wide-btn" id="start">Start captions</button>
+      <button class="wide-btn" id="stop">Pause</button>
+      <button class="wide-btn" id="end">End session</button>
+    </div>
+    <p class="hint">
+      <strong>Pause</strong> stops listening but lets everything already spoken
+      finish going out — it does not throw away the minutes still waiting.
+      <strong>End session</strong> stops everything at once: the queue is
+      discarded, the screens go blank, and a recording being played in stops
+      playing.
+    </p>
+  </div>
+
+  <div class="box">
+    <span class="label">Screens</span>
+    <p class="hint">
+      Words have to be <strong>drawn</strong> to appear in a picture. Each of
+      these is a web page with a transparent background showing the line that is
+      current right now — open one as a vMix <strong>Browser input</strong> and
+      lay it over the video. One page per destination, because each gets
+      different words at a different moment.
+    </p>
+    <p class="hint">
+      <strong>YouTube captions do not use these.</strong> They are sent to
+      YouTube as text and the viewer switches them on, so there is no page to
+      point anything at. YouTube hands you that URL when you switch the stream's
+      captions to "POST to URL"; it goes in
+      <strong>Settings → Keys and passwords</strong>.
+    </p>
+    <div id="overlay-urls"></div>
+    <p class="hint" id="dash-overlays">No screens connected.</p>
+  </div>
+  </div>
+
+  <div class="panel" style="margin-top:var(--s5)">
+    <span class="label">This session</span>
+    <div class="tiles" id="live-stats"></div>
+    <p class="hint" id="live-stats-note">Nothing has gone out yet.</p>
+  </div>
+</main>
+
+<!-- ---- reviewer ------------------------------------------------------- -->
+<div data-panel="review" hidden>
+  <!--
+    The reviewer page itself, not a copy of it. It is the surface a tablet opens
+    directly and the one the contract tests cover; running it here as well means
+    the vMix operator can review without a second implementation drifting from
+    the first.
+  -->
+  <!-- Without allow, the framed page cannot play sound at all and the Sound on
+       button would do nothing here while working at /operator directly. -->
+  <iframe class="frame" id="review-frame" title="Reviewer" allow="autoplay"></iframe>
+</div>
+
+<!-- ---- sermons -------------------------------------------------------- -->
+<main class="shell wide" data-panel="sermons" hidden>
+  <h1>Sermons</h1>
+  <p class="sub" id="sermons-sub">Recorded services, their subtitles, and corrections.</p>
+
+  <div id="sermons-notice"></div>
+
+  <div class="panel">
+    <span class="label">The archive</span>
+    <div class="tiles" id="archive-stats"></div>
+    <p class="hint" id="archive-stats-note"></p>
+  </div>
+
+  <div class="panel" id="service-list-panel">
+    <span class="label">Services</span>
+    <div id="service-list"></div>
+  </div>
+
+  <div class="panel" id="cue-panel" hidden>
+    <span class="label">Subtitles — <span id="cue-service"></span></span>
+    <div class="row" style="margin-bottom:16px">
+      <button class="slim" id="cue-back">All services</button>
+      <button class="slim" id="cue-prev">Earlier</button>
+      <button class="slim" id="cue-next">Later</button>
+      <button class="slim primary" id="cue-export">Write the .srt files</button>
+    </div>
+    <p class="hint" id="cue-range"></p>
+    <div id="cues"></div>
+  </div>
+</main>
+
+<!-- ---- settings ------------------------------------------------------- -->
+<main class="shell" data-panel="settings" hidden>
+  <h1>Settings</h1>
+  <p class="sub">Credentials are kept in .env, which is never committed. Everything else lives in config.json.</p>
+
+  <div id="settings-notice"></div>
+
+  <div class="settings">
+  <nav class="rail" id="settings-rail" aria-label="Settings sections"></nav>
+  <div class="settings-pane">
+
+  <!-- No heading in the pane: the rail beside it already names the section, and
+       naming it twice in two different words is worse than naming it twice. -->
+  <section class="box" data-section="credentials" hidden>
+    <div id="secrets"></div>
+  </section>
+
+  <section class="box" data-section="youtube-test" hidden>
+    <p class="hint">
+      Send one real caption to the ingestion URL and see what YouTube says. Worth
+      doing on a private test stream before a festival — the wire format is the
+      one part of this path that cannot be checked from the code.
+    </p>
+    <div class="row">
+      <button class="slim" id="test-yt">Send a test caption</button>
+    </div>
+    <div id="yt-result"></div>
+  </section>
+
+  <div id="settings-groups"></div>
+  </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(location.search);
+  var token = params.get('token') || '';
+  var qs = token ? '?token=' + encodeURIComponent(token) : '';
+
+  function el(id) { return document.getElementById(id); }
+  function api(path, options) {
+    var join = path.indexOf('?') === -1 ? qs : (token ? '&token=' + encodeURIComponent(token) : '');
+    return fetch(path + join, options).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (body) {
+        if (!res.ok) throw new Error(body.error || ('request failed: ' + res.status));
+        return body;
+      });
+    });
+  }
+  function text(node, value) { node.textContent = value == null ? '' : String(value); }
+
+  /* ---- tabs ----------------------------------------------------------- */
+
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  var panels = {};
+  Array.prototype.forEach.call(document.querySelectorAll('[data-panel]'), function (panel) {
+    panels[panel.getAttribute('data-panel')] = panel;
+  });
+
+  function show(name) {
+    tabs.forEach(function (tab) {
+      tab.setAttribute('aria-selected', String(tab.getAttribute('data-tab') === name));
+    });
+    Object.keys(panels).forEach(function (key) { panels[key].hidden = key !== name; });
+    // The reviewer is only loaded when asked for — an idle iframe holding a
+    // websocket open would count as an operator that is not there.
+    if (name === 'review') {
+      var frame = el('review-frame');
+      if (!frame.getAttribute('src')) frame.setAttribute('src', '/operator' + qs);
+    }
+    if (name === 'settings') loadSettings();
+    if (name === 'sermons') loadServices();
+    if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+  }
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () { show(tab.getAttribute('data-tab')); });
+  });
+
+  /* ---- status --------------------------------------------------------- */
+
+  var lastStatus = null;
+
+  function dotClass(state) {
+    if (state === 'ok') return 'dot ok';
+    if (state === 'error') return 'dot error';
+    if (state === 'missing') return 'dot missing';
+    return 'dot';
+  }
+
+  function renderChecks(status) {
+    var host = el('checks');
+    host.innerHTML = '';
+
+    // Only what someone can act on. A green row is a row that has to be read
+    // to be dismissed, and there is nothing behind it.
+    var problems = status.checks.filter(function (c) {
+      return c.state !== 'ok' && c.state !== 'unknown';
+    });
+
+    problems.forEach(function (check) {
+      var row = document.createElement('div');
+      row.className = 'check';
+      row.setAttribute('data-state', check.state);
+
+      var dot = document.createElement('span');
+      dot.className = dotClass(check.state);
+      row.appendChild(dot);
+
+      var body = document.createElement('div');
+      body.className = 'check-body';
+
+      var name = document.createElement('p');
+      name.className = 'check-name';
+      text(name, check.label + (check.detail ? ' — ' + check.detail : ''));
+      body.appendChild(name);
+
+      if (check.fix) {
+        var fix = document.createElement('p');
+        fix.className = 'check-fix';
+        text(fix, check.fix);
+        body.appendChild(fix);
+      }
+
+      row.appendChild(body);
+      host.appendChild(row);
+    });
+
+    var ready = status.checks.length - problems.length;
+    el('setup').setAttribute('data-clear', problems.length === 0 ? 'true' : 'false');
+    text(el('setup-summary'),
+      problems.length === 0
+        ? 'Set up — ' + ready + ' checks pass'
+        : ready + ' ready · ' + problems.length + (problems.length === 1 ? ' needs' : ' need') + ' attention');
+
+    tabs.forEach(function (tab) {
+      if (tab.getAttribute('data-tab') !== 'settings') return;
+      var pip = tab.querySelector('.pip');
+      if (problems.length > 0 && !pip) {
+        pip = document.createElement('span');
+        pip.className = 'pip';
+        tab.appendChild(pip);
+      } else if (problems.length === 0 && pip) {
+        pip.remove();
+      }
+    });
+  }
+
+  function renderSession(status) {
+    var running = status.session && status.session.running;
+    var state = status.session ? status.session.state : 'idle';
+
+    el('bar-dot').className = running ? 'dot ok' : 'dot';
+    el('live-dot').className = running ? 'dot ok' : 'dot';
+
+    var label = running
+      ? 'Captions are going out'
+      : state === 'paused'
+        ? 'Paused — what is already queued is still going out'
+        : 'Not running';
+    text(el('bar-state'), label);
+    text(el('live-state'), label);
+
+    var level = (status.session && status.session.level) || 0;
+    el('meter').style.width = Math.min(100, Math.round(level * 320)) + '%';
+
+    el('start').disabled = running;
+    el('stop').disabled = !running;
+
+    var counts = status.overlays || {};
+    var connected = Object.keys(counts).filter(function (k) { return counts[k] > 0; });
+    text(
+      el('dash-overlays'),
+      connected.length === 0
+        ? 'No screens connected.'
+        : connected.map(function (k) { return counts[k] + ' on ' + k; }).join(', ') + '.'
+    );
+
+    var blocked = status.capabilities && status.capabilities.live;
+    var host = el('live-blocked');
+    host.innerHTML = '';
+    if (blocked && !blocked.ready) {
+      var note = document.createElement('div');
+      note.className = 'notice warn';
+      var names = blocked.blockedBy.map(function (id) {
+        var check = status.checks.filter(function (c) { return c.id === id; })[0];
+        return check ? check.label.toLowerCase() : id;
+      });
+      text(note, 'Captions cannot start yet — ' + names.join(' and ') + ' still needed. See Settings.');
+      host.appendChild(note);
+    }
+  }
+
+  // Four near-identical URLs differing by one word told nobody which to point
+  // vMix at. The name is the only part that matters, so it leads.
+  var OVERLAY_PURPOSE = {
+    venue: 'The screen in the hall. Appears as soon as the line is translated.',
+    overflow: 'The screen in the overflow room. Same words, same moment as the hall.',
+    reviewer: 'A monitor beside the reviewer, showing what the hall is seeing.',
+    stream: 'Burned into the broadcast picture. The only one that waits for the reviewer, so it runs further behind.'
+  };
+
+  function renderOverlayUrls(status) {
+    var host = el('overlay-urls');
+    if (host.childElementCount > 0) return;
+    Object.keys(status.overlays || {}).forEach(function (name) {
+      var wrap = document.createElement('div');
+      wrap.className = 'screen';
+
+      var head = document.createElement('p');
+      head.className = 'screen-name';
+      text(head, name);
+      wrap.appendChild(head);
+
+      if (OVERLAY_PURPOSE[name]) {
+        var why = document.createElement('p');
+        why.className = 'screen-why';
+        text(why, OVERLAY_PURPOSE[name]);
+        wrap.appendChild(why);
+      }
+
+      var a = document.createElement('a');
+      a.className = 'url';
+      a.href = '/overlay' + qs + (token ? '&' : '?') + 'output=' + name;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      text(a, location.origin + a.getAttribute('href'));
+      wrap.appendChild(a);
+
+      host.appendChild(wrap);
+    });
+  }
+
+  function poll() {
+    api('/api/status').then(function (status) {
+      lastStatus = status;
+      renderChecks(status);
+      renderSession(status);
+      renderOverlayUrls(status);
+    }).catch(function (err) {
+      el('setup').setAttribute('data-clear', 'false');
+      text(el('setup-summary'), 'Cannot reach the bridge — ' + err.message);
+    });
+  }
+
+  /* ---- stats ----------------------------------------------------------- */
+
+  function tiles(host, entries) {
+    host.innerHTML = '';
+    entries.forEach(function (entry) {
+      var tile = document.createElement('div');
+      tile.className = 'tile';
+      var value = document.createElement('div');
+      value.className = 'tile-value' + (entry.warn ? ' warn' : '');
+      text(value, entry.value);
+      var name = document.createElement('div');
+      name.className = 'tile-name';
+      text(name, entry.name);
+      tile.appendChild(value);
+      tile.appendChild(name);
+      host.appendChild(tile);
+    });
+  }
+
+  function duration(ms) {
+    if (!ms) return '0m';
+    var hours = Math.floor(ms / 3600000);
+    var minutes = Math.round((ms % 3600000) / 60000);
+    return hours > 0 ? hours + 'h ' + minutes + 'm' : minutes + 'm';
+  }
+
+  function loadStats() {
+    api('/api/stats').then(function (body) {
+      var live = body.live;
+      tiles(el('live-stats'), [
+        { name: 'Gone out', value: live.released },
+        { name: 'Dropped', value: live.dropped },
+        { name: 'Corrected', value: live.edited },
+        // Skips mean a caption missed its moment — worth colouring.
+        { name: 'Missed', value: live.skipped, warn: live.skipped > 0 },
+        { name: 'Audio gaps', value: live.gaps, warn: live.gaps > 0 },
+        { name: 'Running', value: duration(live.runningForMs) }
+      ]);
+
+      var note = [];
+      if (live.released > 0) note.push('Typically ' + live.meanLatenessMs + 'ms past their scheduled instant, at worst ' + live.maxLatenessMs + 'ms.');
+      if (live.rejected > 0) note.push(live.rejected + ' reviewer decisions arrived too late to apply.');
+      if (live.gapMs > 0) note.push(duration(live.gapMs) + ' of audio was missing.');
+      text(el('live-stats-note'), note.length ? note.join(' ') : 'Nothing has gone out yet.');
+
+      if (body.archive) {
+        tiles(el('archive-stats'), [
+          { name: 'Services', value: body.archive.services },
+          { name: 'Subtitles', value: body.archive.cues },
+          { name: 'Corrected', value: body.archive.correctedCues },
+          { name: 'On YouTube', value: body.archive.servicesOnYoutube },
+          { name: 'Transcribed', value: duration(body.archive.transcribedMs) }
+        ]);
+        text(el('archive-stats-note'),
+          'Transcribed hours are what Soniox was asked to process, which is what it bills for.');
+      } else {
+        el('archive-stats').innerHTML = '';
+        text(el('archive-stats-note'),
+          'Needs the database: ' + (body.archiveError || 'not available.'));
+      }
+    }).catch(function () {});
+  }
+
+  el('recheck').addEventListener('click', function () {
+    api('/api/checks/refresh', { method: 'POST' }).then(poll).catch(function () {});
+  });
+
+  /* ---- devices and session -------------------------------------------- */
+
+  function loadDevices() {
+    api('/api/devices').then(function (body) {
+      var select = el('device');
+      var chosen = select.value;
+      select.innerHTML = '';
+      (body.devices || []).forEach(function (device) {
+        var option = document.createElement('option');
+        option.value = device.name;
+        option.textContent = device.name + (device.likelyBus ? ' — likely the right one' : '');
+        select.appendChild(option);
+      });
+      if (chosen) select.value = chosen;
+      else if (lastStatus && lastStatus.session && lastStatus.session.device) {
+        select.value = lastStatus.session.device;
+      }
+    }).catch(function () {});
+  }
+
+  el('use-file').addEventListener('change', function () {
+    el('file-row').hidden = !this.checked;
+  });
+
+  function session(action) {
+    var fromFile = el('use-file').checked;
+    var body = { action: action };
+    if (fromFile) {
+      body.device = el('file-path').value.trim() || './test-clip.mp4';
+      body.format = 'file';
+    } else {
+      body.device = el('device').value;
+    }
+    return api('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(poll).catch(function (err) {
+      var host = el('live-blocked');
+      host.innerHTML = '';
+      var note = document.createElement('div');
+      note.className = 'notice bad';
+      text(note, err.message);
+      host.appendChild(note);
+    });
+  }
+
+  el('start').addEventListener('click', function () { session('start'); });
+  el('stop').addEventListener('click', function () { session('stop'); });
+  el('end').addEventListener('click', function () { session('end'); });
+
+  /* ---- settings -------------------------------------------------------- */
+
+  var settingsLoaded = false;
+  var settingsSection = null;
+
+  function notice(host, kind, message) {
+    host.innerHTML = '';
+    var node = document.createElement('div');
+    node.className = 'notice ' + kind;
+    text(node, message);
+    host.appendChild(node);
+  }
+
+  function renderSecrets(secrets) {
+    var host = el('secrets');
+    host.innerHTML = '';
+    var inputs = [];
+
+    secrets.forEach(function (secret) {
+      var field = document.createElement('div');
+      field.className = 'field';
+
+      var label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = secret.label + (secret.optional ? ' (optional)' : '');
+      field.appendChild(label);
+
+      var input = document.createElement('input');
+      input.type = 'password';
+      input.autocomplete = 'off';
+      // Showing the last four is enough to tell two keys apart without ever
+      // sending the value to the page.
+      input.placeholder = secret.set ? 'Saved, ends ' + secret.hint : 'Not set';
+      field.appendChild(input);
+      inputs.push({ name: secret.name, input: input });
+
+      var help = document.createElement('p');
+      help.className = 'hint';
+      text(help, secret.help);
+      field.appendChild(help);
+
+      if (secret.fromShell) {
+        var shell = document.createElement('p');
+        shell.className = 'hint';
+        shell.innerHTML = '<strong>Set in the shell, not in .env</strong> — the shell wins, so saving here will not take effect.';
+        field.appendChild(shell);
+      }
+
+      host.appendChild(field);
+    });
+
+    // One save for the section rather than one per field: filling in three
+    // credentials at setup should not be three round trips, and six buttons
+    // down a column read as six decisions when there is only one.
+    var row = document.createElement('div');
+    row.className = 'row';
+    var save = document.createElement('button');
+    save.className = 'primary';
+    save.textContent = 'Save credentials';
+    save.addEventListener('click', function () {
+      var updates = {};
+      inputs.forEach(function (entry) {
+        if (entry.input.value) updates[entry.name] = entry.input.value;
+      });
+      if (!Object.keys(updates).length) {
+        notice(el('settings-notice'), 'warn', 'Nothing to save — type into a field first.');
+        return;
+      }
+      api('/api/secrets', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: updates })
+      }).then(function () {
+        notice(el('settings-notice'), 'good',
+          Object.keys(updates).length + ' saved. They take effect straight away.');
+        settingsLoaded = false;
+        loadSettings();
+        poll();
+      }).catch(function (err) {
+        notice(el('settings-notice'), 'bad', err.message);
+      });
+    });
+    row.appendChild(save);
+    host.appendChild(row);
+  }
+
+  function valueToInput(setting, value) {
+    if (setting.type === 'string[]') return (value || []).join('\n');
+    if (setting.type === 'termPairs') {
+      return (value || []).map(function (t) { return t.source + ' = ' + t.target; }).join('\n');
+    }
+    return value == null ? '' : String(value);
+  }
+
+  function inputToValue(setting, raw) {
+    if (setting.type === 'number') {
+      var n = Number(raw);
+      if (raw.trim() === '' || Number.isNaN(n)) throw new Error(setting.label + ' must be a number');
+      return n;
+    }
+    if (setting.type === 'string[]') {
+      return raw.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    }
+    if (setting.type === 'termPairs') {
+      return raw.split('\n').map(function (s) { return s.trim(); }).filter(Boolean).map(function (line) {
+        var parts = line.split('=');
+        var source = parts.shift().trim();
+        var target = parts.join('=').trim();
+        if (!source || !target) throw new Error('Write each term as: Gujarati = English');
+        return { source: source, target: target };
+      });
+    }
+    return raw;
+  }
+
+  var APPLIES = {
+    immediate: 'applies now',
+    'next-session': 'applies next start',
+    restart: 'needs a restart'
+  };
+
+  // Said once for the group, so the badge is left to mark the odd one out.
+  var USUALLY = {
+    immediate: 'Changes here take effect straight away, even mid-service.',
+    'next-session': 'Changes here take effect the next time captions are started.',
+    restart: 'Changes here need the bridge restarted.'
+  };
+
+  function renderSettings(body) {
+    var groupHost = el('settings-groups');
+    groupHost.innerHTML = '';
+
+    var groups = {};
+    body.settings.forEach(function (setting) {
+      (groups[setting.group] = groups[setting.group] || []).push(setting);
+    });
+
+    // Server order, which is by how often a setting is touched.
+    (body.groups || []).forEach(function (info) {
+      if (!groups[info.id]) return;
+
+      var panel = document.createElement('div');
+      panel.className = 'panel';
+
+      // No heading, and no fold for the rarely-wanted groups: the rail names
+      // the section and shows one at a time, so both were a second click to
+      // read something already on screen.
+      var host = panel;
+
+      // When a badge is on every field it has stopped being information. State
+      // the group's rule once, and badge only the settings that break it.
+      var tally = {};
+      groups[info.id].forEach(function (s) {
+        tally[s.appliesTo] = (tally[s.appliesTo] || 0) + 1;
+      });
+      var usual = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; })[0];
+
+      if (info.blurb || USUALLY[usual]) {
+        var blurb = document.createElement('p');
+        blurb.className = 'hint';
+        blurb.style.marginBottom = '18px';
+        text(blurb, [info.blurb, USUALLY[usual]].filter(Boolean).join(' '));
+        host.appendChild(blurb);
+      }
+
+      var inputs = [];
+      groups[info.id].forEach(function (setting) {
+        var field = document.createElement('div');
+        field.className = 'field';
+
+        var label = document.createElement('label');
+        label.className = 'label';
+        label.textContent = setting.label + (setting.unit ? ' (' + setting.unit + ')' : '');
+        if (setting.appliesTo !== usual && APPLIES[setting.appliesTo]) {
+          var applies = document.createElement('span');
+          applies.className = 'applies';
+          applies.textContent = APPLIES[setting.appliesTo];
+          label.appendChild(applies);
+        }
+        field.appendChild(label);
+
+        var multiline = setting.type === 'string[]' || setting.type === 'termPairs';
+        var input = document.createElement(multiline ? 'textarea' : 'input');
+        if (!multiline) input.type = setting.type === 'number' ? 'number' : 'text';
+        input.value = valueToInput(setting, body.values[setting.path]);
+        field.appendChild(input);
+        inputs.push({ setting: setting, input: input });
+
+        var help = document.createElement('p');
+        help.className = 'hint';
+        text(help, setting.help);
+        field.appendChild(help);
+
+        host.appendChild(field);
+      });
+
+      var row = document.createElement('div');
+      row.className = 'row';
+      var save = document.createElement('button');
+      save.className = 'slim primary';
+      save.textContent = 'Save';
+      save.addEventListener('click', function () {
+        var patch = {};
+        try {
+          inputs.forEach(function (entry) {
+            patch[entry.setting.path] = inputToValue(entry.setting, entry.input.value);
+          });
+        } catch (err) {
+          notice(el('settings-notice'), 'bad', err.message);
+          return;
+        }
+        api('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ patch: patch, expectedMtimeMs: body.config.mtimeMs })
+        }).then(function (result) {
+          var message = 'Saved.';
+          if (result.restartRequired && result.restartRequired.length > 0) {
+            message += ' Restart the bridge for it to take effect.';
+          }
+          notice(el('settings-notice'), 'good', message);
+          settingsLoaded = false;
+          loadSettings();
+          poll();
+        }).catch(function (err) {
+          // The value was understood and refused, and nothing was written.
+          notice(el('settings-notice'), 'bad', err.message);
+        });
+      });
+      row.appendChild(save);
+      host.appendChild(row);
+
+      panel.setAttribute('data-section', info.id);
+      panel.hidden = true;
+      panel.className = 'box';
+      groupHost.appendChild(panel);
+    });
+
+    buildRail(body.groups || []);
+  }
+
+  /**
+   * One click to anything, ordered by how often it is wanted.
+   *
+   * Stacked, reaching the caption URL that changes every broadcast meant
+   * scrolling past six subtitle knobs tuned once a year.
+   */
+  var RAIL_EXTRA = [
+    { id: 'credentials', title: 'Keys and passwords' },
+    { id: 'youtube-test', title: 'Test YouTube captions' }
+  ];
+
+  function buildRail(groups) {
+    var rail = el('settings-rail');
+    if (!rail) return;
+    rail.innerHTML = '';
+
+    var items = [RAIL_EXTRA[0]].concat(groups.map(function (g) {
+      return { id: g.id, title: g.title };
+    }), [RAIL_EXTRA[1]]);
+
+    items.forEach(function (item) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = item.title;
+      button.setAttribute('data-for', item.id);
+      button.addEventListener('click', function () { showSection(item.id); });
+      rail.appendChild(button);
+    });
+
+    showSection(settingsSection && document.querySelector('[data-section="' + settingsSection + '"]')
+      ? settingsSection : items[0].id);
+  }
+
+  function showSection(id) {
+    settingsSection = id;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-section]'), function (node) {
+      node.hidden = node.getAttribute('data-section') !== id;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#settings-rail button'), function (b) {
+      b.setAttribute('aria-current', String(b.getAttribute('data-for') === id));
+    });
+  }
+
+  function loadSettings() {
+    if (settingsLoaded) return;
+    settingsLoaded = true;
+    api('/api/settings').then(function (body) {
+      renderSecrets(body.secrets);
+      renderSettings(body);
+      if (body.config.error) {
+        notice(el('settings-notice'), 'bad',
+          'config.json cannot be read (' + body.config.error + '), so the built-in defaults are in use.');
+      }
+    }).catch(function (err) {
+      settingsLoaded = false;
+      notice(el('settings-notice'), 'bad', err.message);
+    });
+  }
+
+  /* ---- sermons --------------------------------------------------------- */
+
+  var sermons = { ref: null, from: 1, limit: 25, total: 0 };
+
+  /**
+   * A route that answers 503 with a check id is saying "not set up yet", which
+   * is a card to render rather than an error to report as a failure.
+   */
+  function sermonsProblem(err) {
+    notice(el('sermons-notice'), 'warn', err.message);
+    el('service-list-panel').hidden = true;
+    el('cue-panel').hidden = true;
+  }
+
+  function loadServices() {
+    el('sermons-notice').innerHTML = '';
+    el('cue-panel').hidden = true;
+    el('service-list-panel').hidden = false;
+
+    api('/api/services').then(function (body) {
+      var host = el('service-list');
+      host.innerHTML = '';
+
+      if (!body.services.length) {
+        text(el('sermons-sub'), 'Nothing ingested yet.');
+        var empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = 'Run an ingest from a terminal and it will appear here.';
+        host.appendChild(empty);
+        return;
+      }
+
+      text(el('sermons-sub'),
+        body.services.length === 1 ? 'One service.' : body.services.length + ' services.');
+      body.services.forEach(function (service) {
+        var row = document.createElement('div');
+        row.className = 'check';
+
+        var body2 = document.createElement('div');
+        body2.className = 'check-body';
+
+        var name = document.createElement('p');
+        name.className = 'check-name';
+        name.textContent = service.date + ' — ' + service.speaker + (service.title ? ' · ' + service.title : '');
+        body2.appendChild(name);
+
+        var detail = document.createElement('p');
+        detail.className = 'check-detail';
+        detail.textContent = service.cues + ' subtitles · ' + service.videoPath;
+        body2.appendChild(detail);
+
+        row.appendChild(body2);
+
+        var open = document.createElement('button');
+        open.className = 'slim';
+        open.style.flex = '0 0 auto';
+        open.textContent = 'Open';
+        open.addEventListener('click', function () { openService(service); });
+        row.appendChild(open);
+
+        host.appendChild(row);
+      });
+    }).catch(sermonsProblem);
+  }
+
+  function openService(service) {
+    sermons.ref = service.id;
+    sermons.from = 1;
+    text(el('cue-service'), service.date + ' — ' + service.speaker);
+    loadCues();
+  }
+
+  function loadCues() {
+    el('service-list-panel').hidden = true;
+    el('cue-panel').hidden = false;
+
+    api('/api/services/' + encodeURIComponent(sermons.ref) + '/segments?from=' + sermons.from +
+        '&limit=' + sermons.limit)
+      .then(function (body) {
+        sermons.total = body.total;
+        text(el('cue-range'),
+          'Showing ' + sermons.from + '–' + Math.min(sermons.from + sermons.limit - 1, body.total) +
+          ' of ' + body.total + '. Corrections are saved to the database; press "Write the .srt files" to put them on disk.');
+        el('cue-prev').disabled = sermons.from <= 1;
+        el('cue-next').disabled = sermons.from + sermons.limit > body.total;
+
+        var host = el('cues');
+        host.innerHTML = '';
+        body.rows.forEach(function (row) { host.appendChild(cueRow(row)); });
+      })
+      .catch(sermonsProblem);
+  }
+
+  function cueRow(row) {
+    var wrap = document.createElement('div');
+    wrap.className = 'field';
+
+    var label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = 'Cue ' + row.cue + (row.editedAt ? ' — corrected' : '');
+    wrap.appendChild(label);
+
+    var gu = document.createElement('p');
+    gu.className = 'hint';
+    gu.lang = 'gu';
+    gu.style.fontSize = '1.05rem';
+    gu.style.color = 'var(--marble)';
+    text(gu, row.original);
+    wrap.appendChild(gu);
+
+    var input = document.createElement('textarea');
+    input.value = row.translation;
+    wrap.appendChild(input);
+
+    if (row.previousTranslation) {
+      var was = document.createElement('p');
+      was.className = 'hint';
+      text(was, 'Was: ' + row.previousTranslation);
+      wrap.appendChild(was);
+    }
+
+    var actions = document.createElement('div');
+    actions.className = 'row';
+    var save = document.createElement('button');
+    save.className = 'slim';
+    save.style.flex = '0 0 auto';
+    save.textContent = 'Save';
+    save.addEventListener('click', function () {
+      api('/api/services/' + encodeURIComponent(sermons.ref) + '/segments/' + row.cue, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: input.value })
+      }).then(function (result) {
+        notice(el('sermons-notice'), 'good',
+          result.unchanged ? 'Cue ' + row.cue + ' was already that.' : 'Cue ' + row.cue + ' saved.');
+        loadCues();
+      }).catch(function (err) {
+        notice(el('sermons-notice'), 'bad', err.message);
+      });
+    });
+    actions.appendChild(save);
+    wrap.appendChild(actions);
+
+    return wrap;
+  }
+
+  el('cue-back').addEventListener('click', loadServices);
+  el('cue-prev').addEventListener('click', function () {
+    sermons.from = Math.max(1, sermons.from - sermons.limit);
+    loadCues();
+  });
+  el('cue-next').addEventListener('click', function () {
+    sermons.from = sermons.from + sermons.limit;
+    loadCues();
+  });
+  el('cue-export').addEventListener('click', function () {
+    api('/api/services/' + encodeURIComponent(sermons.ref) + '/export', { method: 'POST' })
+      .then(function (result) {
+        notice(el('sermons-notice'), 'good',
+          'Written: ' + result.targetSrt.split('/').pop() + ' and ' + result.sourceSrt.split('/').pop() +
+          ' (' + result.cues + ' subtitles).');
+      })
+      .catch(function (err) { notice(el('sermons-notice'), 'bad', err.message); });
+  });
+
+  el('test-yt').addEventListener('click', function () {
+    var host = el('yt-result');
+    notice(host, 'warn', 'Sending…');
+    api('/api/youtube/test-captions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    }).then(function (result) {
+      if (result.ok) {
+        notice(host, 'good', 'YouTube accepted it.' +
+          (result.warnings && result.warnings.length ? ' Note: ' + result.warnings.join('; ') : ''));
+      } else {
+        notice(host, 'bad', result.error || 'YouTube did not accept it.');
+      }
+    }).catch(function (err) {
+      notice(host, 'bad', err.message);
+    });
+  });
+
+  /* ---- go -------------------------------------------------------------- */
+
+  // #dashboard is kept working: it was a real tab until the readiness strip and
+  // the counters moved onto Captions, and someone has it bookmarked.
+  var initial = (location.hash || '#live').slice(1);
+  if (initial === 'dashboard') initial = 'live';
+  show(panels[initial] ? initial : 'live');
+
+  // So a link to #settings works on a tab that is already open, and the back
+  // button moves between sections rather than leaving the page.
+  window.addEventListener('hashchange', function () {
+    var name = location.hash.slice(1);
+    if (name === 'dashboard') name = 'live';
+    if (panels[name]) show(name);
+  });
+  poll();
+  loadDevices();
+  loadStats();
+  setInterval(poll, 1000);
+  setInterval(loadStats, 3000);
+  setInterval(loadDevices, 15000);
+})();
+</script>
+</body>
+</html>

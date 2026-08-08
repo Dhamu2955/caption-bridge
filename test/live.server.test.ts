@@ -271,6 +271,101 @@ describe('control page contract', () => {
   });
 });
 
+describe('reviewer video contract', () => {
+  const page = fileURLToPath(new URL('../public/operator.html', import.meta.url));
+
+  it('takes the recording from the bridge rather than a path in the URL', async () => {
+    // /api/media serves whatever the running session is playing and accepts no
+    // path of its own, so there is nothing for a crafted URL to reach.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('message.media');
+  });
+
+  it('lets an explicit ?video= win', async () => {
+    // Someone pointing at their own feed knows better than we do.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('!videoUrl && message.media');
+  });
+
+  it('maps caption time to file time with no offset to calibrate', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('Date.now() - state.sessionEpoch');
+  });
+
+  it('seeks from the words, never from the buttons', async () => {
+    // A mis-tap must not drop a line that was about to go out.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain("gu.addEventListener('click'");
+    expect(html).not.toMatch(/drop\.addEventListener\('click',\s*function\s*\(\)\s*\{\s*seekTo/);
+  });
+
+  it('starts muted, because a video with sound is not allowed to autoplay', async () => {
+    // Unmuted, the browser refuses to play it at all and the picture sits
+    // frozen with nothing saying why.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('el.video.muted = true');
+  });
+
+  it('turns sound on by a press, not by removing an attribute', async () => {
+    // The muted content attribute only sets defaultMuted; removing it later
+    // does nothing. The property is what mutes, and the press is the gesture
+    // the autoplay policy is waiting for.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('el.video.muted = !el.video.muted');
+    expect(html).not.toContain("removeAttribute('muted')");
+  });
+
+  it('still requests no external resources', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+  });
+});
+
+describe('app page contract', () => {
+  const page = fileURLToPath(new URL('../public/app.html', import.meta.url));
+
+  it('never stores anything in localStorage or sessionStorage (§8)', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/localStorage|sessionStorage/);
+  });
+
+  it('requests no external resources', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+  });
+
+  it('warns against picking the main mix (INVARIANT 6)', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('not the main mix');
+  });
+
+  it('says what Stop does, since it does not discard the backlog', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('throw away the minutes still waiting');
+  });
+
+  it('says corrections go to the database, not to the .srt', async () => {
+    // Hand-editing an .srt is silently overwritten by the next export; the page
+    // has to make the direction of travel obvious.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('Corrections are saved to the database');
+  });
+
+  it('lets the framed reviewer play sound', async () => {
+    // Without allow, "Sound on" works at /operator and silently does nothing
+    // inside the tab.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('allow="autoplay"');
+  });
+
+  it('runs the reviewer page itself rather than a second copy of it', async () => {
+    // Two implementations of the queue would drift, and only one of them is
+    // covered by the reviewer contract tests below.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain("'/operator'");
+  });
+});
+
 describe('operator command parsing', () => {
   it('accepts the commands the reviewer page sends', () => {
     expect(parseOperatorCommand('{"type":"drop","lineId":"line-3"}')).toEqual({

@@ -98,7 +98,7 @@ export async function publish(
   const languages = args.languages ?? defaultLanguages(config);
   const api = client;
   if (!api && !args.dryRun) {
-    throw new Error('publishing needs YouTube credentials — run `sermon-captions publish --auth`');
+    throw new Error('publishing needs YouTube credentials — run `npx tsx src/cli.ts publish --auth`');
   }
 
   const existing = await prisma.captionUpload.findMany({ where: { serviceId: service.id } });
@@ -133,7 +133,7 @@ export async function publish(
     }
 
     if (!api) {
-      throw new Error('publishing needs YouTube credentials — run `sermon-captions publish --auth`');
+      throw new Error('publishing needs YouTube credentials — run `npx tsx src/cli.ts publish --auth`');
     }
 
     let trackId = previous?.trackId;

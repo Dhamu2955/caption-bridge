@@ -43,6 +43,76 @@ describe('LineBuilder', () => {
     expect(builder.flush()).toEqual([]);
   });
 
+  /**
+   * Found on a real sermon: a third of the captions went out in Gujarati.
+   *
+   * Soniox sends a run's translation shortly after its speech, and always
+   * before the endpoint that closes it. But the overflow flush does not wait
+   * for an endpoint — so speech that ran past `maxBufferMs` was emitted alone,
+   * `buildSegments` had nothing to pair it with and fell back to the original,
+   * and the English arrived moments later into an emptied buffer and was lost.
+   */
+  describe('speech that outruns its translation', () => {
+    /** 12 seconds of speech with no endpoint and no translation yet. */
+    const longRun = (): SonioxToken[] => [
+      final('સર્વોપરી', 0, 4000),
+      final(' સર્વાવતારી', 4000, 8000),
+      final(' પૂર્ણ પુરુષોત્તમ', 8000, 12_000),
+    ];
+
+    it('holds the speech rather than captioning it in Gujarati', () => {
+      const builder = new LineBuilder();
+      // Well past maxBufferMs, but the translation has not arrived.
+      expect(builder.push(longRun())).toEqual([]);
+    });
+
+    it('emits it in English once the translation catches up', () => {
+      const builder = new LineBuilder();
+      builder.push(longRun());
+
+      const lines = builder.push([
+        translated('The supreme'),
+        translated(', the incarnated one.'),
+        { text: '<end>', is_final: true },
+      ]);
+
+      // A 12-second run is split across several captions by maxSegmentMs; what
+      // matters is that the English arrived and no Gujarati leaked into it.
+      expect(lines.length).toBeGreaterThan(0);
+      const english = lines.map((line) => line.translation).join(' ');
+      expect(english).toContain('The supreme');
+      expect(english).toContain('incarnated');
+      expect(english).not.toMatch(/[઀-૿]/);
+    });
+
+    it('does not lose the English when an overflow lands mid-run', () => {
+      const builder = new LineBuilder();
+      // A completed pair, then more speech still awaiting translation.
+      builder.push([final('એક', 0, 4000), translated('One.')]);
+      const lines = builder.push([final(' બે', 4000, 12_000)]);
+
+      // The finished pair goes out...
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.translation).toBe('One.');
+
+      // ...and the unfinished speech is still held, not discarded.
+      const rest = builder.push([translated('Two.'), { text: '<end>', is_final: true }]);
+      expect(rest).toHaveLength(1);
+      expect(rest[0]?.translation).toBe('Two.');
+    });
+
+    it('gives up and captions in Gujarati rather than never captioning at all', () => {
+      const builder = new LineBuilder({ maxUntranslatedMs: 10_000 });
+      const lines = builder.push([
+        final('એક', 0, 6000),
+        final(' બે', 6000, 14_000),
+      ]);
+      // Past the point of waiting: a caption in the wrong language beats none.
+      expect(lines.length).toBeGreaterThan(0);
+      expect(lines.map((line) => line.translation).join(' ')).toContain('એક');
+    });
+  });
+
   it('emits a line when an endpoint token arrives', () => {
     const builder = new LineBuilder();
     const lines = builder.push([
@@ -134,6 +204,40 @@ describe('audio capture', () => {
     const args = buildCaptureArgs({ device: ':BlackHole 2ch', format: 'avfoundation' });
     expect(args).toContain('avfoundation');
     expect(args).toContain(':BlackHole 2ch');
+  });
+
+  it('adds the avfoundation colon to a bare device name', () => {
+    // The device list — and so the dropdown built from it — yields bare names.
+    // avfoundation reads "[video]:[audio]", so without the colon ffmpeg looks
+    // for a camera called "BlackHole 2ch" and exits with "Video device not
+    // found" the moment someone presses Start.
+    const args = buildCaptureArgs({ device: 'BlackHole 2ch', format: 'avfoundation' });
+    expect(args).toContain(':BlackHole 2ch');
+    expect(args).not.toContain('BlackHole 2ch');
+  });
+
+  it('leaves an index pair alone', () => {
+    const args = buildCaptureArgs({ device: '0:1', format: 'avfoundation' });
+    expect(args).toContain('0:1');
+  });
+
+  it('plays a recording in at its own speed', () => {
+    const args = buildCaptureArgs({ device: './test-clip.mp4', format: 'file' });
+    // -re is the whole point. Without it ffmpeg reads as fast as the disk
+    // allows, a 69-minute sermon arrives in seconds, and a pipeline whose job
+    // is timing has been tested against nothing.
+    expect(args).toContain('-re');
+    expect(args).toContain('./test-clip.mp4');
+    // Not a capture device, so no -f before the input.
+    expect(args.join(' ')).not.toContain('-f file');
+    // Still the same PCM the rest of the pipeline expects.
+    expect(args.join(' ')).toContain('-ar 16000');
+    expect(args.join(' ')).toContain('pcm_s16le');
+  });
+
+  it('can loop a recording for a longer rehearsal', () => {
+    const args = buildCaptureArgs({ device: './clip.mp4', format: 'file', loop: true });
+    expect(args.join(' ')).toContain('-stream_loop -1');
   });
 
   it('reports silence as zero level — this is what catches a dead cable', () => {
@@ -271,8 +375,15 @@ describe('review window length', () => {
   it('defaults to three minutes, so correcting a line is realistic', () => {
     // At 25 seconds a reviewer can only drop; reading the Gujarati, judging
     // the English and typing a fix does not fit.
-    const outputs = outputConfigs(parseConfig({}));
-    expect(outputs.stream.delayMs).toBe(184_000);
+    //
+    // Asserted as A + B rather than as one number: the sum moved when the
+    // assembly delay was corrected to 15s, and the claim being made here is
+    // about the review window, not about what the two happen to add up to.
+    const config = parseConfig({});
+    expect(config.live.delayReviewMs).toBe(180_000);
+    expect(outputConfigs(config).stream.delayMs).toBe(
+      config.live.delayAssemblyMs + config.live.delayReviewMs,
+    );
   });
 
   it('carries a longer window straight through to the reviewed output', () => {

@@ -11,6 +11,9 @@
   },
   "scripts": {
     "sermon-captions": "tsx src/cli.ts",
+    "dev": "tsx src/cli.ts serve",
+    "serve": "tsx src/cli.ts serve",
+    "dev:watch": "tsx watch src/cli.ts serve",
     "ingest": "tsx src/cli.ts ingest",
     "test": "vitest run",
     "test:watch": "vitest",

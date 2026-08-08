@@ -3,7 +3,10 @@
     "apiKeyEnv": "SONIOX_API_KEY",
     "baseUrl": "https://api.soniox.com/v1",
     "model": "stt-async-v5",
-    "sourceLanguages": ["gu", "en"],
+    "sourceLanguages": [
+      "gu",
+      "en"
+    ],
     "targetLanguage": "en",
     "contextTerms": [],
     "translationTerms": []
@@ -32,13 +35,22 @@
     "chunkMaxMs": 180000,
     "chunkOverlapMs": 30000
   },
-  "paths": { "media": "./media", "recordings": "./recordings" },
-  "database": { "urlEnv": "DATABASE_URL" },
-  "server": { "host": "127.0.0.1", "port": 3000 },
+  "paths": {
+    "media": "./media",
+    "recordings": "./recordings"
+  },
+  "database": {
+    "urlEnv": "DATABASE_URL"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 3000
+  },
   "live": {
-    "delayAssemblyMs": 4000,
-    "delayReviewMs": 180000,
+    "delayAssemblyMs": 15000,
+    "delayReviewMs": 20000,
     "minDisplayMs": 1500,
-    "lateSkipMs": 2000
+    "lateSkipMs": 2000,
+    "streamOffsetMs": 0
   }
 }
