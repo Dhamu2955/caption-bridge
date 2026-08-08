@@ -94,6 +94,12 @@ export interface OperatorView {
    */
   sessionEpoch?: number;
   /**
+   * The assembly delay. A player showing the recording has to sit exactly this
+   * far behind the capture point, or it shows speech whose caption has not been
+   * scheduled yet.
+   */
+  assemblyMs?: number;
+  /**
    * A recording the reviewer can watch alongside the queue, when the session is
    * being fed from a file rather than a microphone. There is no equivalent for
    * a live service yet — that needs a video feed off the vMix machine.

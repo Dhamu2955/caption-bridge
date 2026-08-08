@@ -47,9 +47,10 @@
     "port": 3000
   },
   "live": {
-    "delayAssemblyMs": 4000,
+    "delayAssemblyMs": 15000,
     "delayReviewMs": 20000,
     "minDisplayMs": 1500,
-    "lateSkipMs": 2000
+    "lateSkipMs": 2000,
+    "streamOffsetMs": 0
   }
 }

@@ -560,7 +560,14 @@
     url: null,
     /** Following the playhead, or parked on a line the reviewer picked. */
     following: true,
-    /** How far behind the capture point to sit while following. */
+    /**
+     * How far behind the capture point to sit while following.
+     *
+     * This is not a taste setting — it has to equal the assembly delay the
+     * queue schedules against, or the player shows someone speaking whose
+     * caption is not due for another several seconds, which looks exactly like
+     * captions failing. The bridge sends it; 4s is only the fallback.
+     */
     trailMs: 4000,
     lastSeek: 0
   };
@@ -911,6 +918,7 @@
       state.pending = message.pending || [];
       state.windowMs = message.windowMs || 0;
       state.sessionEpoch = message.sessionEpoch || 0;
+      if (message.assemblyMs) media.trailMs = message.assemblyMs;
 
       // A recording is only offered when the bridge is being fed one. An
       // explicit ?video= always wins — that is someone pointing at their own

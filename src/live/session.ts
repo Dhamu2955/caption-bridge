@@ -349,6 +349,10 @@ export class LiveSession {
       })),
       windowMs: this.options.config.live.delayReviewMs,
       sessionEpoch: this.sessionEpoch,
+      // How far the picture must sit behind the capture point for a caption to
+      // land on the words it describes. The page cannot guess this — it is the
+      // delay the queue schedules against.
+      assemblyMs: this.options.config.live.delayAssemblyMs,
       ...(this.options.format === 'file' ? { media: { url: '/api/media', kind: 'file' as const } } : {}),
     });
   }
