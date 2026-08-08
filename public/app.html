@@ -85,31 +85,44 @@
   button:disabled { opacity: 0.4; cursor: default; }
   button:hover:not(:disabled) { filter: brightness(1.06); }
 
-  /* ---- overview: state as a band, not a column ------------------------ */
+  .bar-spacer { flex: 1 1 auto; }
+  .bar-status {
+    display: flex; align-items: center; gap: var(--s2);
+    padding-right: var(--s1);
+    font-size: 0.85rem; color: var(--ink-soft); white-space: nowrap;
+  }
+
+  /* ---- overview: setup states its result, not its working ------------- */
+
+  /*
+    Six green cells told you nothing you could act on and took a third of the
+    screen doing it. The strip states the count; only what needs attention gets
+    a row, and a fully configured machine collapses to one line.
+  */
+  .setup {
+    margin-bottom: var(--s5);
+    padding: var(--s3) var(--s4);
+    border: 1px solid var(--rule); border-radius: var(--radius);
+    background: var(--raised);
+  }
+  .setup-head { display: flex; align-items: center; gap: var(--s3); }
+  .setup-head .label { flex: 1 1 auto; margin: 0; }
+  .setup-head button { padding: 5px var(--s3); min-height: 0; font-size: 0.82rem; }
+  .setup[data-clear="true"] .checks { display: none; }
 
   /*
     Seven checks in a vertical list made the page tall and made "everything is
     fine" take as long to read as "one thing is broken". As a band each check
     is a glance, and the eye only stops on the ones with a colour.
   */
-  .checks {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-    gap: var(--s2);
-    margin-bottom: var(--s2);
-    /* Each cell as tall as its own content. Stretching them all to match the
-       one with bad news leaves five empty boxes and buries the news. */
-    align-items: start;
-  }
+  .checks { margin-top: var(--s3); }
   .check {
     display: flex; gap: var(--s2); align-items: baseline;
-    padding: var(--s3);
-    border: 1px solid var(--rule); border-radius: var(--radius);
-    background: var(--raised);
+    padding: var(--s2) 0;
+    border-top: 1px solid var(--rule-soft);
   }
+  .check:first-child { border-top: 0; padding-top: var(--s1); }
   .check .dot { margin-top: 4px; }
-  .check[data-state="missing"] { border-color: var(--soon); background: var(--soon-bg); }
-  .check[data-state="error"] { border-color: var(--stop); background: var(--stop-bg); }
   .check-body { min-width: 0; }
   .check-name { margin: 0; font-size: 0.92rem; }
   .check-detail {
@@ -225,6 +238,12 @@
   <button class="tab" role="tab" data-tab="review" aria-selected="false">Reviewer</button>
   <button class="tab" role="tab" data-tab="sermons" aria-selected="false">Sermons</button>
   <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+  <span class="bar-spacer"></span>
+  <!-- The one fact worth knowing from any screen: is anything going out? -->
+  <span class="bar-status" id="bar-status">
+    <span class="dot" id="bar-dot"></span>
+    <span id="bar-state">Not running</span>
+  </span>
 </nav>
 
 <!-- ---- overview ------------------------------------------------------- -->
@@ -232,22 +251,15 @@
   <h1>Overview</h1>
   <p class="sub" id="overview-sub">Checking what this machine can do…</p>
 
-  <div class="panel">
-    <span class="label">Setup</span>
-    <div class="checks" id="checks"></div>
-    <div class="row">
-      <button class="slim" id="recheck">Check again</button>
+  <div class="setup" id="setup">
+    <div class="setup-head">
+      <span class="label" id="setup-summary">Checking…</span>
+      <button id="recheck">Check again</button>
     </div>
+    <div class="checks" id="checks"></div>
   </div>
 
-  <div class="panel">
-    <span class="label">Captions</span>
-    <div class="status-line">
-      <span class="dot" id="dash-dot"></span>
-      <span id="dash-session">Not running</span>
-    </div>
-    <p class="hint" id="dash-overlays">No screens connected.</p>
-  </div>
+  <p class="hint" id="dash-overlays" style="margin-bottom:var(--s5)">No screens connected.</p>
 
   <div class="panel">
     <span class="label">This session</span>
@@ -470,7 +482,14 @@
   function renderChecks(status) {
     var host = el('checks');
     host.innerHTML = '';
-    status.checks.forEach(function (check) {
+
+    // Only what someone can act on. A green row is a row that has to be read
+    // to be dismissed, and there is nothing behind it.
+    var problems = status.checks.filter(function (c) {
+      return c.state !== 'ok' && c.state !== 'unknown';
+    });
+
+    problems.forEach(function (check) {
       var row = document.createElement('div');
       row.className = 'check';
       row.setAttribute('data-state', check.state);
@@ -484,16 +503,10 @@
 
       var name = document.createElement('p');
       name.className = 'check-name';
-      text(name, check.label);
+      text(name, check.label + (check.detail ? ' — ' + check.detail : ''));
       body.appendChild(name);
 
-      if (check.detail) {
-        var detail = document.createElement('p');
-        detail.className = 'check-detail';
-        text(detail, check.detail);
-        body.appendChild(detail);
-      }
-      if (check.fix && check.state !== 'ok') {
+      if (check.fix) {
         var fix = document.createElement('p');
         fix.className = 'check-fix';
         text(fix, check.fix);
@@ -504,25 +517,24 @@
       host.appendChild(row);
     });
 
-    var unresolved = status.checks.filter(function (c) {
-      return c.state !== 'ok' && c.state !== 'unknown';
-    });
-    text(
-      el('overview-sub'),
-      unresolved.length === 0
-        ? 'Everything is set up.'
-        : unresolved.length + (unresolved.length === 1 ? ' thing needs' : ' things need') + ' attention.'
-    );
+    var ready = status.checks.length - problems.length;
+    el('setup').setAttribute('data-clear', problems.length === 0 ? 'true' : 'false');
+    text(el('setup-summary'),
+      problems.length === 0
+        ? 'Set up — ' + ready + ' checks pass'
+        : ready + ' ready · ' + problems.length + (problems.length === 1 ? ' needs' : ' need') + ' attention');
 
-    // Mark the Settings tab when something there would fix a problem.
+    text(el('overview-sub'),
+      problems.length === 0 ? 'Everything is ready.' : 'Fix the items below to use every feature.');
+
     tabs.forEach(function (tab) {
       if (tab.getAttribute('data-tab') !== 'settings') return;
       var pip = tab.querySelector('.pip');
-      if (unresolved.length > 0 && !pip) {
+      if (problems.length > 0 && !pip) {
         pip = document.createElement('span');
         pip.className = 'pip';
         tab.appendChild(pip);
-      } else if (unresolved.length === 0 && pip) {
+      } else if (problems.length === 0 && pip) {
         pip.remove();
       }
     });
@@ -532,7 +544,7 @@
     var running = status.session && status.session.running;
     var state = status.session ? status.session.state : 'idle';
 
-    el('dash-dot').className = running ? 'dot ok' : 'dot';
+    el('bar-dot').className = running ? 'dot ok' : 'dot';
     el('live-dot').className = running ? 'dot ok' : 'dot';
 
     var label = running
@@ -540,7 +552,7 @@
       : state === 'paused'
         ? 'Paused — what is already queued is still going out'
         : 'Not running';
-    text(el('dash-session'), label);
+    text(el('bar-state'), label);
     text(el('live-state'), label);
 
     var level = (status.session && status.session.level) || 0;
