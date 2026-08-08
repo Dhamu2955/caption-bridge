@@ -158,6 +158,11 @@
     text-align: center;
     text-wrap: balance;
   }
+  /* Same trap as `.feed video[hidden]` above: the display rule out-specifies
+     the UA stylesheet's [hidden] { display: none }, so without this the panel
+     stays over the picture once the countdown ends — audio playing, nothing to
+     see, and a frozen "1s left". */
+  .feed-waiting[hidden] { display: none; }
 
   /* Sits under "Back to live" when both are showing, so neither moves as the
      other appears. */
@@ -514,6 +519,10 @@
   function showVideo(src, opts) {
     if (el.video.getAttribute('src') === src) return;
     el.video.setAttribute('src', src);
+    // Ending a session leaves the element with no source and therefore in an
+    // error state, which setting src alone does not clear — without this an
+    // End-then-Start leaves a dead player that never loads anything again.
+    el.video.load();
     el.video.hidden = false;
     el.video.muted = true;
     el.video.autoplay = true;
@@ -595,7 +604,10 @@
   }
 
   function syncVideo() {
-    if (!media.url || el.video.hidden || !el.video.duration) return;
+    // Deliberately does not bail on a missing duration — the catch-up notice
+    // below has to run before the recording has loaded, which is exactly when
+    // there is nothing else on screen to explain the wait.
+    if (!media.url || el.video.hidden) return;
     if (!media.following) return;
 
     var want = mediaTimeNow();
@@ -609,6 +621,12 @@
       if (!el.video.paused) el.video.pause();
       if (el.video.currentTime > 0.1) el.video.currentTime = 0;
       showWaiting(Math.ceil(-want));
+      return;
+    }
+    // Past the catch-up window but nothing has loaded yet — say so rather than
+    // leaving a blank rectangle.
+    if (!el.video.duration) {
+      showWaiting(0);
       return;
     }
 
@@ -968,7 +986,8 @@
       // feed and knowing better than we do.
       if (!videoUrl && message.media && message.media.url && media.url !== message.media.url) {
         media.url = message.media.url;
-        showVideo(message.media.url + (token ? '?token=' + encodeURIComponent(token) : ''),
+        var join = message.media.url.indexOf('?') === -1 ? '?' : '&';
+        showVideo(message.media.url + (token ? join + 'token=' + encodeURIComponent(token) : ''),
           { sound: true });
         renderSound();
       }

@@ -353,7 +353,12 @@ export class LiveSession {
       // land on the words it describes. The page cannot guess this — it is the
       // delay the queue schedules against.
       assemblyMs: this.options.config.live.delayAssemblyMs,
-      ...(this.options.format === 'file' ? { media: { url: '/api/media', kind: 'file' as const } } : {}),
+      // Carries the session epoch so each run has its own URL. Without it the
+      // browser reuses the 404 it cached while no session was running, and the
+      // player stays dead through every later start.
+      ...(this.options.format === 'file'
+        ? { media: { url: `/api/media?session=${this.sessionEpoch}`, kind: 'file' as const } }
+        : {}),
     });
   }
 }
