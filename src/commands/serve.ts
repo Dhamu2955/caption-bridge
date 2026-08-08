@@ -8,7 +8,7 @@ import { PrismaProvider } from '../db/provider.js';
 import { createArchiveRouter } from '../web/archive.js';
 import { ConfigStore } from '../settings/configStore.js';
 import { SecretsService } from '../settings/secrets.js';
-import { SETTINGS } from '../settings/schema.js';
+import { SETTINGS, SETTING_GROUPS } from '../settings/schema.js';
 import { YoutubeLiveAdapter, checkIngestionUrl } from '../live/adapters/youtubeLive.js';
 import type { CaptureFormat } from '../live/capture.js';
 import { listAudioDevices } from '../live/devices.js';
@@ -186,6 +186,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
   api.get('/api/settings', guard, (_req, res) => {
     res.json({
       settings: SETTINGS,
+      groups: SETTING_GROUPS,
       values: Object.fromEntries(
         SETTINGS.map((setting) => [setting.path, readAt(store.current, setting.path)]),
       ),
@@ -304,6 +305,10 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     },
     onSession: async (action, device, options) => {
       try {
+        // A new session is a new service. Carrying last week's counts into it
+        // would make the numbers meaningless, and starting over is exactly what
+        // "start" means.
+        if (action === 'start' && manager.status.state === 'idle') counters.reset();
         await manager.handle(action, device, {
           format: options?.format as CaptureFormat | undefined,
         });

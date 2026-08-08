@@ -10,13 +10,58 @@ import type { Capability } from '../live/preflight.js';
 
 export type AppliesTo = 'immediate' | 'next-session' | 'restart';
 
+/**
+ * Grouped by how often someone touches a setting, not by what it configures.
+ *
+ * A settings page is a list of decisions, and the useful question about any of
+ * them is "will I change this today?". Sorting by subsystem put the six knobs
+ * that were tuned once against a real sermon in front of the operator every
+ * week, next to the caption URL that genuinely changes every broadcast.
+ */
+export type SettingGroup = 'service' | 'words' | 'setup' | 'advanced';
+
+export interface SettingGroupInfo {
+  id: SettingGroup;
+  title: string;
+  blurb: string;
+  /** Folded away — present for whoever needs it, out of everyone else's way. */
+  collapsed?: boolean;
+}
+
+export const SETTING_GROUPS: readonly SettingGroupInfo[] = [
+  {
+    id: 'service',
+    title: 'This service',
+    blurb: 'Worth checking before each broadcast.',
+  },
+  {
+    id: 'words',
+    title: 'Names and terms',
+    blurb:
+      'Filling these in as you notice problems is the main reason to run this every week.',
+  },
+  {
+    id: 'setup',
+    title: 'This machine',
+    blurb: 'Set once, when the bridge is installed.',
+  },
+  {
+    id: 'advanced',
+    title: 'Subtitle shape and timing',
+    blurb:
+      'Tuned against a real sermon and unlikely to want changing. The one exception is ' +
+      '"cut a line after", which decides how soon a caption can appear.',
+    collapsed: true,
+  },
+];
+
 export interface SettingDescriptor {
   /** Dotted path into config.json. */
   path: string;
   label: string;
   help: string;
   type: 'string' | 'number' | 'boolean' | 'string[]' | 'termPairs';
-  group: 'captions' | 'live' | 'names' | 'server' | 'paths' | 'search' | 'youtube';
+  group: SettingGroup;
   appliesTo: AppliesTo;
   unit?: string;
 }
@@ -40,7 +85,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     help: 'If subtitles feel choppy, raise this. If separate sentences run together, lower it.',
     type: 'number',
     unit: 'ms',
-    group: 'captions',
+    group: 'advanced',
     appliesTo: 'next-session',
   },
   {
@@ -48,7 +93,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     label: 'Most characters in one subtitle',
     help: 'Keep this close to lines × characters per line, or the last line runs long.',
     type: 'number',
-    group: 'captions',
+    group: 'advanced',
     appliesTo: 'next-session',
   },
   {
@@ -56,7 +101,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     label: 'Characters per line',
     type: 'number',
     help: 'Wrapping width.',
-    group: 'captions',
+    group: 'advanced',
     appliesTo: 'next-session',
   },
   {
@@ -64,7 +109,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     label: 'Lines per subtitle',
     help: 'Three fits more full sentences than two. A hard cap, not a target.',
     type: 'number',
-    group: 'captions',
+    group: 'advanced',
     appliesTo: 'next-session',
   },
   {
@@ -73,7 +118,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     help: 'Briefer ones are merged rather than flashed.',
     type: 'number',
     unit: 'ms',
-    group: 'captions',
+    group: 'advanced',
     appliesTo: 'next-session',
   },
   {
@@ -82,7 +127,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     type: 'number',
     unit: 'ms',
     help: 'Stops a stretch without punctuation becoming a forty-second caption.',
-    group: 'captions',
+    group: 'advanced',
     appliesTo: 'next-session',
   },
 
@@ -94,16 +139,21 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'live after the encoder — not in vMix Video Delay.',
     type: 'number',
     unit: 'ms',
-    group: 'live',
+    group: 'service',
     appliesTo: 'next-session',
   },
   {
     path: 'live.delayAssemblyMs',
-    label: 'Assembly delay',
-    help: 'How far the venue screens sit behind the speaker. About four seconds.',
+    label: 'Time Soniox gets',
+    help:
+      'How long to wait for a subtitle before showing it. A subtitle cannot exist until ' +
+      'the sentence has finished being spoken, so this needs to be about as long as your ' +
+      'longest sentence plus two seconds — measured at twelve on a real sermon, not four. ' +
+      'Too short and long lines are skipped for arriving late. The venue screens sit this ' +
+      'far behind the speaker, and the reviewer sees each line the moment it is ready.',
     type: 'number',
     unit: 'ms',
-    group: 'live',
+    group: 'service',
     appliesTo: 'next-session',
   },
   {
@@ -115,7 +165,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'Cutting sooner gets captions up faster, at the cost of splitting sentences.',
     type: 'number',
     unit: 'ms',
-    group: 'live',
+    group: 'advanced',
     appliesTo: 'next-session',
   },
   {
@@ -126,7 +176,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'test stream before a festival.',
     type: 'number',
     unit: 'ms',
-    group: 'youtube',
+    group: 'service',
     appliesTo: 'next-session',
   },
 
@@ -137,7 +187,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'Deity names, proper nouns and scriptural terms, so they come back the same every ' +
       'week. Filling these in as you spot problems is the main reason to run this weekly.',
     type: 'string[]',
-    group: 'names',
+    group: 'words',
     appliesTo: 'next-session',
   },
   {
@@ -145,7 +195,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     label: 'Fixed translations',
     help: 'Gujarati term on the left, the English you want on the right.',
     type: 'termPairs',
-    group: 'names',
+    group: 'words',
     appliesTo: 'next-session',
   },
 
@@ -156,7 +206,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       '127.0.0.1 keeps this machine only. 0.0.0.0 lets the tablet and the vMix PC reach ' +
       'it — and anyone else on the mandir network, so only do that on a trusted one.',
     type: 'string',
-    group: 'server',
+    group: 'setup',
     appliesTo: 'restart',
   },
   {
@@ -164,7 +214,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     label: 'Port',
     help: 'Restart needed — changing it would strand every page that is already open.',
     type: 'number',
-    group: 'server',
+    group: 'setup',
     appliesTo: 'restart',
   },
   {
@@ -172,7 +222,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     label: 'Where sermons are kept',
     help: 'Videos to ingest are read from here.',
     type: 'string',
-    group: 'paths',
+    group: 'setup',
     appliesTo: 'immediate',
   },
 ];

@@ -829,15 +829,6 @@
     });
   }
 
-  var GROUP_LABELS = {
-    captions: 'Subtitle shape',
-    live: 'Live timing',
-    names: 'Names and terms',
-    server: 'Where this is reachable',
-    paths: 'Folders',
-    search: 'Search',
-    youtube: 'YouTube'
-  };
 
   function valueToInput(setting, value) {
     if (setting.type === 'string[]') return (value || []).join('\n');
@@ -875,25 +866,50 @@
   };
 
   function renderSettings(body) {
-    var host = el('settings-groups');
-    host.innerHTML = '';
+    var groupHost = el('settings-groups');
+    groupHost.innerHTML = '';
 
     var groups = {};
     body.settings.forEach(function (setting) {
       (groups[setting.group] = groups[setting.group] || []).push(setting);
     });
 
-    Object.keys(groups).forEach(function (group) {
+    // Server order, which is by how often a setting is touched.
+    (body.groups || []).forEach(function (info) {
+      if (!groups[info.id]) return;
+
       var panel = document.createElement('div');
       panel.className = 'panel';
 
-      var heading = document.createElement('span');
-      heading.className = 'label';
-      heading.textContent = GROUP_LABELS[group] || group;
-      panel.appendChild(heading);
+      // Rarely-wanted settings fold away rather than sitting between the ones
+      // that change every week.
+      var host = panel;
+      if (info.collapsed) {
+        var details = document.createElement('details');
+        var summary = document.createElement('summary');
+        summary.className = 'label';
+        summary.style.cursor = 'pointer';
+        summary.textContent = info.title;
+        details.appendChild(summary);
+        panel.appendChild(details);
+        host = details;
+      } else {
+        var heading = document.createElement('span');
+        heading.className = 'label';
+        heading.textContent = info.title;
+        panel.appendChild(heading);
+      }
+
+      if (info.blurb) {
+        var blurb = document.createElement('p');
+        blurb.className = 'hint';
+        blurb.style.marginBottom = '18px';
+        text(blurb, info.blurb);
+        host.appendChild(blurb);
+      }
 
       var inputs = [];
-      groups[group].forEach(function (setting) {
+      groups[info.id].forEach(function (setting) {
         var field = document.createElement('div');
         field.className = 'field';
 
@@ -918,7 +934,7 @@
         text(help, setting.help);
         field.appendChild(help);
 
-        panel.appendChild(field);
+        host.appendChild(field);
       });
 
       var row = document.createElement('div');
@@ -955,9 +971,9 @@
         });
       });
       row.appendChild(save);
-      panel.appendChild(row);
+      host.appendChild(row);
 
-      host.appendChild(panel);
+      groupHost.appendChild(panel);
     });
   }
 
