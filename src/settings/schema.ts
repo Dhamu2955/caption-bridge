@@ -183,6 +183,29 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     appliesTo: 'next-session',
   },
   {
+    path: 'live.endpointSensitivity',
+    label: 'How soon Soniox calls a sentence finished',
+    help:
+      '-1 waits longest, 1 commits soonest, 0 is the default. Waiting longer gives it ' +
+      'the rest of the sentence before it decides what the words were — worth it when a ' +
+      'phrase is being misheard as a similar-sounding one, at the cost of captions ' +
+      'appearing later.',
+    type: 'number',
+    group: 'advanced',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.maxEndpointDelayMs',
+    label: 'Longest it may wait to decide',
+    help:
+      'The ceiling on the setting above, so a speaker who never pauses cannot hold a ' +
+      'sentence open indefinitely.',
+    type: 'number',
+    unit: 'ms',
+    group: 'advanced',
+    appliesTo: 'next-session',
+  },
+  {
     path: 'live.streamOffsetMs',
     label: 'Encoder to YouTube delay',
     help:

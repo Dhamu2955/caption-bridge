@@ -545,12 +545,27 @@ its settings sit underneath **A**:
 
 | | Default | |
 |---|---|---|
-| `live.endpointSensitivity` | −0.25 | −1 patient, 1 eager. Slightly patient reads better: it gives the translator enough audio to resolve short words and clause boundaries rather than committing to a fragment |
-| `live.maxEndpointDelayMs` | 2500 | Hard ceiling on that wait, so a speaker who does not pause cannot hold a segment open indefinitely |
+| `live.endpointSensitivity` | −0.5 | −1 patient, 1 eager. Patient reads better: it gives Soniox the rest of the sentence before deciding what the words were |
+| `live.maxEndpointDelayMs` | 3500 | Hard ceiling on that wait, so a speaker who does not pause cannot hold a segment open indefinitely |
 
-Both come from the American mandirs' bridge, arrived at by running real satsang
-through it. Their note is worth keeping: more patient settings read better but
-"added noticeable lag".
+**Why patience matters, with an example.** The speaker says
+*આ દર્શન-શ્રવણ* ("this seeing-and-hearing"). Move the word boundary and the same
+phonemes are *આદર્શ* — "ideal". At −0.25 Soniox closed the clause mid-compound
+and committed to the wrong one: *"and also the online ideal"*. The same audio
+transcribed offline, with the whole sentence available, got it right.
+
+Measured on that sentence:
+
+| Setting | The phrase | Everything else |
+|---|---|---|
+| −0.25 / 2500 | ✗ "the online ideal" | prompt, ~1s |
+| −0.75 / 5000 | ✓ correct | clauses outran `maxBufferMs`, so our own cut split "Pancham Varasdar" across two captions; slowest line ready **17.1s** after the speech ended |
+| **−0.5 / 3500** | ✓ correct | compounds intact, slowest line **11.0s** |
+
+The ceiling is not comfort, it is `delayAssemblyMs`. A line that takes longer
+than the assembly delay to become ready is not a late caption, it is no caption
+— `lateSkipMs` drops it. At 15s of assembly delay, −0.75 does not fit and −0.5
+does.
 
 **`/overlay?output=venue`** — the caption block that goes on screen.
 Transparent background so vMix can key it. English only by default; add
