@@ -162,10 +162,10 @@
   */
   .card {
     display: grid;
-    grid-template-columns: 26px 1fr;
-    gap: var(--s3);
-    margin-bottom: var(--s2);
-    padding: var(--s3);
+    grid-template-columns: 22px 1fr;
+    gap: var(--s2);
+    margin-bottom: var(--s1);
+    padding: var(--s2) var(--s3);
     border-radius: var(--radius);
     background: var(--raised);
     border: 1px solid var(--rule);
@@ -177,7 +177,7 @@
     position: relative;
     flex: 1 1 auto;
     width: 5px;
-    min-height: 34px;
+    min-height: 26px;
     border-radius: 3px;
     background: var(--rule-soft);
     overflow: hidden;
@@ -210,22 +210,22 @@
   .gu {
     margin: 0;
     font-family: var(--gujarati);
-    font-size: 1.02rem;
-    line-height: 1.4;
+    font-size: 0.94rem;
+    line-height: 1.32;
     color: var(--ink);
   }
   .gu[title] { cursor: pointer; }
 
-  .rule { height: 0; margin: var(--s2) 0; border: 0; border-top: 1px solid var(--rule-soft); }
+  .rule { height: 0; margin: var(--s1) 0; border: 0; border-top: 1px solid var(--rule-soft); }
 
   .en {
     margin: 0;
     font-family: var(--serif);
-    font-size: 1.06rem;
-    line-height: 1.38;
+    font-size: 1rem;
+    line-height: 1.3;
   }
 
-  .note { margin: var(--s2) 0 0; font-size: 0.78rem; color: var(--ink-faint); }
+  .note { margin: var(--s1) 0 0; font-size: 0.74rem; color: var(--ink-faint); }
   .note-dropped, .note-edited, .note-expired { display: none; }
   .card[data-note="dropped"] .note-dropped { display: block; color: var(--stop); }
   .card[data-note="edited"]  .note-edited  { display: block; color: var(--live); }
@@ -234,25 +234,25 @@
   .card[data-dropped="true"] .en { color: var(--ink-faint); text-decoration: line-through; }
   .card[data-expired="true"] { opacity: 0.5; }
 
-  .actions { display: flex; gap: var(--s2); margin-top: var(--s3); }
+  .actions { display: flex; gap: var(--s2); margin-top: var(--s2); }
 
   button {
     font-family: var(--sans);
-    font-size: 0.88rem;
+    font-size: 0.82rem;
     cursor: pointer;
     border-radius: var(--radius-sm);
   }
 
   .drop {
     flex: 1 1 auto;
-    padding: 9px var(--s3);
+    padding: 5px var(--s3);
     border: 1px solid var(--stop);
     background: var(--stop-bg);
     color: var(--stop);
   }
   .fix {
     flex: 0 0 auto;
-    padding: 9px var(--s3);
+    padding: 5px var(--s3);
     border: 1px solid var(--rule);
     background: transparent;
     color: var(--ink);
@@ -797,14 +797,80 @@
     });
   }
 
+  /*
+    Where the reviewer is looking: the first card still visible at the top of
+    the scroller, and how far it sits above the fold. Restoring that after the
+    DOM changes means a line going to air above them does not yank the list.
+  */
+  function scrollAnchor() {
+    var box = document.querySelector('.stage-queue');
+    if (!box || box.scrollHeight <= box.clientHeight) return null;
+
+    // Every visible card, nearest the fold first. The topmost one is the worst
+    // possible single choice — it is the next to go to air, so it is exactly
+    // the node that will not be there to anchor to.
+    var nodes = [];
+    var kids = el.queue.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].offsetTop + kids[i].offsetHeight > box.scrollTop) nodes.push(kids[i]);
+    }
+    if (!nodes.length) return null;
+
+    // Someone mid-correction is anchored to their own card, wherever it is.
+    // Losing your place is an irritation; losing the line you are typing into
+    // is the complaint.
+    if (state.editing && cards[state.editing]) {
+      var own = cards[state.editing].li;
+      if (nodes.indexOf(own) === -1) nodes.unshift(own);
+      else nodes.splice(0, 0, nodes.splice(nodes.indexOf(own), 1)[0]);
+    }
+
+    return {
+      box: box,
+      nodes: nodes.map(function (node) {
+        return { node: node, delta: node.offsetTop - box.scrollTop };
+      }),
+    };
+  }
+
+  function restoreAnchor(anchor) {
+    if (!anchor) return;
+    for (var i = 0; i < anchor.nodes.length; i++) {
+      var entry = anchor.nodes[i];
+      if (!entry.node.parentNode) continue;
+      anchor.box.scrollTop = entry.node.offsetTop - entry.delta;
+      return;
+    }
+  }
+
+  /*
+    A press is not a click until the release, and a click only counts if both
+    landed on the same element. The view is pushed every 250ms, so moving cards
+    on every render used to swallow roughly one press in three — which is what
+    "Fix wording doesn't work the first time" was.
+  */
+  var pressing = false;
+  el.queue.addEventListener('pointerdown', function () { pressing = true; });
+  window.addEventListener('pointerup', function () { pressing = false; });
+  window.addEventListener('pointercancel', function () { pressing = false; });
+
   function render() {
     var now = Date.now();
     el.queueEmpty.style.display = state.pending.length ? 'none' : '';
     el.count.textContent = String(state.pending.length);
 
     var seen = {};
+    state.pending.forEach(function (line) { seen[line.id] = true; });
+
+    var anchor = scrollAnchor();
+
+    // Retired before anything is repositioned, not after. While a dead card was
+    // still sitting at index 0, every card behind it failed the position check
+    // and got moved — a queue-wide reshuffle on the one render that could least
+    // afford it.
+    retire(seen);
+
     state.pending.forEach(function (line, index) {
-      seen[line.id] = true;
       var card = cards[line.id];
       if (!card) {
         card = buildCard(line);
@@ -839,16 +905,28 @@
 
       card.li.setAttribute('data-showing', state.seekedTo === line.id ? 'true' : 'false');
 
+      // A card new to the queue always joins it; the queue is soonest-first, so
+      // the end is where a later deadline belongs anyway.
       if (card.li.parentNode !== el.queue) el.queue.appendChild(card.li);
-      // Keep DOM order matching the queue order without rebuilding the cards.
-      if (el.queue.children[index] !== card.li) {
+
+      // Repositioning an existing card is cosmetic — the deadline on the face
+      // of it is what the reviewer acts on. So it waits until nobody is mid-
+      // press and nobody is typing, because moving a node cancels the press and
+      // moving the card being edited moves the caret out from under them.
+      if (!pressing && state.editing === null && el.queue.children[index] !== card.li) {
         el.queue.insertBefore(card.li, el.queue.children[index] || null);
       }
     });
 
-    // Anything the bridge no longer lists has gone to air. This is the only
-    // moment its final wording is known — whether the reviewer changed it,
-    // dropped it, or let it through — so it is recorded on the way past.
+    restoreAnchor(anchor);
+  }
+
+  /**
+   * Anything the bridge no longer lists has gone to air. This is the only
+   * moment its final wording is known — whether the reviewer changed it,
+   * dropped it, or let it through — so it is recorded on the way past.
+   */
+  function retire(seen) {
     Object.keys(cards).forEach(function (id) {
       if (seen[id]) return;
       var line = cards[id].line;

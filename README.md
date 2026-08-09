@@ -564,6 +564,13 @@ covers has finished being spoken, so anything under about 12 seconds routinely
 schedules lines for an instant already past, and they are dropped. See
 [The two delays](#the-two-delays).
 
+**The first line or two of a service never reaches the venue screens**
+Expected, and only affects the unreviewed outputs. Soniox's first result arrives
+around 19s in, by which point a line covering the opening seconds is already
+past its `delayAssemblyMs` deadline. The stream and YouTube outputs wait `A + B`
+so they carry it. Start captions a few seconds before the speaker does and there
+is nothing to lose.
+
 **`ffmpeg not found on PATH`**
 `brew install ffmpeg` on macOS.
 

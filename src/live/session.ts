@@ -113,8 +113,14 @@ export class LiveSession {
       this.queue.addOutput(this.configs[name], adapter);
     }
 
-    const stub = new StubAdapter('stub', { log: options.verbose ?? false });
-    this.queue.addOutput(this.configs.stub, stub);
+    // Only when asked for. Its delay is 0 and a caption cannot exist until the
+    // speech it covers has finished, so every line arrives "late" for it and is
+    // skipped — a warning per line, and 84 of them counted as Missed on a run
+    // where nothing was actually missed. It is a development sink (§10), and
+    // silent unless `verbose`, so off it was pure noise.
+    if (options.verbose) {
+      this.queue.addOutput(this.configs.stub, new StubAdapter('stub', { log: true }));
+    }
 
     if (options.youtubeCaptionsUrl) {
       const check = checkIngestionUrl(options.youtubeCaptionsUrl);
