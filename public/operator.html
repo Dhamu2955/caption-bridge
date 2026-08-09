@@ -63,6 +63,39 @@
 
   .window { float: right; font-weight: 400; color: var(--ink-faint); }
 
+  .back-to-top {
+    padding: 4px var(--s3);
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: var(--soon);
+    color: #16150F;
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+  .back-to-top[hidden] { display: none; }
+
+  /* Icon only. The state is the icon — a speaker with waves or with a cross —
+     so a word beside it would be saying the same thing twice. */
+  .icon-button {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 30px; padding: 0;
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    background: transparent; color: var(--ink-soft);
+  }
+  .icon-button:hover { color: var(--ink); }
+  .icon-button[hidden] { display: none; }
+  .icon-button[aria-pressed="true"] { color: var(--live); border-color: var(--live); }
+  /* Pressed means sound is on: waves, no cross. */
+  .icon-button[aria-pressed="true"] .muted { display: none; }
+  .icon-button[aria-pressed="false"] .waves { display: none; }
+
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
   /*
     Framed inside the app, the shell's own bar already says whether captions are
     going out, ten pixels above this. Standing alone on a tablet — the usual
@@ -142,7 +175,7 @@
      picture once the countdown ends. Same trap as .feed video[hidden]. */
   .feed-waiting[hidden] { display: none; }
 
-  .sound, .follow {
+  .follow {
     position: absolute;
     top: var(--s2);
     padding: 5px 11px;
@@ -154,9 +187,24 @@
     color: #F7F4EE;
     border: 1px solid rgba(247, 244, 238, 0.28);
   }
-  .sound { left: var(--s2); }
   .follow { right: var(--s2); border-color: transparent; background: var(--soon); color: #16150F; }
-  .sound[aria-pressed="true"] { border-color: var(--live); color: var(--live); }
+
+  .feed .sound {
+    position: absolute;
+    top: var(--s2);
+    left: var(--s2);
+    background: rgba(8, 7, 5, 0.7);
+    border-color: rgba(247, 244, 238, 0.28);
+    color: #F7F4EE;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  /* focus-within so a keyboard can reach it, and a coarse pointer keeps it up
+     permanently — there is no hover on a tablet. */
+  .feed:hover .sound,
+  .feed:focus-within .sound { opacity: 1; }
+  @media (hover: none) { .feed .sound { opacity: 1; } }
+  .feed .sound[aria-pressed="true"] { color: var(--live); border-color: var(--live); }
 
   .feed-empty {
     display: flex;
@@ -379,6 +427,25 @@
          whoever is watching. -->
     <span class="feed-alarm" id="feedAlarm" hidden></span>
     <span class="said-note" id="saidNote" role="status" hidden></span>
+    <!--
+      The controls live here rather than over the picture. On the video they
+      were only reachable while looking at it, and one of them — the way back
+      to the top of the queue — is wanted precisely when you are looking at the
+      queue instead.
+    -->
+    <button class="back-to-top" id="backToTop" type="button" hidden>↑ Next line out</button>
+    <button class="icon-button" id="soundBtn" data-sound type="button" aria-pressed="false" hidden>
+      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+        <path class="speaker" fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/>
+        <g class="waves" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M16.5 8.5a5 5 0 0 1 0 7"/>
+          <path d="M19 6a8.5 8.5 0 0 1 0 12"/>
+        </g>
+        <path class="muted" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" d="M17 9.5l5 5m0-5l-5 5"/>
+      </svg>
+      <span class="visually-hidden" id="soundLabel">Sound on</span>
+    </button>
     <button class="ghost" id="pause" type="button">Pause captions</button>
   </header>
 
@@ -388,7 +455,23 @@
     <p class="feed-caption" id="feedCaption" hidden></p>
     <p class="feed-waiting" id="feedWaiting" hidden></p>
     <button class="follow" id="followBtn" type="button" hidden>Back to live</button>
-    <button class="sound" id="soundBtn" type="button" aria-pressed="false" hidden>Sound on</button>
+    <!-- The same control twice, on purpose. Reaching for it while watching the
+         picture should not mean crossing the page; reaching for it while
+         reading the queue should not mean crossing back. This one fades in on
+         hover so it is not sitting on the speaker's face all service, which
+         also means it never appears on a tablet — hence the one in the header,
+         which is always there. -->
+    <button class="sound icon-button" data-sound type="button" aria-pressed="false" hidden>
+      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+        <path class="speaker" fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/>
+        <g class="waves" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M16.5 8.5a5 5 0 0 1 0 7"/>
+          <path d="M19 6a8.5 8.5 0 0 1 0 12"/>
+        </g>
+        <path class="muted" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" d="M17 9.5l5 5m0-5l-5 5"/>
+      </svg>
+    </button>
     <div class="feed-empty" id="feedEmpty">
       <!-- The delay is configurable, so it is filled in from the live view
            rather than written here, where it went stale at four seconds while
@@ -476,8 +559,8 @@
     el.video.play().catch(function () {});
     el.feedEmpty.style.display = 'none';
     document.getElementById('feed').setAttribute('data-empty', 'false');
-    var sound = document.getElementById('soundBtn');
-    if (sound) sound.hidden = !(opts && opts.sound);
+    var sound = soundButtons();
+    sound.forEach(function (b) { b.hidden = !(opts && opts.sound); });
   }
 
   function hideVideo() {
@@ -491,8 +574,8 @@
     document.getElementById('feed').setAttribute('data-empty', 'true');
     var caption = document.getElementById('feedCaption');
     if (caption) caption.hidden = true;
-    var sound = document.getElementById('soundBtn');
-    if (sound) sound.hidden = true;
+    var sound = soundButtons();
+    sound.forEach(function (b) { b.hidden = true; });
     var followButton = document.getElementById('followBtn');
     if (followButton) followButton.hidden = true;
   }
@@ -505,11 +588,23 @@
     renderSound();
   }
 
+  /** Both copies of the control, kept identical. */
+  function soundButtons() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-sound]'));
+  }
+
   function renderSound() {
-    var button = document.getElementById('soundBtn');
-    if (!button) return;
-    button.textContent = el.video.muted ? 'Sound on' : 'Sound off';
-    button.setAttribute('aria-pressed', el.video.muted ? 'false' : 'true');
+    var on = !el.video.muted;
+    // The label is for a screen reader and a tooltip; the icon is for everyone
+    // else. Both say what pressing it will do, not what the state is.
+    var action = on ? 'Turn the sound off' : 'Turn the sound on';
+    soundButtons().forEach(function (button) {
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+      button.title = action;
+      button.setAttribute('aria-label', action);
+    });
+    var text = document.getElementById('soundLabel');
+    if (text) text.textContent = action;
   }
 
   if (videoUrl) showVideo(videoUrl);
@@ -881,6 +976,50 @@
   }
 
   /*
+    Where the reviewer is working, and who decides it.
+
+    The queue is soonest-deadline first, so the top is the line about to go out
+    and that is where someone works. Lines arrive at the bottom and retire from
+    the top, so the list changes at both ends — no amount of anchoring makes a
+    scrolled-away view stay put, and trying was the wrong answer. So: stuck to
+    the top unless you scroll off it, and a way back when you have.
+  */
+  var atTop = true;
+
+  function queueBox() { return document.querySelector('.stage-queue'); }
+
+  function watchQueueScroll() {
+    var box = queueBox();
+    if (!box) return;
+    box.addEventListener('scroll', function () {
+      // Only a deliberate scroll unpins it. Our own corrections land within a
+      // few pixels of the top and must not count as leaving.
+      atTop = box.scrollTop <= 12;
+      renderBackToTop();
+    });
+  }
+
+  function renderBackToTop() {
+    var button = document.getElementById('backToTop');
+    if (!button) return;
+    var box = queueBox();
+    var scrollable = box && box.scrollHeight > box.clientHeight + 8;
+    button.hidden = atTop || !scrollable;
+  }
+
+  function backToTop() {
+    var box = queueBox();
+    if (!box) return;
+    atTop = true;
+    // Instant, not smooth. A smooth scroll animates through positions that are
+    // not the top, each firing a scroll event that unpins it again — and the
+    // render loop setting scrollTop to 0 underneath fights the animation the
+    // whole way down. Landing there is the point.
+    box.scrollTop = 0;
+    renderBackToTop();
+  }
+
+  /*
     A press is not a click until the release, and a click only counts if both
     landed on the same element. The view is pushed every 250ms, so moving cards
     on every render used to swallow roughly one press in three — which is what
@@ -888,6 +1027,8 @@
   */
   var pressing = false;
   el.queue.addEventListener('pointerdown', function () { pressing = true; });
+  document.getElementById('backToTop').addEventListener('click', backToTop);
+  watchQueueScroll();
   window.addEventListener('pointerup', function () { pressing = false; });
   window.addEventListener('pointercancel', function () { pressing = false; });
 
@@ -973,7 +1114,15 @@
       }
     });
 
-    restoreAnchor(anchor);
+    // Pinned is the normal case and needs no cleverness: the most urgent line
+    // is the first one, so staying at the top keeps it in view for free.
+    var box = queueBox();
+    if (atTop && box && !pressing) {
+      if (box.scrollTop !== 0) box.scrollTop = 0;
+    } else {
+      restoreAnchor(anchor);
+    }
+    renderBackToTop();
   }
 
   /**
@@ -1123,8 +1272,9 @@
   var followBtn = document.getElementById('followBtn');
   if (followBtn) followBtn.addEventListener('click', follow);
 
-  var soundBtn = document.getElementById('soundBtn');
-  if (soundBtn) soundBtn.addEventListener('click', toggleSound);
+  soundButtons().forEach(function (button) {
+    button.addEventListener('click', toggleSound);
+  });
 
   // ---- actions --------------------------------------------------------
 

@@ -169,17 +169,17 @@ first composites — they just happen at different times, on differently-delayed
 video.
 
 ```
-                    ┌─→ Video Delay A  (4s)  ─┐
-camera ─────────────┤                         ├─→ Mix 1 ─→ reviewer feed
-                    │   browser: reviewer  ───┘
+                    ┌─→ Video Delay A   (15s) ──┐
+camera ─────────────┤                            ├─→ Mix 1 ─→ reviewer feed
+                    │   browser: reviewer  ──────┘
                     │
-                    ├─→ Video Delay A+B (29s) ─┐
-                    │                          ├─→ Mix 2 ─→ air
-                    └─→ browser: stream  ──────┘
+                    ├─→ Video Delay A+B (3m15) ──┐
+                    │                            ├─→ Mix 2 ─→ air
+                    └─→ browser: stream  ────────┘
 ```
 
-**Two independent Video Delay inputs from the same camera**, at 4s and 29s. Not
-a 4s delay feeding a 25s delay. Two browser overlay inputs, one per output.
+**Two independent Video Delay inputs from the same camera**, at A and A+B. Not
+a delay of A feeding a delay of B. Two browser overlay inputs, one per output.
 Two Mix outputs.
 
 A reviewer's drop lands in the bridge during window B. The stream output has
@@ -195,10 +195,13 @@ decision arrives too late.
 - ⚠ **Video Delay source.** The docs say a Video Delay takes "either Output or
   an Input such as a Video Camera", so pointing two delays at one camera should
   be fine. Confirm both can run at once at your resolution.
-- ⚠ **Memory for a 29-second delay.** vMix's own guidance suggests delay memory
-  scales with bitrate rather than raw frames (a forum answer cites ~1 MB/s for
-  an 8 Mbps stream, so ~30 MB for 29 s). That seems low for uncompressed video;
-  measure it before the festival rather than discovering it on the day.
+- ⚠ **Memory for the delays.** vMix's own guidance suggests delay memory scales
+  with bitrate rather than raw frames (a forum answer cites ~1 MB/s for an
+  8 Mbps stream, so ~30 MB for 29 s — which was the entire review window when
+  this was written, and is now roughly the assembly delay alone). That seems low
+  for uncompressed video; measure it before the festival rather than discovering
+  it on the day. Be most sceptical of the A+B path — see below, it probably
+  should not be a Video Delay at all.
 - ⚠ **Audio for the delayed feeds.** The captions land on delayed video, but
   the *audio* going to air must be delayed by the same amount or lips will not
   match. Confirm whether the Video Delay input carries its own audio or whether
@@ -220,8 +223,9 @@ apply only if you burn captions into the picture instead.
 now defaults to three minutes (tunable to ten), because at 25 seconds a reviewer
 can only drop a line — reading the Gujarati, judging the English and typing a
 correction does not fit. But Video Delay buffers uncompressed frames in RAM; the
-~30 MB estimate above is for 29 seconds, and ten minutes is orders of magnitude
-more. Move the long delay **after the encoder**, where it is compressed:
+~30 MB estimate above is for 29 seconds, three minutes is six times that, and
+ten minutes is orders of magnitude more. Move the long delay **after the
+encoder**, where it is compressed:
 
 ```
 mic ──→ bridge ──→ Soniox ──→ queue ── held ~3 min, drops and edits applied ──→ POST to YouTube
@@ -238,7 +242,7 @@ test stream — along with the ingestion wire format, which is the one part of t
 live-caption path not verifiable from the code.
 
 The venue and overflow screens are untouched by all of this. They stay on
-assembly delay (~4s) with the browser overlay composited once, because a
+assembly delay (~15s) with the browser overlay composited once, because a
 congregation in the room cannot watch captions three minutes behind the speaker.
 
 ### Simplification worth considering

@@ -52,14 +52,18 @@ the next export silently overwrites it.
 
 ## Requirements
 
-| | | Check |
+| | Needed for | Check |
 |---|---|---|
-| **Node 20.12+** | runs the tool | `node -v` |
-| **ffmpeg** | extracts audio | `ffmpeg -version` |
-| **Docker** | runs Postgres | `docker --version` |
-| **Soniox API key** | transcription | [console.soniox.com](https://console.soniox.com) |
+| **Node 20.12+** | everything | `node -v` |
+| **Soniox API key** | any captions at all | [console.soniox.com](https://console.soniox.com) |
+| **ffmpeg** | the weekly job, and capturing from an audio device | `ffmpeg -version` |
+| **Docker** | keeping sermons: the archive, corrections, search | `docker --version` |
 
 On macOS: `brew install node ffmpeg` and install Docker Desktop.
+
+Only the first two are required to caption a service live — [capturing in the
+browser](#three-ways-to-get-sound-in) needs no ffmpeg, and live captions never
+touch the database.
 
 ---
 
@@ -410,6 +414,11 @@ batch.
 > the audio routing, the two-delay arrangement, and a six-step validation
 > checklist. The first three steps need no Windows machine.
 
+**Most of this is now done from [the app](#the-app)** — `npm run dev`, then the
+Captions tab. The `live` command below does the same thing from a terminal and
+is what the app calls underneath; it is still the right choice for a machine you
+will not be sitting at.
+
 ```sh
 npx tsx src/cli.ts devices     # prints the command to list your audio devices
 
@@ -434,6 +443,12 @@ drains to show the time left, a "Don't show this", and a "Fix wording" for the
 occasional line worth correcting rather than dropping. Plus a clearly separated
 "Turn captions off".
 
+The queue **stays at the top**, where the line about to go out is. Scroll away
+to read ahead and it holds your place instead of dragging you along, with a
+**Next line out** button in the header to get back. Sound is a deliberate press
+— browsers refuse to autoplay audio, and a tablet in the room would feed its own
+speaker back into the microphone being captioned.
+
 When the bridge is being fed a **recording** rather than a microphone, the page
 also shows the video, with the caption on it. Tap the Gujarati of any queued
 line and the picture jumps to the moment it was spoken, so a doubtful
@@ -444,6 +459,12 @@ the session's start instant and the file plays at its own speed, so a line at
 
 There is no equivalent for a live service yet: that needs a video feed off the
 vMix machine. See [docs/vmix-routing.md](docs/vmix-routing.md).
+
+The page also carries the **silent-feed badge**. After twelve seconds without
+speech it says how long it has been quiet, and after thirty it turns red. That
+is the failure worth catching mid-service: captions do not error when the sound
+stops reaching them, they simply stop, and a long pause looks identical to a
+pulled cable on a level meter nobody is watching.
 
 ### Captions on the YouTube stream
 
@@ -505,6 +526,26 @@ Tunable up to ten minutes.
 The venue screens are unaffected — they stay `delayAssemblyMs` behind the
 speaker (15 seconds by default), because a congregation in the room cannot
 watch captions three minutes late.
+
+**The reviewer is told how long they have.** The queue header states the window
+in words, and a line that goes to air while it is being corrected says so rather
+than the editor simply closing. A reviewer never holds a line back — INVARIANT
+10 — so the deadline arriving mid-correction is normal, and only confusing when
+it is silent.
+
+### The half of the delay that is Soniox's
+
+Nothing can be translated until Soniox decides a clause has finished, so two of
+its settings sit underneath **A**:
+
+| | Default | |
+|---|---|---|
+| `live.endpointSensitivity` | −0.25 | −1 patient, 1 eager. Slightly patient reads better: it gives the translator enough audio to resolve short words and clause boundaries rather than committing to a fragment |
+| `live.maxEndpointDelayMs` | 2500 | Hard ceiling on that wait, so a speaker who does not pause cannot hold a segment open indefinitely |
+
+Both come from the American mandirs' bridge, arrived at by running real satsang
+through it. Their note is worth keeping: more patient settings read better but
+"added noticeable lag".
 
 **`/overlay?output=venue`** — the caption block that goes on screen.
 Transparent background so vMix can key it. English only by default; add
@@ -655,24 +696,31 @@ input *numbers* shift when inputs are reordered, which is why this takes a GUID.
 
 ```
 src/
-  cli.ts              command-line entry point
-  config.ts           reads config.json, resolves credentials from the environment
-  audio/              ffmpeg audio extraction
-  soniox/             async API client
-  youtube/            Data API client and the one-off OAuth flow
-  segments/build.ts   tokens → subtitles. The core; shared by every phase
-  srt/format.ts       subtitles → .srt text
-  db/                 Postgres access
-  search/             chunking, embeddings, vector search
-  live/               real-time bridge: capture, websocket, queue, adapters
-  commands/           one file per CLI command
+  cli.ts                 command-line entry point
+  config.ts              reads config.json, resolves credentials from the environment
+  audio/                 ffmpeg audio extraction
+  soniox/                async API client, and the vocabulary:
+    vocabulary.ts          the Swaminarayan glossary and register instructions
+    context.ts             merges built-in and local terms; used by both paths
+    normalize.ts           corrects the English the glossary did not manage to
+  youtube/               Data API client and the one-off OAuth flow
+  segments/build.ts      tokens → subtitles. The core; shared by every phase
+  srt/format.ts          subtitles → .srt text
+  db/                    Postgres access
+  search/                chunking, embeddings, vector search
+  live/                  real-time bridge: capture, websocket, queue, adapters
+  settings/              reads and writes .env and config.json, atomically
+  web/                   HTTP routes the app pages call
+  commands/              one file per CLI command
 public/
-  operator.html       reviewer page
-  control.html        setup page — audio input, start/stop, level meter
-  overlay.html        on-air caption block
-prisma/schema.prisma  database schema
-docs/                 architecture and vMix routing
-test/                 394 tests
+  app.html               the app — one tab per job
+  operator.html          reviewer page: video, queue, transcript
+  control.html           the older standalone setup page
+  overlay.html           on-air caption block
+  capture-worklet.js     browser audio capture, on the audio thread
+prisma/schema.prisma     database schema
+docs/                    architecture and vMix routing
+test/                    394 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else

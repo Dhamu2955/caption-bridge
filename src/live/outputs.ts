@@ -5,13 +5,13 @@ import type { OutputConfig } from './types.js';
  * The output table from INVARIANT 7. Cost scales with sessions, not outputs —
  * needing a second Soniox connection to feed another screen is a design error.
  *
- * | output   | delay to air   | reviewed | composites |
- * |----------|----------------|----------|------------|
- * | stream   | A + B ≈ 29000  | yes      | two        |
- * | reviewer | A ≈ 4000       | n/a      | one        |
- * | venue    | A ≈ 4000       | no       | one        |
- * | overflow | A ≈ 4000       | no       | one        |
- * | stub     | 0              | no       | none       |
+ * | output   | delay to air    | reviewed | composites |
+ * |----------|-----------------|----------|------------|
+ * | stream   | A + B ≈ 195000  | yes      | two        |
+ * | reviewer | A ≈ 15000       | n/a      | one        |
+ * | venue    | A ≈ 15000       | no       | one        |
+ * | overflow | A ≈ 15000       | no       | one        |
+ * | stub     | 0               | no       | none       |
  *
  * Every one is includeNonFinal: false (INVARIANT 4) — that is not expressed
  * here because it is not configurable.
