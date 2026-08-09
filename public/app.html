@@ -199,6 +199,109 @@
     margin: 3px 0 0; font-size: 0.82rem; line-height: 1.45; color: var(--ink-soft);
   }
 
+  /* ---- glossary: a long list you search, not a form you scroll -------- */
+
+  /*
+    Two hundred entries. Everything here follows from that: you arrive looking
+    for one word, so the finder comes before the list; you cannot tell what is
+    already covered, so provenance is on every row; and adding sits at the top
+    because the alternative is scrolling past two hundred rows to reach it.
+  */
+  .segmented {
+    display: flex; flex-wrap: wrap; gap: var(--s1);
+    margin-bottom: var(--s4);
+    padding: var(--s1);
+    border: 1px solid var(--rule); border-radius: var(--radius);
+    background: var(--raised);
+    width: fit-content; max-width: 100%;
+  }
+  .segmented button {
+    padding: 6px var(--s4); min-height: 0;
+    border-color: transparent; background: transparent;
+    color: var(--ink-soft); font-size: 0.9rem;
+  }
+  .segmented button[aria-current="true"] {
+    background: var(--sunk); border-color: var(--rule); color: var(--ink);
+  }
+
+  .finder { display: flex; gap: var(--s3); align-items: center; margin: var(--s4) 0 var(--s3); }
+  .finder input[type="text"], .finder #term-find { flex: 1 1 auto; }
+  .only-mine {
+    display: flex; align-items: center; gap: var(--s2);
+    white-space: nowrap; font-size: 0.88rem; color: var(--ink-soft); cursor: pointer;
+  }
+
+  .adder {
+    display: flex; gap: var(--s2); align-items: center;
+    margin-bottom: var(--s4); padding-bottom: var(--s4);
+    border-bottom: 1px solid var(--rule);
+  }
+  .adder input { flex: 1 1 0; }
+  .adder .arrow { flex: 0 0 auto; color: var(--ink-faint); }
+  .gu-input { font-family: var(--gujarati); }
+
+  /* A row is a pair, so the pair is the shape: source, arrow, English. */
+  .terms { max-height: 62vh; overflow-y: auto; }
+  .term {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) auto;
+    gap: var(--s3);
+    align-items: center;
+    padding: var(--s2) 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .term:first-child { border-top: 0; }
+  .term-source { font-family: var(--gujarati); font-size: 1rem; overflow-wrap: anywhere; }
+  .term-arrow { color: var(--ink-faint); font-size: 0.8rem; }
+  .term-target { font-family: var(--serif); font-size: 1rem; overflow-wrap: anywhere; }
+  .term-target input {
+    width: 100%; padding: 4px var(--s2); min-height: 0;
+    font-family: var(--serif); font-size: 1rem;
+  }
+  .term-actions { display: flex; gap: var(--s2); align-items: center; }
+  .term-actions button {
+    padding: 3px var(--s3); min-height: 0; font-size: 0.78rem;
+    border-color: transparent; color: var(--ink-faint);
+  }
+  .term-actions button:hover { color: var(--ink); border-color: var(--rule); }
+
+  /* Provenance, quietly. Ours is the only one worth a colour — it is the only
+     one you can act on. */
+  .tag {
+    flex: 0 0 auto;
+    font-family: var(--mono); font-size: 0.58rem;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .term[data-origin="local"] .tag,
+  .term[data-origin="override"] .tag { color: var(--live); }
+  .term[data-origin="override"] .term-target { color: var(--live); }
+  .replaces { display: block; font-family: var(--sans); font-size: 0.72rem; color: var(--ink-faint); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: var(--s2); max-height: 52vh; overflow-y: auto; }
+  .chip {
+    display: inline-flex; align-items: center; gap: var(--s2);
+    padding: 4px var(--s3);
+    border: 1px solid var(--rule); border-radius: 999px;
+    background: var(--sunk);
+    font-family: var(--gujarati); font-size: 0.92rem;
+  }
+  .chip[data-origin="local"] { border-color: var(--live); }
+  .chip button {
+    padding: 0 2px; min-height: 0; border: 0; background: none;
+    color: var(--ink-faint); font-size: 0.9rem; line-height: 1;
+  }
+  .chip button:hover { color: var(--stop); }
+
+  .register-entry { padding: var(--s3) 0; border-top: 1px solid var(--rule-soft); }
+  .register-entry:first-child { border-top: 0; }
+  .register-key {
+    margin: 0 0 var(--s1);
+    font-family: var(--mono); font-size: 0.68rem;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink);
+  }
+  .register-value { margin: 0; font-size: 0.88rem; line-height: 1.55; color: var(--ink-soft); }
+
   /* ---- settings: a rail, so one click reaches anything ---------------- */
 
   /*
@@ -279,6 +382,7 @@
   <span class="brand">Caption bridge</span>
   <button class="tab" role="tab" data-tab="live" aria-selected="true">Captions</button>
   <button class="tab" role="tab" data-tab="review" aria-selected="false">Reviewer</button>
+  <button class="tab" role="tab" data-tab="glossary" aria-selected="false">Glossary</button>
   <button class="tab" role="tab" data-tab="sermons" aria-selected="false">Sermons</button>
   <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
   <span class="bar-spacer"></span>
@@ -421,6 +525,63 @@
   <iframe class="frame" id="review-frame" title="Reviewer" allow="autoplay"></iframe>
 </div>
 
+<!-- ---- glossary ------------------------------------------------------- -->
+<!--
+  Its own tab, not a pane of Settings, because it is a job rather than a
+  setting: someone sits with last week's transcript and fixes the words that
+  came out wrong. Settings is where you go once; this is where you go weekly.
+-->
+<main class="shell wide" data-panel="glossary" hidden>
+  <h1>Glossary</h1>
+  <p class="sub">
+    What the bridge already knows about the words in a sermon, and what you have
+    taught it. Changes take effect the next time captions are started.
+  </p>
+
+  <div id="glossary-notice"></div>
+
+  <nav class="segmented" id="glossary-nav" aria-label="Glossary sections"></nav>
+
+  <section class="box" data-glossary="translation" hidden>
+    <p class="hint" id="translation-blurb"></p>
+
+    <div class="finder">
+      <input id="term-find" placeholder="Find a word, in either language" autocomplete="off">
+      <label class="only-mine">
+        <input type="checkbox" id="term-mine"> Only what we added
+      </label>
+    </div>
+
+    <!-- Adding sits above the list, not below 200 rows of it. -->
+    <form class="adder" id="term-add">
+      <input id="term-source" class="gu-input" placeholder="Gujarati or Hindi" autocomplete="off">
+      <span class="arrow" aria-hidden="true">→</span>
+      <input id="term-target" placeholder="The English it should become" autocomplete="off">
+      <button class="primary" type="submit">Add</button>
+    </form>
+
+    <p class="hint" id="term-count"></p>
+    <div class="terms" id="terms"></div>
+  </section>
+
+  <section class="box" data-glossary="recognition" hidden>
+    <p class="hint" id="recognition-blurb"></p>
+
+    <form class="adder" id="word-add">
+      <input id="word-source" class="gu-input" placeholder="A name or term the speaker uses" autocomplete="off">
+      <button class="primary" type="submit">Add</button>
+    </form>
+
+    <p class="hint" id="word-count"></p>
+    <div class="chips" id="words"></div>
+  </section>
+
+  <section class="box" data-glossary="register" hidden>
+    <p class="hint" id="register-blurb"></p>
+    <div id="register"></div>
+  </section>
+</main>
+
 <!-- ---- sermons -------------------------------------------------------- -->
 <main class="shell wide" data-panel="sermons" hidden>
   <h1>Sermons</h1>
@@ -527,6 +688,7 @@
     }
     if (name === 'settings') loadSettings();
     if (name === 'sermons') loadServices();
+    if (name === 'glossary') loadGlossary();
     if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   }
 
@@ -1182,6 +1344,31 @@
         host.appendChild(blurb);
       }
 
+      // Edited on its own tab. Showing the fields here as well would be two
+      // editors for one thing, and the losing one is always the textarea.
+      if (info.movedTo) {
+        var why = document.createElement('p');
+        why.className = 'hint';
+        text(why, info.movedTo.why);
+        host.appendChild(why);
+
+        var go = document.createElement('div');
+        go.className = 'row';
+        var link = document.createElement('button');
+        link.className = 'primary';
+        link.type = 'button';
+        link.textContent = info.movedTo.label;
+        link.addEventListener('click', function () { show(info.movedTo.tab); });
+        go.appendChild(link);
+        host.appendChild(go);
+
+        panel.setAttribute('data-section', info.id);
+        panel.hidden = true;
+        panel.className = 'box';
+        groupHost.appendChild(panel);
+        return;
+      }
+
       var inputs = [];
       groups[info.id].forEach(function (setting) {
         var field = document.createElement('div');
@@ -1314,6 +1501,307 @@
     }).catch(function (err) {
       settingsLoaded = false;
       notice(el('settings-notice'), 'bad', err.message);
+    });
+  }
+
+  /* ---- glossary -------------------------------------------------------- */
+
+  var glossary = { loaded: false, data: null, section: 'translation' };
+
+  function loadGlossary() {
+    if (glossary.loaded) return;
+    glossary.loaded = true;
+    api('/api/glossary').then(function (body) {
+      glossary.data = body;
+      buildGlossaryNav(body.sections);
+      body.sections.forEach(function (section) {
+        var blurb = el(section.id + '-blurb');
+        if (blurb) text(blurb, section.blurb);
+      });
+      renderTerms();
+      renderWords();
+      renderRegister();
+    }).catch(function (err) {
+      glossary.loaded = false;
+      notice(el('glossary-notice'), 'bad', err.message);
+    });
+  }
+
+  function buildGlossaryNav(sections) {
+    var nav = el('glossary-nav');
+    nav.innerHTML = '';
+    sections.forEach(function (section) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = section.title;
+      button.setAttribute('data-for', section.id);
+      button.addEventListener('click', function () { showGlossary(section.id); });
+      nav.appendChild(button);
+    });
+    showGlossary(glossary.section);
+  }
+
+  function showGlossary(id) {
+    glossary.section = id;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-glossary]'), function (node) {
+      node.hidden = node.getAttribute('data-glossary') !== id;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#glossary-nav button'), function (b) {
+      b.setAttribute('aria-current', String(b.getAttribute('data-for') === id));
+    });
+  }
+
+  /** The local half of the list — the only part that can be written. */
+  function localTerms() {
+    return glossary.data.terms
+      .filter(function (t) { return t.origin !== 'built-in'; })
+      .map(function (t) { return { source: t.source, target: t.target }; });
+  }
+
+  function saveGlossary(patch, message) {
+    return api('/api/glossary', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    }).then(function () {
+      notice(el('glossary-notice'), 'good', message + ' Takes effect the next time captions start.');
+      glossary.loaded = false;
+      loadGlossary();
+    }).catch(function (err) {
+      notice(el('glossary-notice'), 'bad', err.message);
+    });
+  }
+
+  function matches(term, needle) {
+    if (!needle) return true;
+    return (term.source + ' ' + term.target).toLowerCase().indexOf(needle) !== -1;
+  }
+
+  function renderTerms() {
+    var host = el('terms');
+    var needle = el('term-find').value.trim().toLowerCase();
+    var mineOnly = el('term-mine').checked;
+
+    var shown = glossary.data.terms.filter(function (term) {
+      if (mineOnly && term.origin === 'built-in') return false;
+      return matches(term, needle);
+    });
+
+    text(el('term-count'),
+      shown.length === glossary.data.terms.length
+        ? glossary.data.terms.length + ' in force · ' + glossary.data.counts.local + ' added here'
+        : shown.length + ' of ' + glossary.data.terms.length);
+
+    host.innerHTML = '';
+    if (shown.length === 0) {
+      var empty = document.createElement('p');
+      empty.className = 'hint';
+      text(empty, needle
+        ? 'Nothing matches. If the word is coming out wrong, add it above.'
+        : 'Nothing added here yet — everything in force is built in.');
+      host.appendChild(empty);
+      return;
+    }
+
+    shown.forEach(function (term) { host.appendChild(termRow(term)); });
+  }
+
+  function termRow(term) {
+    var row = document.createElement('div');
+    row.className = 'term';
+    row.setAttribute('data-origin', term.origin);
+
+    var source = document.createElement('div');
+    source.className = 'term-source';
+    source.lang = 'gu';
+    text(source, term.source);
+
+    var arrow = document.createElement('div');
+    arrow.className = 'term-arrow';
+    arrow.textContent = '→';
+
+    var target = document.createElement('div');
+    target.className = 'term-target';
+    text(target, term.target);
+    if (term.replaces) {
+      var was = document.createElement('span');
+      was.className = 'replaces';
+      text(was, 'was ' + term.replaces);
+      target.appendChild(was);
+    }
+
+    var actions = document.createElement('div');
+    actions.className = 'term-actions';
+
+    var tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = term.origin === 'built-in' ? 'built in'
+      : term.origin === 'override' ? 'changed' : 'ours';
+    actions.appendChild(tag);
+
+    // A built-in term is not deleted, it is overridden — the built-in list is
+    // code, and a UI that appeared to delete from it would be lying.
+    var change = document.createElement('button');
+    change.type = 'button';
+    change.textContent = term.origin === 'built-in' ? 'Change' : 'Edit';
+    change.addEventListener('click', function () { editTerm(row, target, term); });
+    actions.appendChild(change);
+
+    if (term.origin !== 'built-in') {
+      var revert = document.createElement('button');
+      revert.type = 'button';
+      revert.textContent = term.origin === 'override' ? 'Restore' : 'Remove';
+      revert.addEventListener('click', function () {
+        var kept = localTerms().filter(function (t) { return t.source !== term.source; });
+        saveGlossary({ translationTerms: kept },
+          term.origin === 'override'
+            ? '“' + term.source + '” is back to the built-in wording.'
+            : '“' + term.source + '” removed.');
+      });
+      actions.appendChild(revert);
+    }
+
+    row.appendChild(source);
+    row.appendChild(arrow);
+    row.appendChild(target);
+    row.appendChild(actions);
+    return row;
+  }
+
+  function editTerm(row, target, term) {
+    if (row.getAttribute('data-editing') === 'true') return;
+    row.setAttribute('data-editing', 'true');
+    target.innerHTML = '';
+
+    var input = document.createElement('input');
+    input.value = term.target;
+    target.appendChild(input);
+    input.focus();
+    input.select();
+
+    function commit() {
+      var value = input.value.trim();
+      if (!value || value === term.target) { renderTerms(); return; }
+      var kept = localTerms().filter(function (t) { return t.source !== term.source; });
+      // Typing the built-in wording back is a restore, not an override that
+      // happens to match — otherwise the list fills with entries that do
+      // nothing and cannot be told apart from ones that do.
+      if (!(term.origin === 'override' && value === term.replaces)) {
+        kept.push({ source: term.source, target: value });
+      }
+      saveGlossary({ translationTerms: kept }, '“' + term.source + '” now becomes “' + value + '”.');
+    }
+
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); commit(); }
+      if (event.key === 'Escape') renderTerms();
+    });
+    input.addEventListener('blur', commit);
+  }
+
+  el('term-find').addEventListener('input', function () { if (glossary.data) renderTerms(); });
+  el('term-mine').addEventListener('change', function () { if (glossary.data) renderTerms(); });
+
+  function findTerm(source) {
+    return glossary.data.terms.filter(function (t) { return t.source === source; })[0];
+  }
+
+  el('term-add').addEventListener('submit', function (event) {
+    event.preventDefault();
+    var source = el('term-source').value.trim();
+    var target = el('term-target').value.trim();
+    if (!source || !target) {
+      notice(el('glossary-notice'), 'warn', 'Both sides are needed — the phrase, and the English it should become.');
+      return;
+    }
+
+    // Adding a term that already says the same thing writes a local entry that
+    // changes nothing and then sits in the list looking like a decision. Say it
+    // is covered instead, and show it.
+    var existing = findTerm(source);
+    if (existing && existing.target === target) {
+      notice(el('glossary-notice'), 'warn',
+        '“' + source + '” already becomes “' + target + '” — nothing to add.');
+      el('term-find').value = source;
+      renderTerms();
+      return;
+    }
+
+    var kept = localTerms().filter(function (t) { return t.source !== source; });
+    kept.push({ source: source, target: target });
+    saveGlossary({ translationTerms: kept },
+      existing
+        ? '“' + source + '” now becomes “' + target + '” instead of “' + existing.target + '”.'
+        : '“' + source + '” now becomes “' + target + '”.')
+      .then(function () {
+        el('term-source').value = '';
+        el('term-target').value = '';
+        el('term-source').focus();
+      });
+  });
+
+  function renderWords() {
+    var host = el('words');
+    host.innerHTML = '';
+    var terms = glossary.data.contextTerms;
+    var mine = terms.filter(function (t) { return t.origin === 'local'; }).length;
+    text(el('word-count'), terms.length + ' in force · ' + mine + ' added here');
+
+    terms.forEach(function (entry) {
+      var chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.setAttribute('data-origin', entry.origin);
+      chip.lang = 'gu';
+      var label = document.createElement('span');
+      text(label, entry.term);
+      chip.appendChild(label);
+
+      if (entry.origin === 'local') {
+        var remove = document.createElement('button');
+        remove.type = 'button';
+        remove.title = 'Remove';
+        remove.textContent = '×';
+        remove.addEventListener('click', function () {
+          var kept = terms
+            .filter(function (t) { return t.origin === 'local' && t.term !== entry.term; })
+            .map(function (t) { return t.term; });
+          saveGlossary({ contextTerms: kept }, '“' + entry.term + '” removed.');
+        });
+        chip.appendChild(remove);
+      }
+      host.appendChild(chip);
+    });
+  }
+
+  el('word-add').addEventListener('submit', function (event) {
+    event.preventDefault();
+    var word = el('word-source').value.trim();
+    if (!word) return;
+    var mine = glossary.data.contextTerms
+      .filter(function (t) { return t.origin === 'local'; })
+      .map(function (t) { return t.term; });
+    if (mine.indexOf(word) === -1) mine.push(word);
+    saveGlossary({ contextTerms: mine }, '“' + word + '” added.').then(function () {
+      el('word-source').value = '';
+      el('word-source').focus();
+    });
+  });
+
+  function renderRegister() {
+    var host = el('register');
+    host.innerHTML = '';
+    glossary.data.register.forEach(function (entry) {
+      var wrap = document.createElement('div');
+      wrap.className = 'register-entry';
+      var key = document.createElement('p');
+      key.className = 'register-key';
+      text(key, entry.key.replace(/_/g, ' '));
+      var value = document.createElement('p');
+      value.className = 'register-value';
+      text(value, entry.value);
+      wrap.appendChild(key);
+      wrap.appendChild(value);
+      host.appendChild(wrap);
     });
   }
 

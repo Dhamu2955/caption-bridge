@@ -92,6 +92,7 @@ whichever tab you are on.
 |---|---|
 | **Captions** | What is still to set up, the sound input, start and stop, the level meter, the overlay URLs for vMix, and what has gone out |
 | **Reviewer** | The reviewer queue, for correcting lines from the vMix machine rather than a tablet |
+| **Glossary** | The vocabulary: what the bridge already knows, and what you have taught it |
 | **Sermons** | Every service, its subtitles, corrections, and re-export |
 | **Settings** | Credentials, subtitle shape, live timing, names and terms |
 
@@ -158,7 +159,7 @@ npx prisma migrate deploy
 npm test
 ```
 
-388 tests, no API calls, nothing spent. If they pass, you're set up correctly.
+394 tests, no API calls, nothing spent. If they pass, you're set up correctly.
 
 ---
 
@@ -557,16 +558,17 @@ Ported with thanks from the **Aashirwad Captions** bridge (`realtime-transcripti
 run by the American mandirs, which has been captioning the same sampradaya for
 longer than this has. It lives in `src/soniox/vocabulary.ts`.
 
-`soniox.contextTerms` and `soniox.translationTerms` in `config.json` are added
-**on top** of it and win on conflict, so local usage overrides without editing
-the file:
+**Curate it on the Glossary tab**, which is where this is actually done: search
+either language, see which terms are built in and which you added, change one
+without retyping the rest. A built-in term is never deleted — it is overridden,
+and the row says what it replaced so the change is legible. Restore puts it back.
 
-```json
-"contextTerms": ["Bhuj", "Maninagar"],
-"translationTerms": [{ "source": "સેવા", "target": "seva" }]
-```
+Everything you add lands in `soniox.contextTerms` and `soniox.translationTerms`
+in `config.json` and wins over the built-in list. Set `soniox.builtInGlossary` to
+`false` to run on your own terms alone.
 
-Set `soniox.builtInGlossary` to `false` to run on local terms alone.
+Changes take effect **the next time captions are started** — Soniox has no
+mid-session context API.
 
 **A glossary is a soft bias, not a rule.** Soniox paraphrases through it often
 enough that a second pass exists — `src/soniox/normalize.ts` — which corrects
@@ -670,7 +672,7 @@ public/
   overlay.html        on-air caption block
 prisma/schema.prisma  database schema
 docs/                 architecture and vMix routing
-test/                 388 tests
+test/                 394 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else

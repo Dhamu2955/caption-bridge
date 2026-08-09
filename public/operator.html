@@ -51,6 +51,18 @@
   .feed-alarm[data-feed="silent"] { background: var(--stop-bg); color: var(--stop); }
   .feed-alarm[hidden] { display: none; }
 
+  .said-note {
+    padding: 3px var(--s3);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    background: var(--sunk);
+    color: var(--ink-soft);
+  }
+  .said-note[hidden] { display: none; }
+
+  .window { float: right; font-weight: 400; color: var(--ink-faint); }
+
   /*
     Framed inside the app, the shell's own bar already says whether captions are
     going out, ten pixels above this. Standing alone on a tablet — the usual
@@ -366,6 +378,7 @@
          speaker pausing. This is the only place that difference is visible to
          whoever is watching. -->
     <span class="feed-alarm" id="feedAlarm" hidden></span>
+    <span class="said-note" id="saidNote" role="status" hidden></span>
     <button class="ghost" id="pause" type="button">Pause captions</button>
   </header>
 
@@ -387,7 +400,12 @@
   </section>
 
   <div class="stage-queue">
-    <h2 class="eyebrow">Waiting to go out — <span class="count" id="count">0</span></h2>
+    <h2 class="eyebrow">
+      Waiting to go out — <span class="count" id="count">0</span>
+      <!-- How long there is to act, stated rather than discovered by an editor
+           closing halfway through a correction. -->
+      <span class="window" id="window"></span>
+    </h2>
     <ol class="queue" id="queue" aria-live="polite"></ol>
     <p class="queue-empty" id="queueEmpty">Nothing yet. The first caption appears a few seconds after the speaker starts.</p>
   </div>
@@ -849,7 +867,11 @@
   }
 
   function restoreAnchor(anchor) {
-    if (!anchor) return;
+    // Setting scrollTop moves the content under the pointer even though no node
+    // moved in the DOM, and a press that lands on one element and releases on
+    // another is not a click. Holding the place is worth nothing next to
+    // swallowing the press that was holding it.
+    if (!anchor || pressing) return;
     for (var i = 0; i < anchor.nodes.length; i++) {
       var entry = anchor.nodes[i];
       if (!entry.node.parentNode) continue;
@@ -868,6 +890,23 @@
   el.queue.addEventListener('pointerdown', function () { pressing = true; });
   window.addEventListener('pointerup', function () { pressing = false; });
   window.addEventListener('pointercancel', function () { pressing = false; });
+
+  /**
+   * Writes only when the value differs.
+   *
+   * At four renders a second across tens of cards this is not a micro-
+   * optimisation: replacing the text inside a button, or toggling `disabled`,
+   * churns the very nodes a press is in the middle of landing on.
+   */
+  function setText(node, value) {
+    if (node.textContent !== value) node.textContent = value;
+  }
+  function setAttr(node, name, value) {
+    if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+  }
+  function setDisabled(node, value) {
+    if (node.disabled !== value) node.disabled = value;
+  }
 
   function render() {
     var now = Date.now();
@@ -897,28 +936,29 @@
       var dropped = Boolean(state.dropped[line.id]);
       var edited = Boolean(state.edited[line.id]) || Boolean(line.edited);
 
-      card.gu.textContent = line.original || '';
-      card.en.textContent = state.edited[line.id] || line.translation || '';
+      setText(card.gu, line.original || '');
+      setText(card.en, state.edited[line.id] || line.translation || '');
 
       // Nothing that has already gone out is urgent — there is no action left
       // to take on it.
-      card.li.setAttribute('data-urgent', index === 0 && !expired ? 'true' : 'false');
-      card.li.setAttribute('data-dropped', dropped ? 'true' : 'false');
-      card.li.setAttribute('data-expired', expired ? 'true' : 'false');
-      card.li.setAttribute('data-editing', state.editing === line.id ? 'true' : 'false');
-      card.li.setAttribute(
+      setAttr(card.li, 'data-urgent', index === 0 && !expired ? 'true' : 'false');
+      setAttr(card.li, 'data-dropped', dropped ? 'true' : 'false');
+      setAttr(card.li, 'data-expired', expired ? 'true' : 'false');
+      setAttr(card.li, 'data-editing', state.editing === line.id ? 'true' : 'false');
+      setAttr(
+        card.li,
         'data-note',
         dropped ? 'dropped' : expired ? 'expired' : edited ? 'edited' : 'none',
       );
 
       // An expired row says so rather than accepting a press that the bridge
       // would only reject (INVARIANT 10).
-      card.drop.disabled = dropped || expired;
-      card.fix.disabled = dropped || expired;
-      card.drop.textContent = dropped ? 'Hidden' : "Don't show this";
-      card.fix.textContent = edited ? 'Fix again' : 'Fix wording';
+      setDisabled(card.drop, dropped || expired);
+      setDisabled(card.fix, dropped || expired);
+      setText(card.drop, dropped ? 'Hidden' : "Don't show this");
+      setText(card.fix, edited ? 'Fix again' : 'Fix wording');
 
-      card.li.setAttribute('data-showing', state.seekedTo === line.id ? 'true' : 'false');
+      setAttr(card.li, 'data-showing', state.seekedTo === line.id ? 'true' : 'false');
 
       // A card new to the queue always joins it; the queue is soonest-first, so
       // the end is where a later deadline belongs anyway.
@@ -960,7 +1000,13 @@
       delete cards[id];
       delete state.dropped[id];
       delete state.edited[id];
-      if (state.editing === id) state.editing = null;
+      if (state.editing === id) {
+        state.editing = null;
+        // The editor vanishing on its own reads as the button not working. It
+        // is the deadline arriving — INVARIANT 10, the reviewer is advisory and
+        // a line never waits — but that has to be said, not inferred.
+        announce('That line went out before the correction was saved.');
+      }
       if (state.current === id) state.current = null;
     });
   }
@@ -1132,10 +1178,27 @@
       : 'No sound reaching us — ' + seconds + 's';
   }
 
+  var announceTimer;
+  function announce(message) {
+    var node = document.getElementById('saidNote');
+    if (!node) return;
+    node.textContent = message;
+    node.hidden = false;
+    clearTimeout(announceTimer);
+    announceTimer = setTimeout(function () { node.hidden = true; }, 6000);
+  }
+
   function apply(message) {
     if (message.type === 'state') {
       state.pending = message.pending || [];
       state.windowMs = message.windowMs || 0;
+      var windowNode = document.getElementById('window');
+      if (windowNode) {
+        var secs = Math.round(state.windowMs / 1000);
+        windowNode.textContent = state.windowMs
+          ? (secs >= 90 ? Math.round(secs / 60) + ' min to act' : secs + 's to act')
+          : '';
+      }
       state.sessionEpoch = message.sessionEpoch || 0;
       renderFeedAlarm(message.silentForMs);
       if (message.assemblyMs) {

@@ -26,6 +26,12 @@ export interface SettingGroupInfo {
   blurb: string;
   /** Folded away — present for whoever needs it, out of everyone else's way. */
   collapsed?: boolean;
+  /**
+   * Edited on a tab of its own, so the pane points there instead of showing a
+   * second editor for the same thing. The paths stay in SETTINGS regardless —
+   * the config writer still has to accept them.
+   */
+  movedTo?: { tab: string; label: string; why: string };
 }
 
 export const SETTING_GROUPS: readonly SettingGroupInfo[] = [
@@ -39,6 +45,14 @@ export const SETTING_GROUPS: readonly SettingGroupInfo[] = [
     title: 'Names and terms',
     blurb:
       'Filling these in as you notice problems is the main reason to run this every week.',
+    movedTo: {
+      tab: 'glossary',
+      label: 'Open the Glossary',
+      why:
+        'Two hundred terms in a text box was never an editor. The Glossary tab ' +
+        'searches them, says which are built in and which you added, and lets ' +
+        'you change one without retyping the rest.',
+    },
   },
   {
     id: 'setup',

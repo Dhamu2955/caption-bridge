@@ -6,6 +6,7 @@ import type { AppConfig, LoadedConfig } from '../config.js';
 import { resolveDatabaseUrl } from '../db/client.js';
 import { PrismaProvider } from '../db/provider.js';
 import { createArchiveRouter } from '../web/archive.js';
+import { createGlossaryRouter } from '../web/glossary.js';
 import { ConfigStore } from '../settings/configStore.js';
 import { SecretsService } from '../settings/secrets.js';
 import { SETTINGS, SETTING_GROUPS } from '../settings/schema.js';
@@ -293,7 +294,11 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     port: getConfig().server.port,
     outputs: overlays.map,
     token,
-    routers: [api, createArchiveRouter({ getConfig, database, guard })],
+    routers: [
+      api,
+      createArchiveRouter({ getConfig, database, guard }),
+      createGlossaryRouter({ getConfig, store, guard }),
+    ],
     listDevices: () => listAudioDevices(args.format),
     onAudio: (chunk) => manager.current?.pushAudio(chunk) ?? false,
     sessionStatus: () => {
