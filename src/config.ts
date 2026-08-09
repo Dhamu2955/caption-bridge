@@ -172,24 +172,35 @@ const DEFAULTS = {
     youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
     streamOffsetMs: 0,
     maxBufferMs: 8000,
-    // Measured on the same sermon, three settings, one sentence as the probe:
-    // the speaker says "આ દર્શન-શ્રવણ" (this seeing-and-hearing), which is the
-    // same phonemes as "આદર્શ" (ideal) with the word boundary moved. At -0.25
-    // Soniox closed the clause mid-compound and committed to "ideal"; the whole
-    // file, transcribed offline with all the context, got it right.
-    //
-    //   -0.25 / 2500  "and also the online ideal"      — wrong, but prompt
-    //   -0.75 / 5000  correct, and much worse: clauses ran past maxBufferMs so
-    //                 our own cut split "Pancham Varasdar" across two captions,
-    //                 and the slowest line was ready 17.1s after the speech
-    //                 ended — past delayAssemblyMs, so lateSkipMs drops it
-    //   -0.50 / 3500  correct, compounds intact, slowest line 11.0s. Fits.
-    //
-    // The ceiling is not comfort, it is delayAssemblyMs: a line that takes
-    // longer than the assembly delay to become ready is not a late caption,
-    // it is no caption.
-    endpointSensitivity: -0.5,
-    maxEndpointDelayMs: 3500,
+    /*
+      From the American mandirs' bridge, and kept after trying to beat them.
+
+      The probe was one sentence: the speaker says "આ દર્શન-શ્રવણ" (this
+      seeing-and-hearing), which is the same phonemes as "આદર્શ" (ideal) with
+      the word boundary moved. At -0.25 Soniox closes the clause mid-compound
+      and commits to "ideal" — "and also the online ideal". The same audio
+      transcribed offline, with the whole sentence available, gets it right.
+
+        -0.25 / 2500  the wrong word, but prompt at about a second
+        -0.50 / 3500  the right word, compounds intact, slowest line 11.0s
+        -0.75 / 5000  the right word and much worse everywhere else: clauses
+                      outran maxBufferMs so our own cut split "Pancham
+                      Varasdar" across two captions, and the slowest line was
+                      ready 17.1s after the speech ended — past
+                      delayAssemblyMs, so lateSkipMs would drop it
+
+      -0.5 looked like the answer and is not shipped, because watching it run is
+      the part a table does not capture: the captions felt sticky, and the
+      sentence it was supposed to fix still lost the word "online" in
+      translation even once the parse was right. A correct parse of a phrase
+      whose key word is then dropped is not worth a second of lag on every line.
+
+      Worth revisiting deliberately rather than by feel — both are settings, and
+      the ceiling is delayAssemblyMs: a line that takes longer than the assembly
+      delay to become ready is not a late caption, it is no caption.
+    */
+    endpointSensitivity: -0.25,
+    maxEndpointDelayMs: 2500,
   },
 } satisfies AppConfig;
 

@@ -52,8 +52,8 @@
     "minDisplayMs": 1500,
     "lateSkipMs": 2000,
     "streamOffsetMs": 0,
-    "endpointSensitivity": -0.5,
-    "maxEndpointDelayMs": 3500,
+    "endpointSensitivity": -0.25,
+    "maxEndpointDelayMs": 2500,
     "maxBufferMs": 8000
   }
 }

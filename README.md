@@ -545,27 +545,38 @@ its settings sit underneath **A**:
 
 | | Default | |
 |---|---|---|
-| `live.endpointSensitivity` | −0.5 | −1 patient, 1 eager. Patient reads better: it gives Soniox the rest of the sentence before deciding what the words were |
-| `live.maxEndpointDelayMs` | 3500 | Hard ceiling on that wait, so a speaker who does not pause cannot hold a segment open indefinitely |
+| `live.endpointSensitivity` | −0.25 | −1 patient, 1 eager |
+| `live.maxEndpointDelayMs` | 2500 | Hard ceiling on that wait, so a speaker who does not pause cannot hold a segment open indefinitely |
 
-**Why patience matters, with an example.** The speaker says
-*આ દર્શન-શ્રવણ* ("this seeing-and-hearing"). Move the word boundary and the same
-phonemes are *આદર્શ* — "ideal". At −0.25 Soniox closed the clause mid-compound
-and committed to the wrong one: *"and also the online ideal"*. The same audio
-transcribed offline, with the whole sentence available, got it right.
+Both are editable in **Settings → Subtitle shape and timing**, and both are
+worth tuning against your own speaker. What follows is one attempt, kept because
+the shape of the trade is more useful than the numbers.
 
-Measured on that sentence:
+**The probe.** The speaker says *આ દર્શન-શ્રવણ* ("this seeing-and-hearing").
+Move the word boundary and the same phonemes are *આદર્શ* — "ideal". At −0.25
+Soniox closes the clause mid-compound and commits to the wrong one: *"and also
+the online ideal"*. The same audio transcribed offline, with the whole sentence
+available, gets it right — so this is a recognition problem, not a translation
+one, and no glossary term fixes it: the boundary falls inside the compound, so
+the first half is recognised without the second either way.
 
 | Setting | The phrase | Everything else |
 |---|---|---|
-| −0.25 / 2500 | ✗ "the online ideal" | prompt, ~1s |
-| −0.75 / 5000 | ✓ correct | clauses outran `maxBufferMs`, so our own cut split "Pancham Varasdar" across two captions; slowest line ready **17.1s** after the speech ended |
-| **−0.5 / 3500** | ✓ correct | compounds intact, slowest line **11.0s** |
+| **−0.25 / 2500** | ✗ "the online ideal" | prompt, about a second |
+| −0.5 / 3500 | ✓ correct | compounds intact, slowest line 11.0s |
+| −0.75 / 5000 | ✓ correct | clauses outran `maxBufferMs`, so our own cut split "Pancham Varasdar" across two captions; slowest line **17.1s** |
 
-The ceiling is not comfort, it is `delayAssemblyMs`. A line that takes longer
-than the assembly delay to become ready is not a late caption, it is no caption
-— `lateSkipMs` drops it. At 15s of assembly delay, −0.75 does not fit and −0.5
-does.
+−0.5 looks like the answer on paper and is **not** what ships. Watching it run
+is the part the table misses: the captions felt sticky, and the sentence it was
+supposed to fix still lost the word "online" in translation once the parse was
+right. A correct parse of a phrase whose key word is then dropped does not buy a
+second of lag on every line.
+
+Two things to keep from it. The ceiling is not comfort, it is
+`delayAssemblyMs` — a line that takes longer than the assembly delay to become
+ready is not a late caption, it is no caption, and `lateSkipMs` drops it. And
+the two settings move together: more patience needs a longer `maxBufferMs` or
+our own cut starts landing mid-phrase.
 
 **`/overlay?output=venue`** — the caption block that goes on screen.
 Transparent background so vMix can key it. English only by default; add
