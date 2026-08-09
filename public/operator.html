@@ -63,7 +63,7 @@
 
   .window { float: right; font-weight: 400; color: var(--ink-faint); }
 
-  .back-to-top {
+  .back-to-live {
     padding: 4px var(--s3);
     border-radius: 999px;
     border: 1px solid transparent;
@@ -73,7 +73,7 @@
     font-size: 0.78rem;
     white-space: nowrap;
   }
-  .back-to-top[hidden] { display: none; }
+  .back-to-live[hidden] { display: none; }
 
   /* Icon only. The state is the icon — a speaker with waves or with a cross —
      so a word beside it would be saying the same thing twice. */
@@ -421,19 +421,9 @@
   <header class="status">
     <span class="dot" id="dot" data-state="idle" aria-hidden="true"></span>
     <span class="status-text" id="statusText" role="status">Connecting</span>
-    <span class="status-spacer"></span>
-    <!-- Captions stopping because the sound stopped looks exactly like a
-         speaker pausing. This is the only place that difference is visible to
-         whoever is watching. -->
-    <span class="feed-alarm" id="feedAlarm" hidden></span>
-    <span class="said-note" id="saidNote" role="status" hidden></span>
-    <!--
-      The controls live here rather than over the picture. On the video they
-      were only reachable while looking at it, and one of them — the way back
-      to the top of the queue — is wanted precisely when you are looking at the
-      queue instead.
-    -->
-    <button class="back-to-top" id="backToTop" type="button" hidden>↑ Next line out</button>
+    <!-- Beside the state, not out by Pause: turning the sound on is the first
+         thing you do when you sit down, and the right-hand end of the strip is
+         where the things you press once a service live. -->
     <button class="icon-button" id="soundBtn" data-sound type="button" aria-pressed="false" hidden>
       <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
         <path class="speaker" fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/>
@@ -446,6 +436,19 @@
       </svg>
       <span class="visually-hidden" id="soundLabel">Sound on</span>
     </button>
+    <span class="status-spacer"></span>
+    <!-- Captions stopping because the sound stopped looks exactly like a
+         speaker pausing. This is the only place that difference is visible to
+         whoever is watching. -->
+    <span class="feed-alarm" id="feedAlarm" hidden></span>
+    <span class="said-note" id="saidNote" role="status" hidden></span>
+    <!--
+      The controls live here rather than over the picture. On the video they
+      were only reachable while looking at it, and one of them — the way back
+      to the top of the queue — is wanted precisely when you are looking at the
+      queue instead.
+    -->
+    <button class="back-to-live" id="backToLive" type="button" hidden>↓ Back to live</button>
     <button class="ghost" id="pause" type="button">Pause captions</button>
   </header>
 
@@ -979,44 +982,74 @@
     Where the reviewer is working, and who decides it.
 
     The queue is soonest-deadline first, so the top is the line about to go out
-    and that is where someone works. Lines arrive at the bottom and retire from
-    the top, so the list changes at both ends — no amount of anchoring makes a
-    scrolled-away view stay put, and trying was the wrong answer. So: stuck to
-    the top unless you scroll off it, and a way back when you have.
+    — speech from three minutes ago — and the bottom is the line Soniox has just
+    finished, which is roughly what is being said in the room. A reviewer follows
+    the sermon, so the bottom is the working end: new lines append below, exactly
+    like a transcript being typed.
+
+    Lines arrive at the bottom and retire from the top, so the list changes at
+    both ends and no anchoring keeps a scrolled-away view still. It follows the
+    newest line unless you scroll off it, and says so when you have.
   */
-  var atTop = true;
+  var atLive = true;
 
   function queueBox() { return document.querySelector('.stage-queue'); }
 
+  function liveOffset(box) {
+    return Math.max(0, box.scrollHeight - box.clientHeight);
+  }
+
+  /*
+    Only a person unfollows.
+
+    A scroll event says the position changed, not who changed it. Ours fire
+    every 250ms; the queue's height is matched to the video, so a resize fires
+    one too and moves the end out from under the position in the same breath.
+    Reading `atLive` off any of those unfollowed the list within seconds of
+    loading, with nobody having touched it.
+
+    So the gesture is what counts, and the scroll event only asks whether it
+    landed at the end.
+  */
   function watchQueueScroll() {
     var box = queueBox();
     if (!box) return;
+
+    var gestured = false;
+    function gesture() { gestured = true; }
+    box.addEventListener('wheel', gesture, { passive: true });
+    box.addEventListener('touchmove', gesture, { passive: true });
+    box.addEventListener('pointerdown', gesture);
+    box.addEventListener('keydown', gesture);
+
     box.addEventListener('scroll', function () {
-      // Only a deliberate scroll unpins it. Our own corrections land within a
-      // few pixels of the top and must not count as leaving.
-      atTop = box.scrollTop <= 12;
-      renderBackToTop();
+      if (!gestured) return;
+      gestured = false;
+      // A few pixels of slack: a trackpad rarely stops exactly on the end, and
+      // rounding must not read as the reviewer leaving.
+      atLive = liveOffset(box) - box.scrollTop <= 12;
+      renderBackToLive();
     });
   }
 
-  function renderBackToTop() {
-    var button = document.getElementById('backToTop');
+  function renderBackToLive() {
+    var button = document.getElementById('backToLive');
     if (!button) return;
     var box = queueBox();
     var scrollable = box && box.scrollHeight > box.clientHeight + 8;
-    button.hidden = atTop || !scrollable;
+    button.hidden = atLive || !scrollable;
   }
 
-  function backToTop() {
+  function backToLive() {
     var box = queueBox();
     if (!box) return;
-    atTop = true;
+    atLive = true;
     // Instant, not smooth. A smooth scroll animates through positions that are
-    // not the top, each firing a scroll event that unpins it again — and the
-    // render loop setting scrollTop to 0 underneath fights the animation the
-    // whole way down. Landing there is the point.
-    box.scrollTop = 0;
-    renderBackToTop();
+    // not the end, each firing a scroll event that unfollows it again — and the
+    // render loop scrolling to the end underneath fights the animation the whole
+    // way. Landing there is the point.
+    box.scrollTop = liveOffset(box);
+    renderBackToLive();
   }
 
   /*
@@ -1027,7 +1060,7 @@
   */
   var pressing = false;
   el.queue.addEventListener('pointerdown', function () { pressing = true; });
-  document.getElementById('backToTop').addEventListener('click', backToTop);
+  document.getElementById('backToLive').addEventListener('click', backToLive);
   watchQueueScroll();
   window.addEventListener('pointerup', function () { pressing = false; });
   window.addEventListener('pointercancel', function () { pressing = false; });
@@ -1114,15 +1147,16 @@
       }
     });
 
-    // Pinned is the normal case and needs no cleverness: the most urgent line
-    // is the first one, so staying at the top keeps it in view for free.
+    // Following is the normal case and needs no cleverness: the newest line is
+    // the last one, so staying at the end keeps it in view for free.
     var box = queueBox();
-    if (atTop && box && !pressing) {
-      if (box.scrollTop !== 0) box.scrollTop = 0;
+    if (atLive && box && !pressing) {
+      var end = liveOffset(box);
+      if (box.scrollTop !== end) box.scrollTop = end;
     } else {
       restoreAnchor(anchor);
     }
-    renderBackToTop();
+    renderBackToLive();
   }
 
   /**

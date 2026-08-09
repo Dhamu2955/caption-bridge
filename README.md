@@ -443,11 +443,16 @@ drains to show the time left, a "Don't show this", and a "Fix wording" for the
 occasional line worth correcting rather than dropping. Plus a clearly separated
 "Turn captions off".
 
-The queue **stays at the top**, where the line about to go out is. Scroll away
-to read ahead and it holds your place instead of dragging you along, with a
-**Next line out** button in the header to get back. Sound is a deliberate press
-— browsers refuse to autoplay audio, and a tablet in the room would feed its own
-speaker back into the microphone being captioned.
+The queue **follows the newest line**, which is roughly what is being said in
+the room — the queue is soonest-deadline first, so the top is speech from three
+minutes ago that is about to go out, and the bottom is what Soniox has just
+finished. Scroll up to re-read something and it holds your place instead of
+dragging you along, with **↓ Back to live** in the header to return.
+
+Sound is a deliberate press — browsers refuse to autoplay audio, and a tablet in
+the room would feed its own speaker back into the microphone being captioned.
+The control is in the header and also on the picture, where it fades in on
+hover.
 
 When the bridge is being fed a **recording** rather than a microphone, the page
 also shows the video, with the caption on it. Tap the Gujarati of any queued
