@@ -110,14 +110,32 @@ export class LineBuilder {
   }
 
   /**
-   * Index just past the last translation run, i.e. the end of the last
-   * spoken-then-translated pair. Everything after it is speech still waiting.
+   * How much of the buffer is settled: everything before the first token that
+   * is still waiting for a translation.
+   *
+   * The subtlety is `none`. A speaker saying "Please turn to page ten" inside a
+   * Gujarati sentence gets those words back marked `none`, not `original` —
+   * they are already in the target language, so Soniox never emits a
+   * translation run for them. Waiting for one meant a code-switched aside sat
+   * in the buffer until `maxUntranslatedMs`, and at 30s against a 15s assembly
+   * delay `lateSkipMs` then dropped it outright. English the speaker actually
+   * used, gone, with nothing to say why.
+   *
+   * So `none` is its own translation and settles immediately. Only `original`
+   * with nothing translated after it holds the queue up.
    */
   private lastCompletePairEnd(): number {
-    for (let i = this.buffer.length - 1; i >= 0; i--) {
-      if (this.buffer[i]!.translation_status === 'translation') return i + 1;
+    let lastTranslation = -1;
+    for (let i = 0; i < this.buffer.length; i++) {
+      if (this.buffer[i]!.translation_status === 'translation') lastTranslation = i;
     }
-    return 0;
+    for (let i = lastTranslation + 1; i < this.buffer.length; i++) {
+      // Deliberately conservative: an untranslated run before a `none` one
+      // keeps both back, because emitting out of order would put an English
+      // aside on screen ahead of the sentence it interrupted.
+      if (this.buffer[i]!.translation_status === 'original') return i;
+    }
+    return this.buffer.length;
   }
 
   /** Rolling non-final text, for the reviewer's early preview only (§4). */
