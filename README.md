@@ -98,6 +98,19 @@ whichever tab you are on.
 `/control`, `/operator` and `/overlay` still work at their own URLs and are
 unchanged, so a tablet or a saved vMix Browser input is unaffected.
 
+### Three ways to get sound in
+
+| | | |
+|---|---|---|
+| **An audio device on this machine** | ffmpeg captures a named device | What a real service uses |
+| **This browser** | the page captures it and streams PCM to the bridge | No ffmpeg, no device names typed exactly right |
+| **A recording** | played in at the speed it was recorded | Rehearsal without a microphone |
+
+Browser capture only works where the browser allows it: **https, or localhost**.
+Opening the bridge from another machine by IP is neither, so the dropdown says
+so rather than failing silently. The machine running the bridge can always use
+it, which is usually the vMix PC.
+
 To reach it from the vMix machine and a tablet, set **Listen on** to `0.0.0.0`
 in Settings and restart. Note what that means: anyone on the mandir network can
 then open the app, and the app can write API keys. Only do it on a network you
@@ -145,7 +158,7 @@ npx prisma migrate deploy
 npm test
 ```
 
-364 tests, no API calls, nothing spent. If they pass, you're set up correctly.
+388 tests, no API calls, nothing spent. If they pass, you're set up correctly.
 
 ---
 
@@ -535,16 +548,32 @@ together, lower it.
 
 ### Names and terms
 
-`soniox.contextTerms` and `soniox.translationTerms` are where deity names,
-proper nouns and scriptural terms go, so they come back the same every week:
+**A Swaminarayan glossary ships with the bridge** — 202 translation terms, 86
+transcription terms, and a block of instructions setting the register (a sermon,
+not a podcast; grace and blessings, never a literal reading that lands somewhere
+awkward on a public broadcast). It is used on both the live and the weekly path.
+
+Ported with thanks from the **Aashirwad Captions** bridge (`realtime-transcription`)
+run by the American mandirs, which has been captioning the same sampradaya for
+longer than this has. It lives in `src/soniox/vocabulary.ts`.
+
+`soniox.contextTerms` and `soniox.translationTerms` in `config.json` are added
+**on top** of it and win on conflict, so local usage overrides without editing
+the file:
 
 ```json
-"contextTerms": ["Swaminarayan", "Vachanamrut", "satsang"],
+"contextTerms": ["Bhuj", "Maninagar"],
 "translationTerms": [{ "source": "સેવા", "target": "seva" }]
 ```
 
-Both are empty by default. Filling them in as you spot problems is the main
-reason to run this weekly — see [SPEC.md](SPEC.md) §5.
+Set `soniox.builtInGlossary` to `false` to run on local terms alone.
+
+**A glossary is a soft bias, not a rule.** Soniox paraphrases through it often
+enough that a second pass exists — `src/soniox/normalize.ts` — which corrects
+the English afterwards: Jai → Jay, lineage titles kept as names rather than
+translated into "the life-breath of our life", દ્વિભુજ as two-armed rather than
+bipedal. Add to it only where the wrong output is unambiguous; anything that
+merely reads awkwardly belongs in the context block instead.
 
 ---
 
@@ -563,6 +592,13 @@ Same two places. `.env.example` already contains the
 covers has finished being spoken, so anything under about 12 seconds routinely
 schedules lines for an instant already past, and they are dropped. See
 [The two delays](#the-two-delays).
+
+**Captions stopped and nothing says why**
+Look at **Sound coming in** on the Captions tab. After 12 seconds without speech
+it says how long it has been quiet; after 30 it turns red and the log repeats a
+warning every minute. The reviewer gets the same badge. A long pause and a
+pulled cable look identical on a level meter nobody is watching, which is why
+the duration is stated rather than left to be inferred.
 
 **The first line or two of a service never reaches the venue screens**
 Expected, and only affects the unreviewed outputs. Soniox's first result arrives
@@ -634,7 +670,7 @@ public/
   overlay.html        on-air caption block
 prisma/schema.prisma  database schema
 docs/                 architecture and vMix routing
-test/                 364 tests
+test/                 388 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else

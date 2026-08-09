@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 
 import WebSocket from 'ws';
 
-import type { SonioxToken } from '../../soniox/types.js';
+import type { SonioxContext, SonioxToken } from '../../soniox/types.js';
 import { INCLUDE_NON_FINAL } from '../types.js';
 
 /**
@@ -22,6 +22,16 @@ export interface RealtimeConfig {
   languageHints: string[];
   targetLanguage: string;
   enableSpeakerDiarization?: boolean;
+  /**
+   * Glossary and register instructions. Sent at connect and only at connect —
+   * Soniox has no mid-session context API — so a term added while a service is
+   * running takes effect on the next start.
+   */
+  context?: SonioxContext | undefined;
+  /** -1 patient to 1 eager; how readily Soniox calls a clause finished. */
+  endpointSensitivity?: number;
+  /** Ceiling on that wait, for a speaker who does not pause. */
+  maxEndpointDelayMs?: number;
   /** JSONL of every raw response — §4 wants a record of what went to air. */
   recordPath?: string | undefined;
   url?: string;
@@ -79,11 +89,23 @@ export class SonioxRealtimeClient extends EventEmitter<SonioxRealtimeEvents> {
       // Real-time HAS endpoint detection, unlike the async API. This is what
       // tells the line builder a clause is complete.
       enable_endpoint_detection: true,
+      // Left unset, Soniox waits as long as it likes to call a clause finished,
+      // and nothing can be translated until it does. These two decide the half
+      // of caption latency that is not ours.
+      ...(this.config.endpointSensitivity !== undefined
+        ? { endpoint_sensitivity: this.config.endpointSensitivity }
+        : {}),
+      ...(this.config.maxEndpointDelayMs !== undefined
+        ? { max_endpoint_delay_ms: this.config.maxEndpointDelayMs }
+        : {}),
       include_nonfinal: INCLUDE_NON_FINAL,
       translation: {
         type: 'one_way',
         target_language: this.config.targetLanguage,
       },
+      // Absent until now, so every term in config.json was honoured by the
+      // weekly export and silently ignored on air.
+      ...(this.config.context ? { context: this.config.context } : {}),
     };
   }
 

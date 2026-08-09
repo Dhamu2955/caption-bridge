@@ -44,6 +44,11 @@ export interface SonioxContext {
   terms?: string[];
   text?: string;
   translation_terms?: { source: string; target: string }[];
+  /**
+   * Instruction pairs describing the audio and the register the English should
+   * be in. Not a glossary — this is where "a sermon, not a podcast" is said.
+   */
+  general?: { key: string; value: string }[];
 }
 
 export interface CreateTranscriptionRequest {

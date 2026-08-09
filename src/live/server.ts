@@ -105,6 +105,8 @@ export interface OperatorView {
    * a live service yet — that needs a video feed off the vMix machine.
    */
   media?: { url: string; kind: 'file' } | undefined;
+  /** How long the feed has carried no speech; null while it is carrying some. */
+  silentForMs?: number | null;
 }
 
 export interface BridgeServerOptions {
@@ -117,6 +119,12 @@ export interface BridgeServerOptions {
   onCommand?: (command: OperatorCommand) => void;
   /** Audio devices for the control page's dropdown. */
   listDevices?: () => Promise<AudioDevice[]>;
+  /**
+   * PCM arriving from a browser that captured it itself (`format: 'browser'`).
+   * Returns false when no session is listening, so the page can stop sending
+   * rather than shouting into a closed room.
+   */
+  onAudio?: (chunk: Buffer) => boolean;
   /**
    * Start and stop capture from the control page.
    *
@@ -276,6 +284,25 @@ export class BridgeServer {
         },
       });
       ws.on('close', detach);
+      return;
+    }
+
+    // s16le mono at the session's sample rate, framed however the page's audio
+    // worklet produces it. Binary only — a text frame here is a bug, not audio.
+    if (role === 'capture') {
+      let warned = false;
+      ws.on('message', (raw, isBinary) => {
+        if (!isBinary) return;
+        const chunk = Array.isArray(raw) ? Buffer.concat(raw) : Buffer.from(raw as Buffer);
+        const accepted = this.options.onAudio?.(chunk) ?? false;
+        if (!accepted && !warned) {
+          warned = true;
+          // Told once, so the page can show it and stop; a closing socket
+          // mid-service would otherwise look like a network fault.
+          ws.send(JSON.stringify({ type: 'idle' }));
+        }
+        if (accepted) warned = false;
+      });
       return;
     }
 

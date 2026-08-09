@@ -295,6 +295,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     token,
     routers: [api, createArchiveRouter({ getConfig, database, guard })],
     listDevices: () => listAudioDevices(args.format),
+    onAudio: (chunk) => manager.current?.pushAudio(chunk) ?? false,
     sessionStatus: () => {
       const status = manager.status;
       return {

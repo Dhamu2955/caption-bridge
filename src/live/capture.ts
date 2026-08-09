@@ -22,7 +22,13 @@ import { EventEmitter } from 'node:events';
  *
  * It is for testing and rehearsal. A real service uses a device.
  */
-export type CaptureFormat = 'dshow' | 'avfoundation' | 'pulse' | 'alsa' | 'file';
+export type CaptureFormat =
+  | 'dshow'
+  | 'avfoundation'
+  | 'pulse'
+  | 'alsa'
+  | 'file'
+  | 'browser';
 
 export interface CaptureOptions {
   /** Device name as ffmpeg expects it for the chosen format. */
@@ -45,6 +51,16 @@ export interface CaptureEvents {
   close: [number | null];
 }
 
+/**
+ * `browser` is not a device either: audio arrives over a WebSocket from a page
+ * that captured it with getUserMedia, and nothing is spawned at all.
+ *
+ * It exists because ffmpeg device capture is the single largest source of setup
+ * pain — the binary has to be installed, the name has to match exactly, and the
+ * syntax differs on every platform. A browser already has a device picker, a
+ * permission prompt and a working audio stack. The trade is that it captures
+ * from whichever machine has the page open, and cannot play a file in.
+ */
 export function defaultFormat(): CaptureFormat {
   if (process.platform === 'win32') return 'dshow';
   if (process.platform === 'darwin') return 'avfoundation';
@@ -137,26 +153,45 @@ export class AudioCapture extends EventEmitter<CaptureEvents> {
     return this.options.device;
   }
 
+  /**
+   * Feed a chunk in from outside, for `browser` capture.
+   *
+   * Goes through the same carry buffer as ffmpeg's stdout, so a page sending
+   * whatever size its audio worklet produces still yields the fixed chunks
+   * everything downstream is paced against.
+   */
+  push(data: Buffer): void {
+    if (this.options.format !== 'browser') return;
+    this.absorb(data, this.options.chunkBytes ?? 3840);
+  }
+
+  private absorb(data: Buffer, chunkBytes: number): void {
+    this.carry = this.carry.length === 0 ? data : Buffer.concat([this.carry, data]);
+    // Emit fixed-size chunks so pacing is predictable rather than following
+    // whatever the source happens to flush.
+    while (this.carry.length >= chunkBytes) {
+      const chunk = this.carry.subarray(0, chunkBytes);
+      this.carry = this.carry.subarray(chunkBytes);
+      this.emit('audio', chunk);
+      this.emit('level', rmsLevel(chunk));
+    }
+  }
+
   start(): void {
     // Stale audio from a previous device must not be prepended to the new one.
     this.carry = Buffer.alloc(0);
     const chunkBytes = this.options.chunkBytes ?? 3840;
+
+    // Nothing to spawn: the page pushes chunks in with `push`. Started all the
+    // same, so the session's state machine does not need to know the
+    // difference.
+    if (this.options.format === 'browser') return;
     const child = spawn(this.options.ffmpegPath ?? 'ffmpeg', buildCaptureArgs(this.options), {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.child = child;
 
-    child.stdout.on('data', (data: Buffer) => {
-      this.carry = this.carry.length === 0 ? data : Buffer.concat([this.carry, data]);
-      // Emit fixed-size chunks so pacing is predictable rather than following
-      // whatever ffmpeg happens to flush.
-      while (this.carry.length >= chunkBytes) {
-        const chunk = this.carry.subarray(0, chunkBytes);
-        this.carry = this.carry.subarray(chunkBytes);
-        this.emit('audio', chunk);
-        this.emit('level', rmsLevel(chunk));
-      }
-    });
+    child.stdout.on('data', (data: Buffer) => this.absorb(data, chunkBytes));
 
     let stderr = '';
     child.stderr.on('data', (data: Buffer) => {

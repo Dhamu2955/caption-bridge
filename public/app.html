@@ -173,6 +173,11 @@
     height: 100%; width: 0%; border-radius: 4px;
     background: var(--live); transition: width 120ms linear;
   }
+  .meter[data-feed="quiet"] .meter-fill { background: var(--soon); }
+  .meter[data-feed="silent"] { background: var(--stop-bg); }
+  .meter[data-feed="silent"] .meter-fill { background: var(--stop); }
+  #feed-note[data-feed="quiet"] { color: var(--soon); }
+  #feed-note[data-feed="silent"] { color: var(--stop); }
 
   .status-line { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
 
@@ -307,21 +312,39 @@
 
   <div class="two">
   <div class="box">
-    <span class="label">Sound input</span>
-    <select id="device"></select>
+    <!-- Three ways in, and the choice changes what the rest of the box asks
+         for. ffmpeg device capture is the one a real service uses; the browser
+         is the one that needs nothing installed; a recording is rehearsal. -->
+    <span class="label">Where the sound comes from</span>
+    <select id="source">
+      <option value="device">An audio device on this machine</option>
+      <option value="browser">This browser's microphone or line in</option>
+      <option value="file">A recording, to rehearse without a microphone</option>
+    </select>
+
+    <div id="device-row">
+      <span class="label" style="margin-top:var(--s4)">Sound input</span>
+      <select id="device"></select>
     <p class="hint">
       Choose the <strong>virtual cable</strong> carrying the speaker's microphone on
       its own — not the main mix. Anything else feeds the music and the
       congregation into the translation as well.
     </p>
-
-    <div class="row" style="margin-top:18px">
-      <label class="hint" style="flex:1 1 100%;display:flex;gap:10px;align-items:center;cursor:pointer">
-        <input type="checkbox" id="use-file" style="width:auto;min-height:0">
-        Play a recording instead, to rehearse without a microphone
-      </label>
     </div>
+
+    <div id="browser-row" hidden>
+      <span class="label" style="margin-top:var(--s4)">Input in this browser</span>
+      <select id="browser-device"></select>
+      <p class="hint" id="browser-note">
+        The browser captures the sound and sends it here, so this machine needs
+        no ffmpeg and no device names typed exactly right. It captures from
+        <strong>whichever machine has this page open</strong>, and the page must
+        stay open for the whole service.
+      </p>
+    </div>
+
     <div id="file-row" hidden>
+      <span class="label" style="margin-top:var(--s4)">Recording to play</span>
       <input id="file-path" class="mono" placeholder="./test-clip.mp4">
       <p class="hint">
         Played at the speed it was recorded, so the delays behave exactly as they
@@ -336,7 +359,10 @@
     </div>
     <span class="label">Sound coming in</span>
     <div class="meter"><div class="meter-fill" id="meter"></div></div>
-    <p class="hint">
+    <!-- The quiet failure: a pulled cable, a muted bus, a virtual cable
+         pointed at the wrong application. Captions do not error, they just
+         stop, so the feed has to say how long it has been saying nothing. -->
+    <p class="hint" id="feed-note">
       The bar moves when someone is speaking. If it stays flat, the cable is not
       carrying sound.
     </p>
@@ -594,6 +620,7 @@
 
     var level = (status.session && status.session.level) || 0;
     el('meter').style.width = Math.min(100, Math.round(level * 320)) + '%';
+    renderFeed(status.session && status.session.silentForMs);
 
     el('start').disabled = running;
     el('stop').disabled = !running;
@@ -611,15 +638,46 @@
     var host = el('live-blocked');
     host.innerHTML = '';
     if (blocked && !blocked.ready) {
-      var note = document.createElement('div');
-      note.className = 'notice warn';
-      var names = blocked.blockedBy.map(function (id) {
-        var check = status.checks.filter(function (c) { return c.id === id; })[0];
-        return check ? check.label.toLowerCase() : id;
-      });
-      text(note, 'Captions cannot start yet — ' + names.join(' and ') + ' still needed. See Settings.');
-      host.appendChild(note);
+      // ffmpeg and the device list are only needed to capture on this machine.
+      // Capturing in the browser needs neither, so saying "cannot start" there
+      // would be false — that is the whole point of the option.
+      var relevant = source() === 'device'
+        ? blocked.blockedBy
+        : blocked.blockedBy.filter(function (id) { return id !== 'ffmpeg' && id !== 'devices'; });
+      if (relevant.length > 0) {
+        var note = document.createElement('div');
+        note.className = 'notice warn';
+        var names = relevant.map(function (id) {
+          var check = status.checks.filter(function (c) { return c.id === id; })[0];
+          return check ? check.label.toLowerCase() : id;
+        });
+        text(note, 'Captions cannot start yet — ' + names.join(' and ') + ' still needed. See Settings.');
+        host.appendChild(note);
+      }
     }
+  }
+
+  // 12s of nothing is a long pause; 30s is a fault. Both are said in the same
+  // place the meter already is, because that is where someone looks to ask.
+  function renderFeed(silentForMs) {
+    var meter = el('meter').parentNode;
+    var note = el('feed-note');
+    if (silentForMs === null || silentForMs === undefined) {
+      meter.removeAttribute('data-feed');
+      note.removeAttribute('data-feed');
+      text(note, 'The bar moves when someone is speaking. If it stays flat, the cable is not carrying sound.');
+      return;
+    }
+    var seconds = Math.round(silentForMs / 1000);
+    var state = silentForMs < 12000 ? 'speech' : silentForMs < 30000 ? 'quiet' : 'silent';
+    meter.setAttribute('data-feed', state);
+    note.setAttribute('data-feed', state);
+    text(note,
+      state === 'speech'
+        ? 'The bar moves when someone is speaking. If it stays flat, the cable is not carrying sound.'
+        : state === 'quiet'
+          ? 'No speech for ' + seconds + 's. A long pause, or the sound has stopped reaching us.'
+          : 'No speech for ' + seconds + 's. Check the cable and the mixer — nothing is being captioned.');
   }
 
   // Four near-identical URLs differing by one word told nobody which to point
@@ -761,36 +819,203 @@
     }).catch(function () {});
   }
 
-  el('use-file').addEventListener('change', function () {
-    el('file-row').hidden = !this.checked;
-  });
+  function source() { return el('source').value; }
 
-  function session(action) {
-    var fromFile = el('use-file').checked;
+  function renderSource() {
+    var kind = source();
+    el('device-row').hidden = kind !== 'device';
+    el('browser-row').hidden = kind !== 'browser';
+    el('file-row').hidden = kind !== 'file';
+    if (kind === 'browser') listBrowserInputs();
+  }
+  el('source').addEventListener('change', renderSource);
+
+  /* ---- capturing in this browser --------------------------------------- */
+
+  /*
+    getUserMedia is only available in a secure context. Over the LAN by IP that
+    means no capture at all, which would otherwise look like a broken dropdown
+    rather than a rule of the web platform — so it is said plainly, and the
+    machine running the bridge can always use it because localhost counts.
+  */
+  function browserCaptureAvailable() {
+    return Boolean(window.isSecureContext && navigator.mediaDevices
+      && navigator.mediaDevices.getUserMedia && window.AudioContext);
+  }
+
+  var mic = { stream: null, context: null, socket: null, node: null, label: '' };
+
+  function listBrowserInputs() {
+    var select = el('browser-device');
+    if (!browserCaptureAvailable()) {
+      select.innerHTML = '';
+      select.disabled = true;
+      el('browser-note').innerHTML =
+        '<strong>Not available on this address.</strong> Browsers only allow a page ' +
+        'to capture sound over https or on localhost. Open the bridge on the machine ' +
+        'it is running on, or use an audio device on that machine instead.';
+      return;
+    }
+    select.disabled = false;
+    navigator.mediaDevices.enumerateDevices().then(function (devices) {
+      var chosen = select.value;
+      select.innerHTML = '';
+      devices.filter(function (d) { return d.kind === 'audioinput'; }).forEach(function (d, i) {
+        var option = document.createElement('option');
+        option.value = d.deviceId;
+        // Labels are blank until permission has been given once. Numbering
+        // them at least makes two unlabelled inputs distinguishable.
+        option.textContent = d.label || ('Input ' + (i + 1) + ' — allow access to see its name');
+        select.appendChild(option);
+      });
+      if (chosen) select.value = chosen;
+    }).catch(function () {});
+  }
+
+  function startBrowserCapture() {
+    var deviceId = el('browser-device').value;
+    var label = el('browser-device').selectedOptions[0];
+    mic.label = label ? label.textContent : 'this browser';
+
+    // 16 kHz asked for up front rather than resampled afterwards: a resampler
+    // written in a hurry loses intelligibility in a way nobody notices until a
+    // festival. If the browser will not give it, we stop and say so.
+    var context = new AudioContext({ sampleRate: 16000 });
+    if (Math.abs(context.sampleRate - 16000) > 100) {
+      context.close();
+      return Promise.reject(new Error(
+        'This browser opened audio at ' + Math.round(context.sampleRate) +
+        ' Hz and the bridge needs 16000. Use an audio device on the machine instead.'));
+    }
+
+    var constraints = {
+      audio: {
+        channelCount: 1,
+        // A desk feed is already clean, and the browser's echo cancellation and
+        // noise suppression chew at speech that Soniox would rather have whole.
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    };
+    if (deviceId) constraints.audio.deviceId = { exact: deviceId };
+
+    return navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+      mic.stream = stream;
+      mic.context = context;
+      return context.audioWorklet.addModule('/capture-worklet.js');
+    }).then(function () {
+      var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var socket = new WebSocket(protocol + '//' + location.host + '/ws?role=capture' +
+        (token ? '&token=' + encodeURIComponent(token) : ''));
+      socket.binaryType = 'arraybuffer';
+      mic.socket = socket;
+
+      socket.addEventListener('message', function (event) {
+        // The bridge is not listening — stop rather than filling a buffer that
+        // nobody reads.
+        try {
+          if (JSON.parse(event.data).type === 'idle') stopBrowserCapture();
+        } catch (err) { /* not ours */ }
+      });
+
+      return new Promise(function (resolve, reject) {
+        socket.addEventListener('open', resolve);
+        socket.addEventListener('error', function () {
+          reject(new Error('could not reach the bridge to send audio'));
+        });
+      });
+    }).then(function () {
+      var node = new AudioWorkletNode(mic.context, 'capture-processor');
+      node.port.onmessage = function (event) {
+        if (mic.socket && mic.socket.readyState === WebSocket.OPEN) {
+          mic.socket.send(event.data);
+        }
+      };
+      mic.context.createMediaStreamSource(mic.stream).connect(node);
+      // Connected to the destination so the graph is pulled, but through a
+      // muted gain — routing the pulpit mic back out of this laptop's speakers
+      // in the hall would be its own kind of disaster.
+      var silence = mic.context.createGain();
+      silence.gain.value = 0;
+      node.connect(silence).connect(mic.context.destination);
+      mic.node = node;
+    }).catch(function (err) {
+      stopBrowserCapture();
+      throw err;
+    });
+  }
+
+  function stopBrowserCapture() {
+    if (mic.node) { mic.node.port.onmessage = null; mic.node.disconnect(); }
+    if (mic.stream) mic.stream.getTracks().forEach(function (t) { t.stop(); });
+    if (mic.context) mic.context.close().catch(function () {});
+    if (mic.socket && mic.socket.readyState <= WebSocket.OPEN) mic.socket.close();
+    mic = { stream: null, context: null, socket: null, node: null, label: '' };
+  }
+
+  /* ---- starting and stopping ------------------------------------------- */
+
+  function sessionBody(action) {
+    var kind = source();
     var body = { action: action };
-    if (fromFile) {
+    if (kind === 'file') {
       body.device = el('file-path').value.trim() || './test-clip.mp4';
       body.format = 'file';
+    } else if (kind === 'browser') {
+      // Named for the operator's benefit — nothing opens it server-side.
+      body.device = mic.label || 'this browser';
+      body.format = 'browser';
     } else {
       body.device = el('device').value;
     }
-    return api('/api/session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+    return body;
+  }
+
+  function fail(message) {
+    var host = el('live-blocked');
+    host.innerHTML = '';
+    var note = document.createElement('div');
+    note.className = 'notice bad';
+    text(note, message);
+    host.appendChild(note);
+  }
+
+  function session(action) {
+    // Capture has to be live before the session opens its Soniox connection,
+    // or the first seconds go out as silence — and the permission prompt is
+    // the slowest part, so it happens first and can still cancel the start.
+    var prepare = (action === 'start' && source() === 'browser')
+      ? startBrowserCapture()
+      : Promise.resolve();
+
+    if (action !== 'start') stopBrowserCapture();
+
+    return prepare.then(function () {
+      return api('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionBody(action))
+      });
     }).then(poll).catch(function (err) {
-      var host = el('live-blocked');
-      host.innerHTML = '';
-      var note = document.createElement('div');
-      note.className = 'notice bad';
-      text(note, err.message);
-      host.appendChild(note);
+      stopBrowserCapture();
+      fail(err.message);
     });
   }
 
   el('start').addEventListener('click', function () { session('start'); });
   el('stop').addEventListener('click', function () { session('stop'); });
   el('end').addEventListener('click', function () { session('end'); });
+
+  // A page closed mid-service takes the audio with it, so say so rather than
+  // letting the captions simply stop.
+  window.addEventListener('beforeunload', function (event) {
+    if (!mic.socket) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+
+  renderSource();
 
   /* ---- settings -------------------------------------------------------- */
 

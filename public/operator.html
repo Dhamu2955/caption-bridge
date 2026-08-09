@@ -40,6 +40,17 @@
   .status-text { font-size: 0.95rem; }
   .status-spacer { flex: 1 1 auto; }
 
+  .feed-alarm {
+    padding: 3px var(--s3);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    background: var(--soon-bg);
+    color: var(--soon);
+  }
+  .feed-alarm[data-feed="silent"] { background: var(--stop-bg); color: var(--stop); }
+  .feed-alarm[hidden] { display: none; }
+
   /*
     Framed inside the app, the shell's own bar already says whether captions are
     going out, ten pixels above this. Standing alone on a tablet — the usual
@@ -351,6 +362,10 @@
     <span class="dot" id="dot" data-state="idle" aria-hidden="true"></span>
     <span class="status-text" id="statusText" role="status">Connecting</span>
     <span class="status-spacer"></span>
+    <!-- Captions stopping because the sound stopped looks exactly like a
+         speaker pausing. This is the only place that difference is visible to
+         whoever is watching. -->
+    <span class="feed-alarm" id="feedAlarm" hidden></span>
     <button class="ghost" id="pause" type="button">Pause captions</button>
   </header>
 
@@ -1097,11 +1112,32 @@
     }
   }
 
+  /**
+   * Only once the pause is longer than any real one. A badge that appears
+   * between sentences would be ignored inside a minute, and then it would be
+   * ignored when it mattered.
+   */
+  function renderFeedAlarm(silentForMs) {
+    var node = document.getElementById('feedAlarm');
+    if (!node) return;
+    if (typeof silentForMs !== 'number' || silentForMs < 12000) {
+      node.hidden = true;
+      return;
+    }
+    var seconds = Math.round(silentForMs / 1000);
+    node.hidden = false;
+    node.setAttribute('data-feed', silentForMs < 30000 ? 'quiet' : 'silent');
+    node.textContent = silentForMs < 30000
+      ? 'No speech for ' + seconds + 's'
+      : 'No sound reaching us — ' + seconds + 's';
+  }
+
   function apply(message) {
     if (message.type === 'state') {
       state.pending = message.pending || [];
       state.windowMs = message.windowMs || 0;
       state.sessionEpoch = message.sessionEpoch || 0;
+      renderFeedAlarm(message.silentForMs);
       if (message.assemblyMs) {
         media.trailMs = message.assemblyMs;
         var trail = document.getElementById('feedTrail');
