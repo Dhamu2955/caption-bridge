@@ -40,6 +40,62 @@
   .status-text { font-size: 0.95rem; }
   .status-spacer { flex: 1 1 auto; }
 
+  .feed-alarm {
+    padding: 3px var(--s3);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    background: var(--soon-bg);
+    color: var(--soon);
+  }
+  .feed-alarm[data-feed="silent"] { background: var(--stop-bg); color: var(--stop); }
+  .feed-alarm[hidden] { display: none; }
+
+  .said-note {
+    padding: 3px var(--s3);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    background: var(--sunk);
+    color: var(--ink-soft);
+  }
+  .said-note[hidden] { display: none; }
+
+  .window { float: right; font-weight: 400; color: var(--ink-faint); }
+
+  .back-to-live {
+    padding: 4px var(--s3);
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: var(--soon);
+    color: #16150F;
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+  .back-to-live[hidden] { display: none; }
+
+  /* Icon only. The state is the icon — a speaker with waves or with a cross —
+     so a word beside it would be saying the same thing twice. */
+  .icon-button {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 30px; padding: 0;
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    background: transparent; color: var(--ink-soft);
+  }
+  .icon-button:hover { color: var(--ink); }
+  .icon-button[hidden] { display: none; }
+  .icon-button[aria-pressed="true"] { color: var(--live); border-color: var(--live); }
+  /* Pressed means sound is on: waves, no cross. */
+  .icon-button[aria-pressed="true"] .muted { display: none; }
+  .icon-button[aria-pressed="false"] .waves { display: none; }
+
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
   /*
     Framed inside the app, the shell's own bar already says whether captions are
     going out, ten pixels above this. Standing alone on a tablet — the usual
@@ -119,7 +175,7 @@
      picture once the countdown ends. Same trap as .feed video[hidden]. */
   .feed-waiting[hidden] { display: none; }
 
-  .sound, .follow {
+  .follow {
     position: absolute;
     top: var(--s2);
     padding: 5px 11px;
@@ -131,9 +187,24 @@
     color: #F7F4EE;
     border: 1px solid rgba(247, 244, 238, 0.28);
   }
-  .sound { left: var(--s2); }
   .follow { right: var(--s2); border-color: transparent; background: var(--soon); color: #16150F; }
-  .sound[aria-pressed="true"] { border-color: var(--live); color: var(--live); }
+
+  .feed .sound {
+    position: absolute;
+    top: var(--s2);
+    left: var(--s2);
+    background: rgba(8, 7, 5, 0.7);
+    border-color: rgba(247, 244, 238, 0.28);
+    color: #F7F4EE;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  /* focus-within so a keyboard can reach it, and a coarse pointer keeps it up
+     permanently — there is no hover on a tablet. */
+  .feed:hover .sound,
+  .feed:focus-within .sound { opacity: 1; }
+  @media (hover: none) { .feed .sound { opacity: 1; } }
+  .feed .sound[aria-pressed="true"] { color: var(--live); border-color: var(--live); }
 
   .feed-empty {
     display: flex;
@@ -162,10 +233,10 @@
   */
   .card {
     display: grid;
-    grid-template-columns: 26px 1fr;
-    gap: var(--s3);
-    margin-bottom: var(--s2);
-    padding: var(--s3);
+    grid-template-columns: 22px 1fr;
+    gap: var(--s2);
+    margin-bottom: var(--s1);
+    padding: var(--s2) var(--s3);
     border-radius: var(--radius);
     background: var(--raised);
     border: 1px solid var(--rule);
@@ -177,7 +248,7 @@
     position: relative;
     flex: 1 1 auto;
     width: 5px;
-    min-height: 34px;
+    min-height: 26px;
     border-radius: 3px;
     background: var(--rule-soft);
     overflow: hidden;
@@ -210,22 +281,22 @@
   .gu {
     margin: 0;
     font-family: var(--gujarati);
-    font-size: 1.02rem;
-    line-height: 1.4;
+    font-size: 0.94rem;
+    line-height: 1.32;
     color: var(--ink);
   }
   .gu[title] { cursor: pointer; }
 
-  .rule { height: 0; margin: var(--s2) 0; border: 0; border-top: 1px solid var(--rule-soft); }
+  .rule { height: 0; margin: var(--s1) 0; border: 0; border-top: 1px solid var(--rule-soft); }
 
   .en {
     margin: 0;
     font-family: var(--serif);
-    font-size: 1.06rem;
-    line-height: 1.38;
+    font-size: 1rem;
+    line-height: 1.3;
   }
 
-  .note { margin: var(--s2) 0 0; font-size: 0.78rem; color: var(--ink-faint); }
+  .note { margin: var(--s1) 0 0; font-size: 0.74rem; color: var(--ink-faint); }
   .note-dropped, .note-edited, .note-expired { display: none; }
   .card[data-note="dropped"] .note-dropped { display: block; color: var(--stop); }
   .card[data-note="edited"]  .note-edited  { display: block; color: var(--live); }
@@ -234,25 +305,25 @@
   .card[data-dropped="true"] .en { color: var(--ink-faint); text-decoration: line-through; }
   .card[data-expired="true"] { opacity: 0.5; }
 
-  .actions { display: flex; gap: var(--s2); margin-top: var(--s3); }
+  .actions { display: flex; gap: var(--s2); margin-top: var(--s2); }
 
   button {
     font-family: var(--sans);
-    font-size: 0.88rem;
+    font-size: 0.82rem;
     cursor: pointer;
     border-radius: var(--radius-sm);
   }
 
   .drop {
     flex: 1 1 auto;
-    padding: 9px var(--s3);
+    padding: 5px var(--s3);
     border: 1px solid var(--stop);
     background: var(--stop-bg);
     color: var(--stop);
   }
   .fix {
     flex: 0 0 auto;
-    padding: 9px var(--s3);
+    padding: 5px var(--s3);
     border: 1px solid var(--rule);
     background: transparent;
     color: var(--ink);
@@ -350,7 +421,34 @@
   <header class="status">
     <span class="dot" id="dot" data-state="idle" aria-hidden="true"></span>
     <span class="status-text" id="statusText" role="status">Connecting</span>
+    <!-- Beside the state, not out by Pause: turning the sound on is the first
+         thing you do when you sit down, and the right-hand end of the strip is
+         where the things you press once a service live. -->
+    <button class="icon-button" id="soundBtn" data-sound type="button" aria-pressed="false" hidden>
+      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+        <path class="speaker" fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/>
+        <g class="waves" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M16.5 8.5a5 5 0 0 1 0 7"/>
+          <path d="M19 6a8.5 8.5 0 0 1 0 12"/>
+        </g>
+        <path class="muted" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" d="M17 9.5l5 5m0-5l-5 5"/>
+      </svg>
+      <span class="visually-hidden" id="soundLabel">Sound on</span>
+    </button>
     <span class="status-spacer"></span>
+    <!-- Captions stopping because the sound stopped looks exactly like a
+         speaker pausing. This is the only place that difference is visible to
+         whoever is watching. -->
+    <span class="feed-alarm" id="feedAlarm" hidden></span>
+    <span class="said-note" id="saidNote" role="status" hidden></span>
+    <!--
+      The controls live here rather than over the picture. On the video they
+      were only reachable while looking at it, and one of them — the way back
+      to the top of the queue — is wanted precisely when you are looking at the
+      queue instead.
+    -->
+    <button class="back-to-live" id="backToLive" type="button" hidden>↓ Back to live</button>
     <button class="ghost" id="pause" type="button">Pause captions</button>
   </header>
 
@@ -360,7 +458,23 @@
     <p class="feed-caption" id="feedCaption" hidden></p>
     <p class="feed-waiting" id="feedWaiting" hidden></p>
     <button class="follow" id="followBtn" type="button" hidden>Back to live</button>
-    <button class="sound" id="soundBtn" type="button" aria-pressed="false" hidden>Sound on</button>
+    <!-- The same control twice, on purpose. Reaching for it while watching the
+         picture should not mean crossing the page; reaching for it while
+         reading the queue should not mean crossing back. This one fades in on
+         hover so it is not sitting on the speaker's face all service, which
+         also means it never appears on a tablet — hence the one in the header,
+         which is always there. -->
+    <button class="sound icon-button" data-sound type="button" aria-pressed="false" hidden>
+      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+        <path class="speaker" fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/>
+        <g class="waves" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M16.5 8.5a5 5 0 0 1 0 7"/>
+          <path d="M19 6a8.5 8.5 0 0 1 0 12"/>
+        </g>
+        <path class="muted" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" d="M17 9.5l5 5m0-5l-5 5"/>
+      </svg>
+    </button>
     <div class="feed-empty" id="feedEmpty">
       <!-- The delay is configurable, so it is filled in from the live view
            rather than written here, where it went stale at four seconds while
@@ -372,7 +486,12 @@
   </section>
 
   <div class="stage-queue">
-    <h2 class="eyebrow">Waiting to go out — <span class="count" id="count">0</span></h2>
+    <h2 class="eyebrow">
+      Waiting to go out — <span class="count" id="count">0</span>
+      <!-- How long there is to act, stated rather than discovered by an editor
+           closing halfway through a correction. -->
+      <span class="window" id="window"></span>
+    </h2>
     <ol class="queue" id="queue" aria-live="polite"></ol>
     <p class="queue-empty" id="queueEmpty">Nothing yet. The first caption appears a few seconds after the speaker starts.</p>
   </div>
@@ -443,8 +562,8 @@
     el.video.play().catch(function () {});
     el.feedEmpty.style.display = 'none';
     document.getElementById('feed').setAttribute('data-empty', 'false');
-    var sound = document.getElementById('soundBtn');
-    if (sound) sound.hidden = !(opts && opts.sound);
+    var sound = soundButtons();
+    sound.forEach(function (b) { b.hidden = !(opts && opts.sound); });
   }
 
   function hideVideo() {
@@ -458,8 +577,8 @@
     document.getElementById('feed').setAttribute('data-empty', 'true');
     var caption = document.getElementById('feedCaption');
     if (caption) caption.hidden = true;
-    var sound = document.getElementById('soundBtn');
-    if (sound) sound.hidden = true;
+    var sound = soundButtons();
+    sound.forEach(function (b) { b.hidden = true; });
     var followButton = document.getElementById('followBtn');
     if (followButton) followButton.hidden = true;
   }
@@ -472,11 +591,23 @@
     renderSound();
   }
 
+  /** Both copies of the control, kept identical. */
+  function soundButtons() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-sound]'));
+  }
+
   function renderSound() {
-    var button = document.getElementById('soundBtn');
-    if (!button) return;
-    button.textContent = el.video.muted ? 'Sound on' : 'Sound off';
-    button.setAttribute('aria-pressed', el.video.muted ? 'false' : 'true');
+    var on = !el.video.muted;
+    // The label is for a screen reader and a tooltip; the icon is for everyone
+    // else. Both say what pressing it will do, not what the state is.
+    var action = on ? 'Turn the sound off' : 'Turn the sound on';
+    soundButtons().forEach(function (button) {
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+      button.title = action;
+      button.setAttribute('aria-label', action);
+    });
+    var text = document.getElementById('soundLabel');
+    if (text) text.textContent = action;
   }
 
   if (videoUrl) showVideo(videoUrl);
@@ -797,14 +928,177 @@
     });
   }
 
+  /*
+    Where the reviewer is looking: the first card still visible at the top of
+    the scroller, and how far it sits above the fold. Restoring that after the
+    DOM changes means a line going to air above them does not yank the list.
+  */
+  function scrollAnchor() {
+    var box = document.querySelector('.stage-queue');
+    if (!box || box.scrollHeight <= box.clientHeight) return null;
+
+    // Every visible card, nearest the fold first. The topmost one is the worst
+    // possible single choice — it is the next to go to air, so it is exactly
+    // the node that will not be there to anchor to.
+    var nodes = [];
+    var kids = el.queue.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].offsetTop + kids[i].offsetHeight > box.scrollTop) nodes.push(kids[i]);
+    }
+    if (!nodes.length) return null;
+
+    // Someone mid-correction is anchored to their own card, wherever it is.
+    // Losing your place is an irritation; losing the line you are typing into
+    // is the complaint.
+    if (state.editing && cards[state.editing]) {
+      var own = cards[state.editing].li;
+      if (nodes.indexOf(own) === -1) nodes.unshift(own);
+      else nodes.splice(0, 0, nodes.splice(nodes.indexOf(own), 1)[0]);
+    }
+
+    return {
+      box: box,
+      nodes: nodes.map(function (node) {
+        return { node: node, delta: node.offsetTop - box.scrollTop };
+      }),
+    };
+  }
+
+  function restoreAnchor(anchor) {
+    // Setting scrollTop moves the content under the pointer even though no node
+    // moved in the DOM, and a press that lands on one element and releases on
+    // another is not a click. Holding the place is worth nothing next to
+    // swallowing the press that was holding it.
+    if (!anchor || pressing) return;
+    for (var i = 0; i < anchor.nodes.length; i++) {
+      var entry = anchor.nodes[i];
+      if (!entry.node.parentNode) continue;
+      anchor.box.scrollTop = entry.node.offsetTop - entry.delta;
+      return;
+    }
+  }
+
+  /*
+    Where the reviewer is working, and who decides it.
+
+    The queue is soonest-deadline first, so the top is the line about to go out
+    — speech from three minutes ago — and the bottom is the line Soniox has just
+    finished, which is roughly what is being said in the room. A reviewer follows
+    the sermon, so the bottom is the working end: new lines append below, exactly
+    like a transcript being typed.
+
+    Lines arrive at the bottom and retire from the top, so the list changes at
+    both ends and no anchoring keeps a scrolled-away view still. It follows the
+    newest line unless you scroll off it, and says so when you have.
+  */
+  var atLive = true;
+
+  function queueBox() { return document.querySelector('.stage-queue'); }
+
+  function liveOffset(box) {
+    return Math.max(0, box.scrollHeight - box.clientHeight);
+  }
+
+  /*
+    Only a person unfollows.
+
+    A scroll event says the position changed, not who changed it. Ours fire
+    every 250ms; the queue's height is matched to the video, so a resize fires
+    one too and moves the end out from under the position in the same breath.
+    Reading `atLive` off any of those unfollowed the list within seconds of
+    loading, with nobody having touched it.
+
+    So the gesture is what counts, and the scroll event only asks whether it
+    landed at the end.
+  */
+  function watchQueueScroll() {
+    var box = queueBox();
+    if (!box) return;
+
+    var gestured = false;
+    function gesture() { gestured = true; }
+    box.addEventListener('wheel', gesture, { passive: true });
+    box.addEventListener('touchmove', gesture, { passive: true });
+    box.addEventListener('pointerdown', gesture);
+    box.addEventListener('keydown', gesture);
+
+    box.addEventListener('scroll', function () {
+      if (!gestured) return;
+      gestured = false;
+      // A few pixels of slack: a trackpad rarely stops exactly on the end, and
+      // rounding must not read as the reviewer leaving.
+      atLive = liveOffset(box) - box.scrollTop <= 12;
+      renderBackToLive();
+    });
+  }
+
+  function renderBackToLive() {
+    var button = document.getElementById('backToLive');
+    if (!button) return;
+    var box = queueBox();
+    var scrollable = box && box.scrollHeight > box.clientHeight + 8;
+    button.hidden = atLive || !scrollable;
+  }
+
+  function backToLive() {
+    var box = queueBox();
+    if (!box) return;
+    atLive = true;
+    // Instant, not smooth. A smooth scroll animates through positions that are
+    // not the end, each firing a scroll event that unfollows it again — and the
+    // render loop scrolling to the end underneath fights the animation the whole
+    // way. Landing there is the point.
+    box.scrollTop = liveOffset(box);
+    renderBackToLive();
+  }
+
+  /*
+    A press is not a click until the release, and a click only counts if both
+    landed on the same element. The view is pushed every 250ms, so moving cards
+    on every render used to swallow roughly one press in three — which is what
+    "Fix wording doesn't work the first time" was.
+  */
+  var pressing = false;
+  el.queue.addEventListener('pointerdown', function () { pressing = true; });
+  document.getElementById('backToLive').addEventListener('click', backToLive);
+  watchQueueScroll();
+  window.addEventListener('pointerup', function () { pressing = false; });
+  window.addEventListener('pointercancel', function () { pressing = false; });
+
+  /**
+   * Writes only when the value differs.
+   *
+   * At four renders a second across tens of cards this is not a micro-
+   * optimisation: replacing the text inside a button, or toggling `disabled`,
+   * churns the very nodes a press is in the middle of landing on.
+   */
+  function setText(node, value) {
+    if (node.textContent !== value) node.textContent = value;
+  }
+  function setAttr(node, name, value) {
+    if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+  }
+  function setDisabled(node, value) {
+    if (node.disabled !== value) node.disabled = value;
+  }
+
   function render() {
     var now = Date.now();
     el.queueEmpty.style.display = state.pending.length ? 'none' : '';
     el.count.textContent = String(state.pending.length);
 
     var seen = {};
+    state.pending.forEach(function (line) { seen[line.id] = true; });
+
+    var anchor = scrollAnchor();
+
+    // Retired before anything is repositioned, not after. While a dead card was
+    // still sitting at index 0, every card behind it failed the position check
+    // and got moved — a queue-wide reshuffle on the one render that could least
+    // afford it.
+    retire(seen);
+
     state.pending.forEach(function (line, index) {
-      seen[line.id] = true;
       var card = cards[line.id];
       if (!card) {
         card = buildCard(line);
@@ -816,39 +1110,61 @@
       var dropped = Boolean(state.dropped[line.id]);
       var edited = Boolean(state.edited[line.id]) || Boolean(line.edited);
 
-      card.gu.textContent = line.original || '';
-      card.en.textContent = state.edited[line.id] || line.translation || '';
+      setText(card.gu, line.original || '');
+      setText(card.en, state.edited[line.id] || line.translation || '');
 
       // Nothing that has already gone out is urgent — there is no action left
       // to take on it.
-      card.li.setAttribute('data-urgent', index === 0 && !expired ? 'true' : 'false');
-      card.li.setAttribute('data-dropped', dropped ? 'true' : 'false');
-      card.li.setAttribute('data-expired', expired ? 'true' : 'false');
-      card.li.setAttribute('data-editing', state.editing === line.id ? 'true' : 'false');
-      card.li.setAttribute(
+      setAttr(card.li, 'data-urgent', index === 0 && !expired ? 'true' : 'false');
+      setAttr(card.li, 'data-dropped', dropped ? 'true' : 'false');
+      setAttr(card.li, 'data-expired', expired ? 'true' : 'false');
+      setAttr(card.li, 'data-editing', state.editing === line.id ? 'true' : 'false');
+      setAttr(
+        card.li,
         'data-note',
         dropped ? 'dropped' : expired ? 'expired' : edited ? 'edited' : 'none',
       );
 
       // An expired row says so rather than accepting a press that the bridge
       // would only reject (INVARIANT 10).
-      card.drop.disabled = dropped || expired;
-      card.fix.disabled = dropped || expired;
-      card.drop.textContent = dropped ? 'Hidden' : "Don't show this";
-      card.fix.textContent = edited ? 'Fix again' : 'Fix wording';
+      setDisabled(card.drop, dropped || expired);
+      setDisabled(card.fix, dropped || expired);
+      setText(card.drop, dropped ? 'Hidden' : "Don't show this");
+      setText(card.fix, edited ? 'Fix again' : 'Fix wording');
 
-      card.li.setAttribute('data-showing', state.seekedTo === line.id ? 'true' : 'false');
+      setAttr(card.li, 'data-showing', state.seekedTo === line.id ? 'true' : 'false');
 
+      // A card new to the queue always joins it; the queue is soonest-first, so
+      // the end is where a later deadline belongs anyway.
       if (card.li.parentNode !== el.queue) el.queue.appendChild(card.li);
-      // Keep DOM order matching the queue order without rebuilding the cards.
-      if (el.queue.children[index] !== card.li) {
+
+      // Repositioning an existing card is cosmetic — the deadline on the face
+      // of it is what the reviewer acts on. So it waits until nobody is mid-
+      // press and nobody is typing, because moving a node cancels the press and
+      // moving the card being edited moves the caret out from under them.
+      if (!pressing && state.editing === null && el.queue.children[index] !== card.li) {
         el.queue.insertBefore(card.li, el.queue.children[index] || null);
       }
     });
 
-    // Anything the bridge no longer lists has gone to air. This is the only
-    // moment its final wording is known — whether the reviewer changed it,
-    // dropped it, or let it through — so it is recorded on the way past.
+    // Following is the normal case and needs no cleverness: the newest line is
+    // the last one, so staying at the end keeps it in view for free.
+    var box = queueBox();
+    if (atLive && box && !pressing) {
+      var end = liveOffset(box);
+      if (box.scrollTop !== end) box.scrollTop = end;
+    } else {
+      restoreAnchor(anchor);
+    }
+    renderBackToLive();
+  }
+
+  /**
+   * Anything the bridge no longer lists has gone to air. This is the only
+   * moment its final wording is known — whether the reviewer changed it,
+   * dropped it, or let it through — so it is recorded on the way past.
+   */
+  function retire(seen) {
     Object.keys(cards).forEach(function (id) {
       if (seen[id]) return;
       var line = cards[id].line;
@@ -867,7 +1183,13 @@
       delete cards[id];
       delete state.dropped[id];
       delete state.edited[id];
-      if (state.editing === id) state.editing = null;
+      if (state.editing === id) {
+        state.editing = null;
+        // The editor vanishing on its own reads as the button not working. It
+        // is the deadline arriving — INVARIANT 10, the reviewer is advisory and
+        // a line never waits — but that has to be said, not inferred.
+        announce('That line went out before the correction was saved.');
+      }
       if (state.current === id) state.current = null;
     });
   }
@@ -984,8 +1306,9 @@
   var followBtn = document.getElementById('followBtn');
   if (followBtn) followBtn.addEventListener('click', follow);
 
-  var soundBtn = document.getElementById('soundBtn');
-  if (soundBtn) soundBtn.addEventListener('click', toggleSound);
+  soundButtons().forEach(function (button) {
+    button.addEventListener('click', toggleSound);
+  });
 
   // ---- actions --------------------------------------------------------
 
@@ -1019,11 +1342,49 @@
     }
   }
 
+  /**
+   * Only once the pause is longer than any real one. A badge that appears
+   * between sentences would be ignored inside a minute, and then it would be
+   * ignored when it mattered.
+   */
+  function renderFeedAlarm(silentForMs) {
+    var node = document.getElementById('feedAlarm');
+    if (!node) return;
+    if (typeof silentForMs !== 'number' || silentForMs < 12000) {
+      node.hidden = true;
+      return;
+    }
+    var seconds = Math.round(silentForMs / 1000);
+    node.hidden = false;
+    node.setAttribute('data-feed', silentForMs < 30000 ? 'quiet' : 'silent');
+    node.textContent = silentForMs < 30000
+      ? 'No speech for ' + seconds + 's'
+      : 'No sound reaching us — ' + seconds + 's';
+  }
+
+  var announceTimer;
+  function announce(message) {
+    var node = document.getElementById('saidNote');
+    if (!node) return;
+    node.textContent = message;
+    node.hidden = false;
+    clearTimeout(announceTimer);
+    announceTimer = setTimeout(function () { node.hidden = true; }, 6000);
+  }
+
   function apply(message) {
     if (message.type === 'state') {
       state.pending = message.pending || [];
       state.windowMs = message.windowMs || 0;
+      var windowNode = document.getElementById('window');
+      if (windowNode) {
+        var secs = Math.round(state.windowMs / 1000);
+        windowNode.textContent = state.windowMs
+          ? (secs >= 90 ? Math.round(secs / 60) + ' min to act' : secs + 's to act')
+          : '';
+      }
       state.sessionEpoch = message.sessionEpoch || 0;
+      renderFeedAlarm(message.silentForMs);
       if (message.assemblyMs) {
         media.trailMs = message.assemblyMs;
         var trail = document.getElementById('feedTrail');

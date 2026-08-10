@@ -1,5 +1,6 @@
 import type { SonioxToken } from '../soniox/types.js';
 import type { Block, BuildOptions, Segment } from './types.js';
+import { normalizeTranslation } from '../soniox/normalize.js';
 
 /**
  * Tokens → segments. Shared with every later phase (§4).
@@ -595,5 +596,11 @@ export function buildSegments(tokens: SonioxToken[], options: BuildOptions): Seg
   segments = resolveOverlaps(segments, options.minDisplayMs);
   segments = mergeShortSegments(segments, options.minDisplayMs);
   segments = enforceMinDuration(segments, options.minDisplayMs);
+  // Last, after every merge: gluing two segments can form a phrase neither of
+  // them contained, and "Swami" + "Bapa" is exactly one of the rules.
+  segments = segments.map((segment) => ({
+    ...segment,
+    translation: normalizeTranslation(segment.translation),
+  }));
   return reindex(segments);
 }

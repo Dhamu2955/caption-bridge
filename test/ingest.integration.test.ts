@@ -36,7 +36,9 @@ const EXPECTED_EN =
   '\n2\n00:00:05,000 --> 00:00:07,200\nDevotion is the path.\n' +
   '\n3\n00:00:07,300 --> 00:00:09,000\nYes. Truly so.\n' +
   '\n4\n00:00:10,000 --> 00:00:12,500\nPlease turn to page ten.\n' +
-  '\n5\n00:00:13,000 --> 00:00:14,800\nJai Swaminarayan.\n';
+  // "Jai" in, "Jay" out: the fixture is what Soniox returns, and normalising it
+  // to the sampradaya's spelling is the point of the pass.
+  '\n5\n00:00:13,000 --> 00:00:14,800\nJay Swaminarayan.\n';
 
 const EXPECTED_GU =
   '1\n00:00:00,000 --> 00:00:03,600\nઆજે આપણે સેવા વિશે વાત કરીશું.\n' +
@@ -75,22 +77,33 @@ describe('fixture → SRT, byte for byte', () => {
 
 describe('request shape', () => {
   it('matches the Soniox async API', () => {
-    expect(buildRequest(CONFIG, 'file-123')).toEqual({
+    const request = buildRequest(CONFIG, 'file-123');
+    expect(request).toMatchObject({
       model: 'stt-async-v5',
       file_id: 'file-123',
       language_hints: ['gu', 'en'],
       enable_language_identification: true,
       enable_speaker_diarization: true,
       translation: { type: 'one_way', target_language: 'en' },
-      context: {
-        terms: ['Swaminarayan', 'satsang'],
-        translation_terms: [{ source: 'સેવા', target: 'seva' }],
-      },
+    });
+    // The built-in glossary is on by default, so this is no longer a fixed
+    // object — what matters is that the config's own terms survive the merge.
+    expect(request.context?.terms).toContain('satsang');
+    expect(request.context?.translation_terms).toContainEqual({
+      source: 'સેવા',
+      target: 'seva',
     });
   });
 
-  it('omits context entirely when nothing is configured', () => {
-    const bare = parseConfig({ soniox: { sourceLanguages: ['gu', 'en'], targetLanguage: 'en' } });
+  it('sends the same context the live path does', async () => {
+    const { buildContext } = await import('../src/soniox/context.js');
+    expect(buildRequest(CONFIG, 'f').context).toEqual(buildContext(CONFIG));
+  });
+
+  it('omits context entirely with the glossary off and nothing configured', () => {
+    const bare = parseConfig({
+      soniox: { sourceLanguages: ['gu', 'en'], targetLanguage: 'en', builtInGlossary: false },
+    });
     expect(buildRequest(bare, 'f')).not.toHaveProperty('context');
   });
 });

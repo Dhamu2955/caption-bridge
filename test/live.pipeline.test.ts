@@ -26,6 +26,24 @@ const translated = (text: string): SonioxToken => ({
   speaker: '1',
 });
 
+/**
+ * English the speaker used inside a Gujarati sentence.
+ *
+ * Soniox marks it `none`, not `original`: it is already in the target language,
+ * so no translation run is ever emitted for it. Confirmed against a real
+ * transcript — "Please turn to page ten" comes back as six `none` tokens with
+ * timestamps, followed straight back into Gujarati `original`.
+ */
+const codeSwitched = (text: string, startMs: number, endMs: number): SonioxToken => ({
+  text,
+  start_ms: startMs,
+  end_ms: endMs,
+  is_final: true,
+  translation_status: 'none',
+  language: 'en',
+  speaker: '1',
+});
+
 describe('LineBuilder', () => {
   it('ignores non-final tokens entirely (INVARIANT 4 rule 1)', () => {
     const builder = new LineBuilder();
@@ -368,6 +386,55 @@ describe('output table (INVARIANT 7)', () => {
     for (const output of Object.values(outputs)) {
       expect(output.minDisplayMs).toBe(1500);
     }
+  });
+});
+
+describe('English the speaker slips into a Gujarati sentence', () => {
+  const options = {
+    pauseMs: 1200,
+    maxChars: 120,
+    maxSegmentMs: 20_000,
+    minDisplayMs: 1500,
+    maxBufferMs: 8000,
+  };
+
+  it('goes out on an overflow flush rather than waiting for a translation', () => {
+    // Nothing is coming for it, so waiting meant it sat until
+    // maxUntranslatedMs — 30s against a 15s assembly delay, by which point
+    // lateSkipMs dropped it. English the speaker actually used, gone.
+    const builder = new LineBuilder(options);
+    const lines = builder.push([
+      final('નમસ્તે.', 0, 1200),
+      translated('Hello.'),
+      codeSwitched(' Please turn to page ten.', 2000, 9500),
+    ]);
+
+    const text = lines.map((line) => line.translation).join(' ');
+    expect(text).toContain('Please turn to page ten.');
+  });
+
+  it('appears in both tracks, because it is what was said and what to show', () => {
+    const builder = new LineBuilder(options);
+    const lines = builder.push([
+      codeSwitched('Please turn to page ten.', 0, 9000),
+      { text: '<end>', is_final: true } as SonioxToken,
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.original).toBe('Please turn to page ten.');
+    expect(lines[0]!.translation).toBe('Please turn to page ten.');
+  });
+
+  it('still holds Gujarati that has not been translated yet', () => {
+    // The fix must not reopen the bug it sits next to: an untranslated run
+    // before a code-switched one keeps both back, because emitting out of
+    // order would put an English aside on screen ahead of the sentence it
+    // interrupted.
+    const builder = new LineBuilder(options);
+    const lines = builder.push([
+      final('આ વાક્ય હજી અનુવાદ થયું નથી.', 0, 8500),
+      codeSwitched(' Please turn to page ten.', 8600, 9500),
+    ]);
+    expect(lines).toEqual([]);
   });
 });
 

@@ -52,14 +52,18 @@ the next export silently overwrites it.
 
 ## Requirements
 
-| | | Check |
+| | Needed for | Check |
 |---|---|---|
-| **Node 20.12+** | runs the tool | `node -v` |
-| **ffmpeg** | extracts audio | `ffmpeg -version` |
-| **Docker** | runs Postgres | `docker --version` |
-| **Soniox API key** | transcription | [console.soniox.com](https://console.soniox.com) |
+| **Node 20.12+** | everything | `node -v` |
+| **Soniox API key** | any captions at all | [console.soniox.com](https://console.soniox.com) |
+| **ffmpeg** | the weekly job, and capturing from an audio device | `ffmpeg -version` |
+| **Docker** | keeping sermons: the archive, corrections, search | `docker --version` |
 
 On macOS: `brew install node ffmpeg` and install Docker Desktop.
+
+Only the first two are required to caption a service live — [capturing in the
+browser](#three-ways-to-get-sound-in) needs no ffmpeg, and live captions never
+touch the database.
 
 ---
 
@@ -92,11 +96,25 @@ whichever tab you are on.
 |---|---|
 | **Captions** | What is still to set up, the sound input, start and stop, the level meter, the overlay URLs for vMix, and what has gone out |
 | **Reviewer** | The reviewer queue, for correcting lines from the vMix machine rather than a tablet |
+| **Glossary** | The vocabulary: what the bridge already knows, and what you have taught it |
 | **Sermons** | Every service, its subtitles, corrections, and re-export |
 | **Settings** | Credentials, subtitle shape, live timing, names and terms |
 
 `/control`, `/operator` and `/overlay` still work at their own URLs and are
 unchanged, so a tablet or a saved vMix Browser input is unaffected.
+
+### Three ways to get sound in
+
+| | | |
+|---|---|---|
+| **An audio device on this machine** | ffmpeg captures a named device | What a real service uses |
+| **This browser** | the page captures it and streams PCM to the bridge | No ffmpeg, no device names typed exactly right |
+| **A recording** | played in at the speed it was recorded | Rehearsal without a microphone |
+
+Browser capture only works where the browser allows it: **https, or localhost**.
+Opening the bridge from another machine by IP is neither, so the dropdown says
+so rather than failing silently. The machine running the bridge can always use
+it, which is usually the vMix PC.
 
 To reach it from the vMix machine and a tablet, set **Listen on** to `0.0.0.0`
 in Settings and restart. Note what that means: anyone on the mandir network can
@@ -145,7 +163,7 @@ npx prisma migrate deploy
 npm test
 ```
 
-364 tests, no API calls, nothing spent. If they pass, you're set up correctly.
+394 tests, no API calls, nothing spent. If they pass, you're set up correctly.
 
 ---
 
@@ -396,6 +414,11 @@ batch.
 > the audio routing, the two-delay arrangement, and a six-step validation
 > checklist. The first three steps need no Windows machine.
 
+**Most of this is now done from [the app](#the-app)** — `npm run dev`, then the
+Captions tab. The `live` command below does the same thing from a terminal and
+is what the app calls underneath; it is still the right choice for a machine you
+will not be sitting at.
+
 ```sh
 npx tsx src/cli.ts devices     # prints the command to list your audio devices
 
@@ -420,6 +443,17 @@ drains to show the time left, a "Don't show this", and a "Fix wording" for the
 occasional line worth correcting rather than dropping. Plus a clearly separated
 "Turn captions off".
 
+The queue **follows the newest line**, which is roughly what is being said in
+the room — the queue is soonest-deadline first, so the top is speech from three
+minutes ago that is about to go out, and the bottom is what Soniox has just
+finished. Scroll up to re-read something and it holds your place instead of
+dragging you along, with **↓ Back to live** in the header to return.
+
+Sound is a deliberate press — browsers refuse to autoplay audio, and a tablet in
+the room would feed its own speaker back into the microphone being captioned.
+The control is in the header and also on the picture, where it fades in on
+hover.
+
 When the bridge is being fed a **recording** rather than a microphone, the page
 also shows the video, with the caption on it. Tap the Gujarati of any queued
 line and the picture jumps to the moment it was spoken, so a doubtful
@@ -430,6 +464,12 @@ the session's start instant and the file plays at its own speed, so a line at
 
 There is no equivalent for a live service yet: that needs a video feed off the
 vMix machine. See [docs/vmix-routing.md](docs/vmix-routing.md).
+
+The page also carries the **silent-feed badge**. After twelve seconds without
+speech it says how long it has been quiet, and after thirty it turns red. That
+is the failure worth catching mid-service: captions do not error when the sound
+stops reaching them, they simply stop, and a long pause looks identical to a
+pulled cable on a level meter nobody is watching.
 
 ### Captions on the YouTube stream
 
@@ -492,6 +532,52 @@ The venue screens are unaffected — they stay `delayAssemblyMs` behind the
 speaker (15 seconds by default), because a congregation in the room cannot
 watch captions three minutes late.
 
+**The reviewer is told how long they have.** The queue header states the window
+in words, and a line that goes to air while it is being corrected says so rather
+than the editor simply closing. A reviewer never holds a line back — INVARIANT
+10 — so the deadline arriving mid-correction is normal, and only confusing when
+it is silent.
+
+### The half of the delay that is Soniox's
+
+Nothing can be translated until Soniox decides a clause has finished, so two of
+its settings sit underneath **A**:
+
+| | Default | |
+|---|---|---|
+| `live.endpointSensitivity` | −0.25 | −1 patient, 1 eager |
+| `live.maxEndpointDelayMs` | 2500 | Hard ceiling on that wait, so a speaker who does not pause cannot hold a segment open indefinitely |
+
+Both are editable in **Settings → Subtitle shape and timing**, and both are
+worth tuning against your own speaker. What follows is one attempt, kept because
+the shape of the trade is more useful than the numbers.
+
+**The probe.** The speaker says *આ દર્શન-શ્રવણ* ("this seeing-and-hearing").
+Move the word boundary and the same phonemes are *આદર્શ* — "ideal". At −0.25
+Soniox closes the clause mid-compound and commits to the wrong one: *"and also
+the online ideal"*. The same audio transcribed offline, with the whole sentence
+available, gets it right — so this is a recognition problem, not a translation
+one, and no glossary term fixes it: the boundary falls inside the compound, so
+the first half is recognised without the second either way.
+
+| Setting | The phrase | Everything else |
+|---|---|---|
+| **−0.25 / 2500** | ✗ "the online ideal" | prompt, about a second |
+| −0.5 / 3500 | ✓ correct | compounds intact, slowest line 11.0s |
+| −0.75 / 5000 | ✓ correct | clauses outran `maxBufferMs`, so our own cut split "Pancham Varasdar" across two captions; slowest line **17.1s** |
+
+−0.5 looks like the answer on paper and is **not** what ships. Watching it run
+is the part the table misses: the captions felt sticky, and the sentence it was
+supposed to fix still lost the word "online" in translation once the parse was
+right. A correct parse of a phrase whose key word is then dropped does not buy a
+second of lag on every line.
+
+Two things to keep from it. The ceiling is not comfort, it is
+`delayAssemblyMs` — a line that takes longer than the assembly delay to become
+ready is not a late caption, it is no caption, and `lateSkipMs` drops it. And
+the two settings move together: more patience needs a longer `maxBufferMs` or
+our own cut starts landing mid-phrase.
+
 **`/overlay?output=venue`** — the caption block that goes on screen.
 Transparent background so vMix can key it. English only by default; add
 `&lines=both` for bilingual.
@@ -535,16 +621,33 @@ together, lower it.
 
 ### Names and terms
 
-`soniox.contextTerms` and `soniox.translationTerms` are where deity names,
-proper nouns and scriptural terms go, so they come back the same every week:
+**A Swaminarayan glossary ships with the bridge** — 202 translation terms, 86
+transcription terms, and a block of instructions setting the register (a sermon,
+not a podcast; grace and blessings, never a literal reading that lands somewhere
+awkward on a public broadcast). It is used on both the live and the weekly path.
 
-```json
-"contextTerms": ["Swaminarayan", "Vachanamrut", "satsang"],
-"translationTerms": [{ "source": "સેવા", "target": "seva" }]
-```
+Ported with thanks from the **Aashirwad Captions** bridge (`realtime-transcription`)
+run by the American mandirs, which has been captioning the same sampradaya for
+longer than this has. It lives in `src/soniox/vocabulary.ts`.
 
-Both are empty by default. Filling them in as you spot problems is the main
-reason to run this weekly — see [SPEC.md](SPEC.md) §5.
+**Curate it on the Glossary tab**, which is where this is actually done: search
+either language, see which terms are built in and which you added, change one
+without retyping the rest. A built-in term is never deleted — it is overridden,
+and the row says what it replaced so the change is legible. Restore puts it back.
+
+Everything you add lands in `soniox.contextTerms` and `soniox.translationTerms`
+in `config.json` and wins over the built-in list. Set `soniox.builtInGlossary` to
+`false` to run on your own terms alone.
+
+Changes take effect **the next time captions are started** — Soniox has no
+mid-session context API.
+
+**A glossary is a soft bias, not a rule.** Soniox paraphrases through it often
+enough that a second pass exists — `src/soniox/normalize.ts` — which corrects
+the English afterwards: Jai → Jay, lineage titles kept as names rather than
+translated into "the life-breath of our life", દ્વિભુજ as two-armed rather than
+bipedal. Add to it only where the wrong output is unambiguous; anything that
+merely reads awkwardly belongs in the context block instead.
 
 ---
 
@@ -563,6 +666,20 @@ Same two places. `.env.example` already contains the
 covers has finished being spoken, so anything under about 12 seconds routinely
 schedules lines for an instant already past, and they are dropped. See
 [The two delays](#the-two-delays).
+
+**Captions stopped and nothing says why**
+Look at **Sound coming in** on the Captions tab. After 12 seconds without speech
+it says how long it has been quiet; after 30 it turns red and the log repeats a
+warning every minute. The reviewer gets the same badge. A long pause and a
+pulled cable look identical on a level meter nobody is watching, which is why
+the duration is stated rather than left to be inferred.
+
+**The first line or two of a service never reaches the venue screens**
+Expected, and only affects the unreviewed outputs. Soniox's first result arrives
+around 19s in, by which point a line covering the opening seconds is already
+past its `delayAssemblyMs` deadline. The stream and YouTube outputs wait `A + B`
+so they carry it. Start captions a few seconds before the speaker does and there
+is nothing to lose.
 
 **`ffmpeg not found on PATH`**
 `brew install ffmpeg` on macOS.
@@ -610,24 +727,31 @@ input *numbers* shift when inputs are reordered, which is why this takes a GUID.
 
 ```
 src/
-  cli.ts              command-line entry point
-  config.ts           reads config.json, resolves credentials from the environment
-  audio/              ffmpeg audio extraction
-  soniox/             async API client
-  youtube/            Data API client and the one-off OAuth flow
-  segments/build.ts   tokens → subtitles. The core; shared by every phase
-  srt/format.ts       subtitles → .srt text
-  db/                 Postgres access
-  search/             chunking, embeddings, vector search
-  live/               real-time bridge: capture, websocket, queue, adapters
-  commands/           one file per CLI command
+  cli.ts                 command-line entry point
+  config.ts              reads config.json, resolves credentials from the environment
+  audio/                 ffmpeg audio extraction
+  soniox/                async API client, and the vocabulary:
+    vocabulary.ts          the Swaminarayan glossary and register instructions
+    context.ts             merges built-in and local terms; used by both paths
+    normalize.ts           corrects the English the glossary did not manage to
+  youtube/               Data API client and the one-off OAuth flow
+  segments/build.ts      tokens → subtitles. The core; shared by every phase
+  srt/format.ts          subtitles → .srt text
+  db/                    Postgres access
+  search/                chunking, embeddings, vector search
+  live/                  real-time bridge: capture, websocket, queue, adapters
+  settings/              reads and writes .env and config.json, atomically
+  web/                   HTTP routes the app pages call
+  commands/              one file per CLI command
 public/
-  operator.html       reviewer page
-  control.html        setup page — audio input, start/stop, level meter
-  overlay.html        on-air caption block
-prisma/schema.prisma  database schema
-docs/                 architecture and vMix routing
-test/                 364 tests
+  app.html               the app — one tab per job
+  operator.html          reviewer page: video, queue, transcript
+  control.html           the older standalone setup page
+  overlay.html           on-air caption block
+  capture-worklet.js     browser audio capture, on the audio thread
+prisma/schema.prisma     database schema
+docs/                    architecture and vMix routing
+test/                    394 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else

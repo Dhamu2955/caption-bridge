@@ -21,6 +21,12 @@ export interface SonioxConfig {
   contextTerms: string[];
   /** Source→target pairs so the same term translates consistently every week. */
   translationTerms: TranslationTerm[];
+  /**
+   * Use the built-in Swaminarayan glossary and register instructions from
+   * `soniox/vocabulary.ts`. The two lists above are added on top of it and win
+   * on conflict. Off means local terms alone.
+   */
+  builtInGlossary: boolean;
 }
 
 export interface IngestConfig {
@@ -91,6 +97,22 @@ export interface AppConfig {
      * sentences for speed.
      */
     maxBufferMs: number;
+    /**
+     * How eagerly Soniox closes a clause, -1 (patient) to 1 (eager).
+     *
+     * The other half of how soon a caption appears, and the half that is
+     * Soniox's rather than ours: it decides when a segment is finished, and
+     * nothing can be translated before then. Slightly patient reads better —
+     * it gives the translator enough audio to resolve short words and clause
+     * boundaries rather than committing to a fragment.
+     */
+    endpointSensitivity: number;
+    /**
+     * Hard ceiling on that wait. Without it a speaker who does not pause can
+     * hold a segment open indefinitely, and the caption for it arrives
+     * whenever they finally stop.
+     */
+    maxEndpointDelayMs: number;
   };
 }
 
@@ -103,6 +125,7 @@ const DEFAULTS = {
     targetLanguage: 'en',
     contextTerms: [] as string[],
     translationTerms: [] as TranslationTerm[],
+    builtInGlossary: true,
   },
   ingest: {
     pauseMs: 1200,
@@ -149,6 +172,35 @@ const DEFAULTS = {
     youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
     streamOffsetMs: 0,
     maxBufferMs: 8000,
+    /*
+      From the American mandirs' bridge, and kept after trying to beat them.
+
+      The probe was one sentence: the speaker says "આ દર્શન-શ્રવણ" (this
+      seeing-and-hearing), which is the same phonemes as "આદર્શ" (ideal) with
+      the word boundary moved. At -0.25 Soniox closes the clause mid-compound
+      and commits to "ideal" — "and also the online ideal". The same audio
+      transcribed offline, with the whole sentence available, gets it right.
+
+        -0.25 / 2500  the wrong word, but prompt at about a second
+        -0.50 / 3500  the right word, compounds intact, slowest line 11.0s
+        -0.75 / 5000  the right word and much worse everywhere else: clauses
+                      outran maxBufferMs so our own cut split "Pancham
+                      Varasdar" across two captions, and the slowest line was
+                      ready 17.1s after the speech ended — past
+                      delayAssemblyMs, so lateSkipMs would drop it
+
+      -0.5 looked like the answer and is not shipped, because watching it run is
+      the part a table does not capture: the captions felt sticky, and the
+      sentence it was supposed to fix still lost the word "online" in
+      translation even once the parse was right. A correct parse of a phrase
+      whose key word is then dropped is not worth a second of lag on every line.
+
+      Worth revisiting deliberately rather than by feel — both are settings, and
+      the ceiling is delayAssemblyMs: a line that takes longer than the assembly
+      delay to become ready is not a late caption, it is no caption.
+    */
+    endpointSensitivity: -0.25,
+    maxEndpointDelayMs: 2500,
   },
 } satisfies AppConfig;
 
@@ -174,6 +226,21 @@ function num(value: unknown, path: string, fallback: number): number {
   if (value === undefined) return fallback;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     throw new ConfigError(`${path} must be a non-negative number`);
+  }
+  return value;
+}
+
+function bool(value: unknown, path: string, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'boolean') throw new ConfigError(`${path} must be true or false`);
+  return value;
+}
+
+/** Soniox's endpoint sensitivity runs -1 to 1, so `num` (non-negative) will not do. */
+function signed(value: unknown, path: string, fallback: number, min: number, max: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
+    throw new ConfigError(`${path} must be a number between ${min} and ${max}`);
   }
   return value;
 }
@@ -226,6 +293,11 @@ export function parseConfig(raw: unknown): AppConfig {
       targetLanguage: str(soniox['targetLanguage'], 'soniox.targetLanguage', DEFAULTS.soniox.targetLanguage),
       contextTerms: strArray(soniox['contextTerms'], 'soniox.contextTerms', DEFAULTS.soniox.contextTerms),
       translationTerms: translationTerms(soniox['translationTerms'], 'soniox.translationTerms'),
+      builtInGlossary: bool(
+        soniox['builtInGlossary'],
+        'soniox.builtInGlossary',
+        DEFAULTS.soniox.builtInGlossary,
+      ),
     },
     ingest: {
       pauseMs: num(ingest['pauseMs'], 'ingest.pauseMs', DEFAULTS.ingest.pauseMs),
@@ -274,6 +346,18 @@ export function parseConfig(raw: unknown): AppConfig {
       ),
       streamOffsetMs: num(live['streamOffsetMs'], 'live.streamOffsetMs', DEFAULTS.live.streamOffsetMs),
       maxBufferMs: num(live['maxBufferMs'], 'live.maxBufferMs', DEFAULTS.live.maxBufferMs),
+      endpointSensitivity: signed(
+        live['endpointSensitivity'],
+        'live.endpointSensitivity',
+        DEFAULTS.live.endpointSensitivity,
+        -1,
+        1,
+      ),
+      maxEndpointDelayMs: num(
+        live['maxEndpointDelayMs'],
+        'live.maxEndpointDelayMs',
+        DEFAULTS.live.maxEndpointDelayMs,
+      ),
     },
   };
 

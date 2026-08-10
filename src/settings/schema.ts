@@ -26,6 +26,12 @@ export interface SettingGroupInfo {
   blurb: string;
   /** Folded away — present for whoever needs it, out of everyone else's way. */
   collapsed?: boolean;
+  /**
+   * Edited on a tab of its own, so the pane points there instead of showing a
+   * second editor for the same thing. The paths stay in SETTINGS regardless —
+   * the config writer still has to accept them.
+   */
+  movedTo?: { tab: string; label: string; why: string };
 }
 
 export const SETTING_GROUPS: readonly SettingGroupInfo[] = [
@@ -39,6 +45,14 @@ export const SETTING_GROUPS: readonly SettingGroupInfo[] = [
     title: 'Names and terms',
     blurb:
       'Filling these in as you notice problems is the main reason to run this every week.',
+    movedTo: {
+      tab: 'glossary',
+      label: 'Open the Glossary',
+      why:
+        'Two hundred terms in a text box was never an editor. The Glossary tab ' +
+        'searches them, says which are built in and which you added, and lets ' +
+        'you change one without retyping the rest.',
+    },
   },
   {
     id: 'setup',
@@ -163,6 +177,29 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'The biggest lever on how soon a caption appears. A caption cannot exist until ' +
       'the sentence it covers has finished being spoken, so long sentences are late ones. ' +
       'Cutting sooner gets captions up faster, at the cost of splitting sentences.',
+    type: 'number',
+    unit: 'ms',
+    group: 'advanced',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.endpointSensitivity',
+    label: 'How soon Soniox calls a sentence finished',
+    help:
+      '-1 waits longest, 1 commits soonest, 0 is the default. Waiting longer gives it ' +
+      'the rest of the sentence before it decides what the words were — worth it when a ' +
+      'phrase is being misheard as a similar-sounding one, at the cost of captions ' +
+      'appearing later.',
+    type: 'number',
+    group: 'advanced',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.maxEndpointDelayMs',
+    label: 'Longest it may wait to decide',
+    help:
+      'The ceiling on the setting above, so a speaker who never pauses cannot hold a ' +
+      'sentence open indefinitely.',
     type: 'number',
     unit: 'ms',
     group: 'advanced',

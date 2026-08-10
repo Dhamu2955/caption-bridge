@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import type { AppConfig } from '../config.js';
 import { AudioCapture, type CaptureFormat } from './capture.js';
 import { SonioxRealtimeClient } from './soniox/client.js';
+import { buildContext } from '../soniox/context.js';
 import { LineBuilder } from './pipeline/lineBuilder.js';
 import { CaptionQueue } from './pipeline/queue.js';
 import type { BrowserAdapter } from './adapters/browser.js';
@@ -59,6 +60,9 @@ export interface LiveSessionOptions {
 
 export type SessionState = 'idle' | 'running' | 'paused' | 'stopped';
 
+/** Below this a chunk is treated as carrying no speech. */
+const SPEECH_LEVEL = 0.0005;
+
 export interface SessionStatus {
   state: SessionState;
   /** True only while audio is actually being captured. */
@@ -68,11 +72,41 @@ export interface SessionStatus {
   outputs: string[];
   sessionEpoch: number;
   startedAt: number | undefined;
+  /**
+   * How long the feed has carried no speech, or null when it is carrying some.
+   *
+   * The failure this catches is the quiet one: a cable pulled, a mixer bus
+   * muted, a virtual cable pointed at the wrong application. Captions do not
+   * error — they simply stop, and on a page full of green nothing says why.
+   */
+  silentForMs: number | null;
+}
+
+/** What the operator should do about `silentForMs`, if anything. */
+export type FeedState = 'speech' | 'quiet' | 'silent';
+
+/** A pause between sentences is normal; half a minute of nothing is not. */
+export const QUIET_AFTER_MS = 12_000;
+export const SILENT_AFTER_MS = 30_000;
+
+export function feedState(silentForMs: number | null): FeedState {
+  if (silentForMs === null || silentForMs < QUIET_AFTER_MS) return 'speech';
+  return silentForMs < SILENT_AFTER_MS ? 'quiet' : 'silent';
 }
 
 export class LiveSession {
-  /** Wall clock for audio position 0. Fixed for the life of the session. */
-  readonly sessionEpoch: number;
+  /**
+   * Wall clock for audio position 0.
+   *
+   * Set when the session is built and corrected once, if the first sample
+   * turns out to have arrived materially later — see `markAudioStarted`. Fixed
+   * from that point for the life of the session.
+   */
+  private epoch: number;
+
+  get sessionEpoch(): number {
+    return this.epoch;
+  }
 
   private readonly options: LiveSessionOptions;
   private readonly queue: CaptionQueue;
@@ -90,15 +124,18 @@ export class LiveSession {
   private readonly awaitingReview: CaptionLine[] = [];
   private readonly edited = new Set<string>();
   private viewTimer: ReturnType<typeof setInterval> | undefined;
-  private silentChunks = 0;
+  private lastSpeechAt: number | undefined;
+  private lastSilenceWarnAt = 0;
   private lastLevel = 0;
+  private audioStarted = false;
+  private youtube: YoutubeLiveAdapter | undefined;
   private capturing = false;
   private startedAt: number | undefined;
   private state: SessionState = 'idle';
 
   constructor(options: LiveSessionOptions) {
     this.options = options;
-    this.sessionEpoch = Date.now();
+    this.epoch = Date.now();
     this.configs = outputConfigs(options.config);
     this.queue = new CaptionQueue({ sessionEpoch: this.sessionEpoch });
 
@@ -113,21 +150,27 @@ export class LiveSession {
       this.queue.addOutput(this.configs[name], adapter);
     }
 
-    const stub = new StubAdapter('stub', { log: options.verbose ?? false });
-    this.queue.addOutput(this.configs.stub, stub);
+    // Only when asked for. Its delay is 0 and a caption cannot exist until the
+    // speech it covers has finished, so every line arrives "late" for it and is
+    // skipped — a warning per line, and 84 of them counted as Missed on a run
+    // where nothing was actually missed. It is a development sink (§10), and
+    // silent unless `verbose`, so off it was pure noise.
+    if (options.verbose) {
+      this.queue.addOutput(this.configs.stub, new StubAdapter('stub', { log: true }));
+    }
 
     if (options.youtubeCaptionsUrl) {
       const check = checkIngestionUrl(options.youtubeCaptionsUrl);
       if (!check.ok) throw new Error(`youtube captions: ${check.error}`);
       for (const message of check.warnings) warn(`youtube captions: ${message}`);
 
-      const youtube = new YoutubeLiveAdapter({
+      this.youtube = new YoutubeLiveAdapter({
         ingestionUrl: options.youtubeCaptionsUrl,
         sessionEpoch: this.sessionEpoch,
         streamOffsetMs: options.streamOffsetMs ?? 0,
         onError: (err) => warn(`youtube captions: ${err.message}`),
       });
-      this.queue.addOutput({ ...this.configs.stream, name: 'youtube' }, youtube);
+      this.queue.addOutput({ ...this.configs.stream, name: 'youtube' }, this.youtube);
       this.reviewedOutputs.push('youtube');
       info('posting closed captions to YouTube');
     }
@@ -159,6 +202,9 @@ export class LiveSession {
       sampleRate: 16000,
       languageHints: options.config.soniox.sourceLanguages,
       targetLanguage: options.config.soniox.targetLanguage,
+      context: buildContext(options.config),
+      endpointSensitivity: options.config.live.endpointSensitivity,
+      maxEndpointDelayMs: options.config.live.maxEndpointDelayMs,
       recordPath: options.recordPath ? resolve(options.recordPath) : undefined,
     } as const;
     this.client = options.createClient
@@ -188,18 +234,91 @@ export class LiveSession {
       ? options.createCapture(captureOptions)
       : new AudioCapture(captureOptions);
 
-    this.capture.on('audio', (chunk) => this.client.sendAudio(chunk));
+    this.capture.on('audio', (chunk) => {
+      this.markAudioStarted();
+      this.client.sendAudio(chunk);
+    });
     this.capture.on('level', (level) => {
       this.lastLevel = level;
-      // A silent cable and a silent speaker look identical without this.
-      if (level < 0.0005) {
-        this.silentChunks++;
-        if (this.silentChunks === 250) warn('30s of silence — check the audio cable is routed');
-      } else {
-        this.silentChunks = 0;
+      // A silent cable and a silent speaker look identical on a level meter
+      // nobody is watching, so the duration is carried in the status instead
+      // and the page decides how loudly to say it.
+      if (level >= SPEECH_LEVEL) {
+        this.lastSpeechAt = Date.now();
+        this.lastSilenceWarnAt = 0;
       }
     });
     this.capture.on('error', (err) => warn(`capture: ${err.message}`));
+  }
+
+  /**
+   * How long the feed has carried no speech.
+   *
+   * Measured from the last chunk that had some, NOT by counting silent ones:
+   * the failure most worth catching is the feed stopping altogether — a page
+   * closed, a socket dropped, ffmpeg killed — and then no chunks arrive at all,
+   * silent or otherwise. Counting silence sits at zero through exactly the
+   * outage it exists to report. Found by killing a browser feed mid-session and
+   * watching the alarm say nothing.
+   *
+   * Null while paused or stopped: nothing is listening, so "no speech" is the
+   * expected state and flagging it would be noise.
+   */
+  private get silentForMs(): number | null {
+    if (!this.capturing) return null;
+    const since = this.lastSpeechAt ?? this.startedAt;
+    return since === undefined ? null : Date.now() - since;
+  }
+
+  /** Repeated, not once: a cable out for ten minutes is still out. */
+  private checkFeed(): void {
+    const silentFor = this.silentForMs;
+    if (silentFor === null || silentFor < SILENT_AFTER_MS) return;
+    const now = Date.now();
+    if (now - this.lastSilenceWarnAt < 60_000) return;
+    this.lastSilenceWarnAt = now;
+    warn(`${Math.round(silentFor / 1000)}s with no speech — check the audio routing`);
+  }
+
+  /**
+   * The first sample is where the timeline really starts.
+   *
+   * A device or a file begins within milliseconds of `start()`, so the epoch
+   * taken there is right. A browser does not: the page has to open a socket and
+   * spin up an audio worklet, and if the operator is asked for microphone
+   * permission it can be many seconds. Every one of those seconds is a caption
+   * scheduled into the past, and `lateSkipMs` then drops the lot — captions
+   * that never appear, with nothing on screen to say why.
+   *
+   * Measured on the first browser-fed session: 25 seconds of skew, 50 lines
+   * skipped, 0 released.
+   */
+  private markAudioStarted(): void {
+    if (this.audioStarted) return;
+    this.audioStarted = true;
+
+    const drift = Date.now() - this.epoch;
+    // Under a second is the ordinary cost of spawning something, and re-basing
+    // for it would only add jitter.
+    if (drift < 1000) return;
+
+    this.epoch += drift;
+    this.queue.rebase(this.epoch);
+    this.youtube?.rebase(this.epoch);
+    info(`audio began ${(drift / 1000).toFixed(1)}s after start; timeline moved to match`);
+  }
+
+  /**
+   * Audio pushed in from a browser, for `browser` capture.
+   *
+   * Ignored unless this session is actually capturing: a page that keeps
+   * sending after Pause would otherwise inject speech into a queue whose
+   * timeline has moved on, and the captions would land on the wrong moment.
+   */
+  pushAudio(chunk: Buffer): boolean {
+    if (!this.capturing || this.options.format !== 'browser') return false;
+    this.capture.push(chunk);
+    return true;
   }
 
   /**
@@ -221,6 +340,7 @@ export class LiveSession {
       outputs: this.options.outputs,
       sessionEpoch: this.sessionEpoch,
       startedAt: this.startedAt,
+      silentForMs: this.silentForMs,
     };
   }
 
@@ -231,7 +351,10 @@ export class LiveSession {
     this.state = 'running';
     this.startedAt = Date.now();
     this.queue.start(100);
-    this.viewTimer = setInterval(() => this.publishView(), 250);
+    this.viewTimer = setInterval(() => {
+      this.publishView();
+      this.checkFeed();
+    }, 250);
     this.client.recordEvent({
       session: {
         sessionEpoch: this.sessionEpoch,
@@ -353,6 +476,10 @@ export class LiveSession {
       // land on the words it describes. The page cannot guess this — it is the
       // delay the queue schedules against.
       assemblyMs: this.options.config.live.delayAssemblyMs,
+      // The reviewer is the one person watching for ninety minutes, so the
+      // quiet failure belongs on their screen too — not only on the setup page
+      // nobody has open during a service.
+      silentForMs: this.status.silentForMs,
       // Carries the session epoch so each run has its own URL. Without it the
       // browser reuses the 404 it cached while no session was running, and the
       // player stays dead through every later start.

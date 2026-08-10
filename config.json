@@ -48,9 +48,12 @@
   },
   "live": {
     "delayAssemblyMs": 15000,
-    "delayReviewMs": 20000,
+    "delayReviewMs": 180000,
     "minDisplayMs": 1500,
     "lateSkipMs": 2000,
-    "streamOffsetMs": 0
+    "streamOffsetMs": 0,
+    "endpointSensitivity": -0.25,
+    "maxEndpointDelayMs": 2500,
+    "maxBufferMs": 8000
   }
 }

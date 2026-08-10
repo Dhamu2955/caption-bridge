@@ -87,7 +87,7 @@ export function checkIngestionUrl(raw: string): IngestionUrlCheck {
 export class YoutubeLiveAdapter implements OutputAdapter {
   readonly name: string;
   private readonly ingestionUrl: string;
-  private readonly sessionEpoch: number;
+  private sessionEpoch: number;
   private readonly streamOffsetMs: number;
   private readonly fetchImpl: typeof fetch;
   private readonly onError: ((error: Error) => void) | undefined;
@@ -99,9 +99,15 @@ export class YoutubeLiveAdapter implements OutputAdapter {
     this.name = options.name ?? 'youtube';
     this.ingestionUrl = options.ingestionUrl;
     this.sessionEpoch = options.sessionEpoch;
+
     this.streamOffsetMs = options.streamOffsetMs ?? 0;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.onError = options.onError;
+  }
+
+  /** Match the queue's clock; see `CaptionQueue.rebase`. Before anything is sent. */
+  rebase(sessionEpoch: number): void {
+    this.sessionEpoch = sessionEpoch;
   }
 
   /** Exposed so a test can pin the arithmetic without going through fetch. */

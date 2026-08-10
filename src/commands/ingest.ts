@@ -6,6 +6,7 @@ import type { AppConfig } from '../config.js';
 import { resolveApiKey } from '../config.js';
 import { extractAudio, withTempDir } from '../audio/extract.js';
 import { SonioxAsyncClient } from '../soniox/asyncClient.js';
+import { buildContext } from '../soniox/context.js';
 import type { CreateTranscriptionRequest, Transcript, Transcription } from '../soniox/types.js';
 import { buildSegments } from '../segments/build.js';
 import type { Segment } from '../segments/types.js';
@@ -76,12 +77,9 @@ export function buildRequest(config: AppConfig, fileId: string): CreateTranscrip
     },
   };
 
-  const { contextTerms, translationTerms } = config.soniox;
-  if (contextTerms.length > 0 || translationTerms.length > 0) {
-    request.context = {};
-    if (contextTerms.length > 0) request.context.terms = contextTerms;
-    if (translationTerms.length > 0) request.context.translation_terms = translationTerms;
-  }
+  // Shared with the live path, so a term is honoured in both places or neither.
+  const context = buildContext(config);
+  if (context) request.context = context;
 
   return request;
 }

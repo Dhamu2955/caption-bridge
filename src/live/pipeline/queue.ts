@@ -68,12 +68,30 @@ export class CaptionQueue {
   private readonly outputs = new Map<string, OutputState>();
   private readonly listeners = new Set<QueueListener>();
   private readonly clock: Clock;
-  private readonly sessionEpoch: number;
+  private sessionEpoch: number;
+  private scheduled = false;
   private interval: ReturnType<typeof setInterval> | undefined;
 
   constructor(options: CaptionQueueOptions) {
     this.sessionEpoch = options.sessionEpoch;
     this.clock = options.clock ?? systemClock;
+  }
+
+  /**
+   * Move audio position 0 to a different wall-clock instant.
+   *
+   * INVARIANT 9 says a line's release instant is computed once and never
+   * recomputed, which this does not break: it is refused outright once
+   * anything has been scheduled. It exists for the one moment where the epoch
+   * is not yet knowable — a session fed from a browser cannot be sure when the
+   * first sample will arrive, and a session whose clock started earlier than
+   * its audio schedules every line into the past.
+   */
+  rebase(sessionEpoch: number): void {
+    if (this.scheduled) {
+      throw new Error('cannot rebase a queue that has already scheduled a line');
+    }
+    this.sessionEpoch = sessionEpoch;
   }
 
   addOutput(config: OutputConfig, adapter: OutputAdapter): void {
@@ -103,6 +121,7 @@ export class CaptionQueue {
 
   /** Queue a completed line for every output. */
   add(line: CaptionLine): void {
+    this.scheduled = true;
     for (const state of this.outputs.values()) {
       state.pending.push({
         line,
