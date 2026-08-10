@@ -10,6 +10,7 @@
     "sermon-captions": "./src/cli.ts"
   },
   "scripts": {
+    "postinstall": "prisma generate",
     "sermon-captions": "tsx src/cli.ts",
     "dev": "tsx src/cli.ts serve",
     "serve": "tsx src/cli.ts serve",
