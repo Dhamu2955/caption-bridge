@@ -190,9 +190,45 @@ describe('closing', () => {
 });
 
 describe('the title', () => {
-  it('sorts by date and cannot collide with the last service', () => {
-    expect(LiveDocWriter.titleFor(new Date('2026-08-16T09:30:00Z'))).toMatch(
-      /^Sermon captions 2026-08-16 \d{2}:\d{2}$/,
+  it('uses the LOCAL date and time, so it is filed under the day it happened', () => {
+    // Found by reading a real document back: a UTC date beside a local time put
+    // a service that started at 00:16 under the previous day.
+    expect(LiveDocWriter.titleFor(new Date(2026, 7, 16, 9, 30))).toBe(
+      'Sermon captions 2026-08-16 09:30',
     );
+    expect(LiveDocWriter.titleFor(new Date(2026, 7, 12, 0, 16))).toBe(
+      'Sermon captions 2026-08-12 00:16',
+    );
+  });
+});
+
+describe('a session that stops almost immediately', () => {
+  /**
+   * Found on the first real run against Google. `close()` fired before the
+   * document had finished being created, so the flush returned silently: state
+   * stuck at "creating", the lines still buffered, and an empty document with
+   * no link to it. A short service, or a Start pressed and stopped, lost
+   * everything that was said.
+   */
+  it('waits for the document to exist before giving up on the flush', async () => {
+    let resolveCreate: (v: { documentId: string; url: string }) => void;
+    const created = new Promise<{ documentId: string; url: string }>((r) => { resolveCreate = r; });
+    const appends: string[] = [];
+    const client = {
+      createDoc: () => created,
+      appendText: async (_id: string, text: string) => { appends.push(text); },
+    } as unknown as GoogleDocsClient;
+
+    const doc = writer(client);
+    doc.add(line('Said before the doc existed.'));
+
+    // close() while creation is still in flight — the exact race.
+    const closing = doc.close();
+    resolveCreate!({ documentId: 'doc-9', url: 'https://docs.test/doc-9' });
+    await closing;
+
+    expect(doc.state).toBe('writing');
+    expect(doc.url).toBe('https://docs.test/doc-9');
+    expect(appends[0]).toContain('Said before the doc existed.');
   });
 });

@@ -42,7 +42,12 @@ export class LiveSrtWriter {
 
   /** A name that sorts by date and cannot collide with the last service. */
   static pathFor(directory: string, at: Date): string {
-    const stamp = at.toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    // Local, not UTC. A service starting just after midnight was filed under
+    // yesterday's date, which is where nobody would look for it.
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp =
+      `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+      `-${pad(at.getHours())}-${pad(at.getMinutes())}-${pad(at.getSeconds())}`;
     return join(directory, `live-${stamp}.en.srt`);
   }
 

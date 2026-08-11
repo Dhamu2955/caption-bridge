@@ -63,8 +63,16 @@ describe('subtitles written during a live service', () => {
     expect(srt.cues).toBe(0);
   });
 
-  it('names the file so it sorts by date and cannot collide', () => {
-    const path = LiveSrtWriter.pathFor('./recordings', new Date('2026-08-16T09:30:00Z'));
-    expect(path).toBe('recordings/live-2026-08-16-09-30-00.en.srt');
+  it('names the file by LOCAL date and time, not UTC', () => {
+    // A service starting just after midnight was filed under yesterday: the
+    // stamp was UTC while the person looking for it was in the hall.
+    const at = new Date(2026, 7, 16, 9, 30, 0);
+    expect(LiveSrtWriter.pathFor('./recordings', at)).toBe(
+      'recordings/live-2026-08-16-09-30-00.en.srt',
+    );
+
+    // 00:16 local is the previous day in UTC anywhere east of Greenwich.
+    const afterMidnight = new Date(2026, 7, 12, 0, 16, 0);
+    expect(LiveSrtWriter.pathFor('./recordings', afterMidnight)).toContain('2026-08-12');
   });
 });

@@ -61,6 +61,25 @@ export function formatEntry(line: CaptionLine, epoch: number): string {
   return `${clock}  (${offset})\n${original}\n${translation}\n\n`;
 }
 
+/**
+ * Local time, in both halves.
+ *
+ * The title mixed a UTC date with a local time, so a service starting just
+ * after midnight was filed under yesterday — caught by reading a real document
+ * back: created 23:16 UTC, titled "2026-08-11 00:16" when it was the 12th in
+ * the room. Nobody looking for that doc on Sunday would have found it.
+ *
+ * Everything a person reads here is local, because they were standing in the
+ * hall when it was recorded.
+ */
+function localStamp(at: Date): { date: string; time: string } {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    date: `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`,
+    time: `${pad(at.getHours())}:${pad(at.getMinutes())}`,
+  };
+}
+
 export class LiveDocWriter {
   private readonly options: LiveDocWriterOptions;
   private readonly flushIntervalMs: number;
@@ -75,13 +94,22 @@ export class LiveDocWriter {
   private failures = 0;
   private droppedNoted = false;
   private timer: ReturnType<typeof setInterval> | undefined;
+  /**
+   * The create call, awaited by every flush.
+   *
+   * Not awaited in the constructor — a session must not block on Google before
+   * it starts captioning — but a flush that fired before the document existed
+   * used to return silently, and `close()` on a short session therefore left an
+   * empty document and no link. Found on the first real run: state stuck at
+   * `creating`, two lines buffered, nothing written.
+   */
+  private readonly creating: Promise<void>;
   /** Serialised: two appends at endOfSegmentLocation can land out of order. */
   private chain: Promise<void> = Promise.resolve();
 
   /** `Sermon captions 2026-08-16 10:30` — sorts by date, unique per service. */
   static titleFor(at: Date): string {
-    const date = at.toISOString().slice(0, 10);
-    const time = at.toTimeString().slice(0, 5);
+    const { date, time } = localStamp(at);
     return `Sermon captions ${date} ${time}`;
   }
 
@@ -91,9 +119,9 @@ export class LiveDocWriter {
     this.maxPendingChars = options.maxPendingChars ?? DEFAULTS.maxPendingChars;
     this.maxFailures = options.maxFailures ?? DEFAULTS.maxFailures;
 
-    // Eagerly, and not awaited. Creating on the first line instead would mean
-    // no link to hand anybody until somebody had spoken.
-    void this.create();
+    // Eagerly, and not awaited here. Creating on the first line instead would
+    // mean no link to hand anybody until somebody had spoken.
+    this.creating = this.create();
     this.timer = setInterval(() => void this.flush(), this.flushIntervalMs);
     // Nothing here should hold the process open at shutdown.
     this.timer.unref?.();
@@ -165,6 +193,9 @@ export class LiveDocWriter {
   }
 
   private async flushOnce(): Promise<void> {
+    // Resolved after the first time; this is what stops a flush racing the
+    // create and silently doing nothing.
+    await this.creating;
     if (this.docState === 'failed') return;
     if (!this.documentId || this.pendingText === '') return;
 
