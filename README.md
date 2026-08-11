@@ -548,8 +548,13 @@ tab as soon as the doc exists, which is before anyone has spoken.
 **Setting it up**, once:
 
 1. [console.cloud.google.com](https://console.cloud.google.com) → a project (the
-   YouTube one is fine) → **APIs & Services → Library** → enable **Google Drive
-   API**.
+   YouTube one is fine) → **APIs & Services → Library** → enable **both**:
+   - **Google Drive API** — creates the document
+   - **Google Docs API** — writes into it
+
+   Enabling only Drive gets you a document that exists and stays empty. It is
+   the first thing that goes wrong; the Captions tab names the missing one and
+   links straight to it.
 2. **Credentials → Create credentials → OAuth client ID → Desktop app.** Copy
    the id and secret into `.env` as `GOOGLE_DOCS_CLIENT_ID` and
    `GOOGLE_DOCS_CLIENT_SECRET`.

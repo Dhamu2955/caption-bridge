@@ -49,7 +49,7 @@
   },
   "live": {
     "liveSrt": true,
-    "googleDoc": false,
+    "googleDoc": true,
     "googleDocFolderId": "",
     "maxEndpointDelayMs": 1000
   }

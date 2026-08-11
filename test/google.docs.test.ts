@@ -124,3 +124,43 @@ describe('the Drive permission', () => {
     await expect(client.createDoc('x')).rejects.not.toThrow(/fullDriveAccess/);
   });
 });
+
+describe('a Cloud project with the wrong APIs on', () => {
+  const disabled = (api: string) =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: 403,
+          message:
+            `${api} API has not been used in project 674434314785 before or it is disabled. ` +
+            `Enable it by visiting https://console.developers.google.com/apis/api/${api}/overview?project=674434314785 then retry.`,
+          status: 'PERMISSION_DENIED',
+        },
+      }),
+      { status: 403 },
+    );
+
+  /**
+   * Found the first time this was pointed at a real project. Drive was enabled
+   * and Docs was not, so the document was created and stayed empty — and
+   * Google's answer names the fix inside four hundred characters of JSON.
+   */
+  it('names the API to switch on, and links to it', async () => {
+    const { client } = harness([disabled('docs.googleapis.com')]);
+    await expect(client.appendText('doc-1', 'hello')).rejects.toThrow(
+      /docs\.googleapis\.com API is not enabled[\s\S]*console\.cloud\.google\.com\/apis\/library/,
+    );
+  });
+
+  it('says both are needed, because enabling one is the trap', async () => {
+    const { client } = harness([disabled('docs.googleapis.com')]);
+    await expect(client.appendText('doc-1', 'hello')).rejects.toThrow(/Drive creates the document/);
+  });
+
+  it('leaves an unrelated failure alone', async () => {
+    // 400 rather than 500: a 5xx is retried, and the harness would answer the
+    // retry successfully, so nothing would be thrown to inspect.
+    const { client } = harness([new Response('nope', { status: 400 })]);
+    await expect(client.appendText('doc-1', 'x')).rejects.not.toThrow(/is not enabled/);
+  });
+});

@@ -112,7 +112,7 @@ export class GoogleDocsClient {
       // cannot reach a folder this app did not create, and the raw message
       // says only "insufficient permissions", which sends people to the wrong
       // place entirely.
-      const error = err as GoogleDocsError;
+      const error = explainSetup(err as GoogleDocsError);
       if (folderId && (error.status === 403 || error.status === 404)) {
         throw new GoogleDocsError(
           `cannot create the doc in folder ${folderId}: ${error.message}. ` +
@@ -123,7 +123,7 @@ export class GoogleDocsClient {
           error.reason,
         );
       }
-      throw err;
+      throw error;
     }
     const created = (await response.json()) as { id?: string; webViewLink?: string };
     if (!created.id) throw new GoogleDocsError('Drive created a file with no id');
@@ -147,12 +147,42 @@ export class GoogleDocsClient {
   async appendText(documentId: string, text: string): Promise<void> {
     if (text === '') return;
     const url = `${this.docsBaseUrl}/documents/${encodeURIComponent(documentId)}:batchUpdate`;
-    await this.request(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requests: [{ insertText: { endOfSegmentLocation: { segmentId: '' }, text } }],
-      }),
-    });
+    try {
+      await this.request(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requests: [{ insertText: { endOfSegmentLocation: { segmentId: '' }, text } }],
+        }),
+      });
+    } catch (err) {
+      throw explainSetup(err as GoogleDocsError);
+    }
   }
+}
+
+/**
+ * Two APIs have to be switched on, and only one of them is obvious.
+ *
+ * Drive creates the file and Docs writes into it, so enabling Drive alone gets
+ * you a document that exists and stays empty — which is exactly what happened
+ * the first time this was pointed at a real project. Google's message names the
+ * fix and buries it in four hundred characters of JSON, so it is lifted out.
+ */
+function explainSetup(error: GoogleDocsError): GoogleDocsError {
+  const match = /https:\/\/console\.developers\.google\.com\/apis\/api\/([^\/]+)\/overview\?project=(\d+)/.exec(
+    error.message,
+  );
+  if (!match) return error;
+
+  const [, api, project] = match;
+  return new GoogleDocsError(
+    `the ${api} API is not enabled on Google Cloud project ${project}. ` +
+      `Switch it on here, wait a minute, and start again:\n` +
+      `  https://console.cloud.google.com/apis/library/${api}?project=${project}\n` +
+      'Both the Drive API and the Docs API are needed: Drive creates the document, Docs ' +
+      'writes into it.',
+    error.status,
+    error.reason,
+  );
 }
