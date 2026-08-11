@@ -105,18 +105,19 @@ describe('LineBuilder', () => {
       expect(english).not.toMatch(/[઀-૿]/);
     });
 
-    it('does not lose the English when an overflow lands mid-run', () => {
+    it('sends a pair the moment it completes, and holds what is unfinished', () => {
       const builder = new LineBuilder();
-      // A completed pair, then more speech still awaiting translation.
-      builder.push([final('એક', 0, 4000), translated('One.')]);
-      const lines = builder.push([final(' બે', 4000, 12_000)]);
 
-      // The finished pair goes out...
-      expect(lines).toHaveLength(1);
-      expect(lines[0]?.translation).toBe('One.');
+      // The pair completes on this push, so it leaves on this push. Waiting
+      // for the endpoint here was pure lag — the words were already ready.
+      const first = builder.push([final('એક', 0, 4000), translated('One.')]);
+      expect(first).toHaveLength(1);
+      expect(first[0]?.translation).toBe('One.');
 
-      // ...and the unfinished speech is still held, not discarded.
-      const rest = builder.push([translated('Two.'), { text: '<end>', is_final: true }]);
+      // Speech with no English yet is held, not shown and not discarded.
+      expect(builder.push([final(' બે', 4000, 12_000)])).toEqual([]);
+
+      const rest = builder.push([translated('Two.')]);
       expect(rest).toHaveLength(1);
       expect(rest[0]?.translation).toBe('Two.');
     });
@@ -158,11 +159,13 @@ describe('LineBuilder', () => {
     expect(lines[0]?.audioStartMs).toBe(40_000);
   });
 
-  it('flushes without an endpoint once the buffer spans maxBufferMs', () => {
+  it('needs no endpoint at all — a completed pair goes straight out', () => {
+    // maxBufferMs is now only the backstop for speech whose translation never
+    // arrives; it is not what makes captions appear.
     const builder = new LineBuilder({ maxBufferMs: 3000 });
-    expect(builder.push([final('એક', 0, 1000), translated('One.')])).toEqual([]);
-    const lines = builder.push([final(' બે', 1000, 3500), translated(' Two.')]);
-    expect(lines.length).toBeGreaterThan(0);
+    const lines = builder.push([final('એક', 0, 1000), translated('One.')]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.translation).toBe('One.');
   });
 
   it('gives every line a distinct id', () => {

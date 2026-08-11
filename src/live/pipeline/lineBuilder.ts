@@ -59,38 +59,34 @@ export class LineBuilder {
    * @returns lines that are complete and ready to go out.
    */
   push(tokens: SonioxToken[]): CaptionLine[] {
-    let sawEndpoint = false;
-
     for (const token of tokens) {
       // Provisional. Never buffered, never displayed, never returned.
       if (token.is_final !== true) continue;
-      if (token.text?.trim() === END_TOKEN) {
-        sawEndpoint = true;
-        continue;
-      }
+      // The endpoint marker is not text and is not a trigger; it is stripped
+      // so it cannot reach a screen.
+      if (token.text?.trim() === END_TOKEN) continue;
       this.buffer.push(token);
     }
 
-    // An endpoint does NOT mean the translation has arrived.
+    // Whatever is translated goes out NOW. Nothing waits for the endpoint.
     //
-    // This used to call `flush()` on the strength of a comment saying Soniox
-    // delivers a run's translation before the endpoint that closes it. Three
-    // recorded services say otherwise: `buildSegments` falls back to the
-    // original when it finds no translation to pair, so the endpoint flush put
-    // raw Gujarati on the English screen — "સિંહાસન ઉપર." went out at 28.5s,
-    // and "On the singasan, it starts" arrived five seconds later as a caption
-    // of its own. The same words, twice, in two languages.
+    // Waiting for `<end>` was pure latency. Soniox may take up to
+    // `max_endpoint_delay_ms` to decide a clause is finished, and a run whose
+    // translation had already arrived sat in this buffer for that whole time
+    // for no reason — the words were ready, and we were waiting for a marker
+    // that adds nothing. Worse, when the endpoint arrived BEFORE the
+    // translation the run was held to the flush after it, a clause later.
     //
-    // So an endpoint emits what is translated and keeps the rest, exactly as
-    // the overflow path already did. The held tail leaves with its translation
-    // on the next flush, which is also how those two captions become one. The
-    // prototype gets here from the other direction: it only ever takes tokens
-    // already marked as translation, so untranslated speech simply never
-    // reaches a caption.
-    if (sawEndpoint || this.bufferSpanMs() >= this.options.maxBufferMs) {
-      return this.flushTranslated();
-    }
-    return [];
+    // This is the prototype's rule exactly: take the tokens already marked as
+    // translation, send them, keep the rest. Untranslated speech still never
+    // reaches a caption, so the source language cannot appear on the English
+    // screen — but the moment its English lands, it goes.
+    //
+    // Caption length is now Soniox's own translation granularity. If they come
+    // out shorter than you want, the lever is `max_endpoint_delay_ms`: raising
+    // it makes Soniox group longer clauses before finalising, at the cost of
+    // exactly that much more lag. It is the one real trade in this file.
+    return this.flushTranslated();
   }
 
   /**

@@ -585,14 +585,23 @@ symptom of both is the same: fragments where clauses should be.
 if Soniox has not called an endpoint in eight seconds. With the ceiling above at
 two seconds it should never fire.
 
-**An endpoint does not mean the translation has arrived.** Speech whose English
-has not come back yet is held rather than shown — otherwise the segment builder
-falls back to the source and puts raw Gujarati on the English screen, then the
-translation arrives a few seconds later as a second caption. The held words
-leave with their translation on the next flush, which is also how those two
-captions become one.
+**Nothing waits for the endpoint.** A caption goes out the moment its English
+arrives — typically a couple of hundred milliseconds after the clause finishes.
+Waiting for Soniox's endpoint marker used to add another 1.5–2 seconds for
+nothing: the words were already there, and the marker only said what we could
+already see. Speech whose English has *not* arrived is held rather than shown,
+because the segment builder otherwise falls back to the source and puts raw
+Gujarati on the English screen.
 
-**One endpoint is one caption.** However long the run, a flush produces exactly
+**What decides caption length now.** It is Soniox's own translation
+granularity — whatever English it hands over in one go becomes one caption. If
+they come out shorter than you want, the lever is `live.maxEndpointDelayMs`:
+raising it makes Soniox group longer clauses before finalising, and costs
+exactly that much more lag. **That is the one real trade left.** Shorter
+captions arrive sooner; longer ones arrive later. There is no setting that
+gives both.
+
+**One flush is one caption.** However long the run, a flush produces exactly
 one line — the same thing the prototype does when it posts an event's whole
 finalised text as a single caption. It used to split a long run into several
 readable cues, which is right for an `.srt` file and wrong on a screen: with no
