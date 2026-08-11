@@ -29,7 +29,6 @@ export interface StartArgs {
   channel?: number | undefined;
   format?: CaptureFormat | undefined;
   youtubeCaptionsUrl?: string | undefined;
-  streamOffsetMs?: number | undefined;
   captionInput?: string | undefined;
   recordPath?: string | undefined;
   verbose?: boolean;
@@ -121,7 +120,6 @@ export class LiveSessionManager {
       overlay: this.options.overlay,
       sink: this.sink,
       youtubeCaptionsUrl: merged.youtubeCaptionsUrl ?? this.options.getYoutubeCaptionsUrl?.(),
-      streamOffsetMs: merged.streamOffsetMs ?? config.live.streamOffsetMs,
       captionInput: merged.captionInput,
       recordPath: merged.recordPath,
       verbose: merged.verbose ?? false,

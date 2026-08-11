@@ -44,7 +44,6 @@ export interface LiveSessionOptions {
   overlay: BrowserAdapter;
   sink: SessionSink;
   youtubeCaptionsUrl?: string | undefined;
-  streamOffsetMs?: number | undefined;
   captionInput?: string | undefined;
   recordPath?: string | undefined;
   verbose?: boolean;
@@ -147,9 +146,6 @@ export class LiveSession {
 
       this.youtube = new YoutubeLiveAdapter({
         ingestionUrl: options.youtubeCaptionsUrl,
-        sessionEpoch: this.sessionEpoch,
-        streamOffsetMs: options.streamOffsetMs ?? 0,
-        timestampMode: options.config.live.captionTimestampMode,
         onError: (err) => warn(`youtube captions: ${err.message}`),
       });
       info('posting closed captions to YouTube');

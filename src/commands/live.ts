@@ -15,7 +15,6 @@ export interface LiveArgs {
   /** YouTube live caption ingestion URL, from the stream's CC settings. */
   youtubeCaptionsUrl?: string | undefined;
   /** Delay between this machine's encoder and YouTube receiving the video. */
-  streamOffsetMs?: number | undefined;
   /** Drive a vMix GT title as well as the browser overlays. */
   captionInput?: string | undefined;
   /** JSONL of every raw response plus operator actions. */
@@ -76,7 +75,6 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
     // an operator watching a terminal has.
     sink: { notify: () => {} },
     youtubeCaptionsUrl: args.youtubeCaptionsUrl,
-    streamOffsetMs: args.streamOffsetMs,
     captionInput: args.captionInput,
     recordPath: args.recordPath,
     verbose: args.verbose ?? false,

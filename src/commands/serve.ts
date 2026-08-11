@@ -378,7 +378,6 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
       const errors: string[] = [];
       const adapter = new YoutubeLiveAdapter({
         ingestionUrl: url,
-        sessionEpoch: Date.now(),
         onError: (err) => errors.push(err.message),
       });
       await adapter.show({

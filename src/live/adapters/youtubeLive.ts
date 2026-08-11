@@ -12,39 +12,26 @@ import type { CaptionLine, OutputAdapter } from '../types.js';
  * pixels, so the whole two-composite arrangement INVARIANT 8 describes is
  * unnecessary here. A reviewer's drop simply means the POST never happens.
  *
- * THE TIMESTAMP IS THE PART TO GET RIGHT. It is not when the words were
- * spoken, it is when they appear in the stream YouTube is receiving — so it
- * carries `streamOffsetMs`, the delay sitting between the encoder and YouTube.
- * Calibrate it on a private test stream before a festival; the format and
- * sequence semantics are the one thing in this file not verifiable from the
- * codebase, which is exactly why the transport is injected.
+ * THE TIMESTAMP IS THE PART TO GET RIGHT, and it is the instant of the POST —
+ * not the instant the words were spoken. Those were the same thing only while
+ * a scheduler held captions back to match a delayed video, and with nothing
+ * held back the send time is where the stream has actually got to. It is
+ * self-correcting: no offset to calibrate, no video delay to keep in step.
+ *
+ * That is what a working prototype of this job does, over twelve thousand
+ * accepted POSTs, with no timing configuration at all. It also means captioning
+ * a *delayed* stream is no longer possible here — deliberately, since the delay
+ * it existed for is gone.
+ *
+ * The wire format and sequence semantics are the one thing in this file not
+ * verifiable from the codebase, which is why the transport is injected.
  */
 
 export interface YoutubeLiveAdapterOptions {
   name?: string;
   /** The ingestion URL from YouTube, including its cid parameter. */
   ingestionUrl: string;
-  /** Wall-clock time corresponding to audio position 0 (INVARIANT 9). */
-  sessionEpoch: number;
-  /** Delay between this machine's encoder and YouTube receiving the video. */
-  streamOffsetMs?: number;
-  /**
-   * Which clock the caption's timestamp comes from.
-   *
-   * `speech` (the default, and what this always did) stamps the instant the
-   * words were spoken, plus `streamOffsetMs`. Correct when the video is delayed
-   * to match the pipeline, and it has to be: a caption posted fifteen seconds
-   * after the words, carrying the words' own timestamp, lands at a point
-   * YouTube streamed past long ago.
-   *
-   * `now` stamps the moment of the POST. It only makes sense with the delays
-   * turned down — but then it is self-correcting, because the caption is placed
-   * wherever the stream has actually got to, and there is no offset to
-   * calibrate and no video delay to match. This is what a working prototype of
-   * this same job does, over twelve thousand accepted POSTs, with no timing
-   * configuration at all.
-   */
-  timestampMode?: 'speech' | 'now';
+
   /** Injected in tests so retries do not sleep. */
   sleep?: (ms: number) => Promise<void>;
   /** The wall clock, injected so `now` mode is testable without real time. */
@@ -129,9 +116,6 @@ export function checkIngestionUrl(raw: string): IngestionUrlCheck {
 export class YoutubeLiveAdapter implements OutputAdapter {
   readonly name: string;
   private readonly ingestionUrl: string;
-  private sessionEpoch: number;
-  private readonly streamOffsetMs: number;
-  private readonly timestampMode: 'speech' | 'now';
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly now: () => number;
   private readonly fetchImpl: typeof fetch;
@@ -143,25 +127,15 @@ export class YoutubeLiveAdapter implements OutputAdapter {
   constructor(options: YoutubeLiveAdapterOptions) {
     this.name = options.name ?? 'youtube';
     this.ingestionUrl = options.ingestionUrl;
-    this.sessionEpoch = options.sessionEpoch;
-
-    this.streamOffsetMs = options.streamOffsetMs ?? 0;
-    this.timestampMode = options.timestampMode ?? 'speech';
     this.sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.now = options.now ?? (() => Date.now());
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.onError = options.onError;
   }
 
-  /** Match the queue's clock; see `CaptionQueue.rebase`. Before anything is sent. */
-  rebase(sessionEpoch: number): void {
-    this.sessionEpoch = sessionEpoch;
-  }
-
-  /** Exposed so a test can pin the arithmetic without going through fetch. */
-  timestampFor(line: CaptionLine, now: number = this.now()): string {
-    if (this.timestampMode === 'now') return formatCaptionTimestamp(now);
-    return formatCaptionTimestamp(this.sessionEpoch + line.audioStartMs + this.streamOffsetMs);
+  /** Exposed so a test can pin it without going through fetch. */
+  timestampFor(now: number = this.now()): string {
+    return formatCaptionTimestamp(now);
   }
 
   private url(sequence: number): string {
@@ -181,13 +155,12 @@ export class YoutubeLiveAdapter implements OutputAdapter {
         const ceiling = RETRY_CEILINGS_MS[attempt]!;
         if (ceiling > 0) await this.sleep(Math.random() * ceiling);
 
-        // Re-stamped per attempt, not once before the loop. In `now` mode a
-        // retry that carried the first attempt's timestamp would place the
-        // caption where the stream was before the backoff, which is the one
-        // thing this mode exists to get right.
+        // Re-stamped per attempt, not once before the loop: a retry carrying
+        // the first attempt's timestamp would place the caption where the
+        // stream was before the backoff, which is the one thing to get right.
         // English only: the endpoint carries one track, and the Gujarati
         // speakers in the audience are listening rather than reading.
-        const body = `${this.timestampFor(line)} ${CUE_REGION}\n${line.translation}\n`;
+        const body = `${this.timestampFor()} ${CUE_REGION}\n${line.translation}\n`;
 
         try {
           const response = await this.fetchImpl(this.url(sequence), {

@@ -150,31 +150,6 @@ export const SETTINGS: readonly SettingDescriptor[] = [
   },
 
   {
-    path: 'live.delayReviewMs',
-    label: 'Time the reviewer gets',
-    help:
-      'Up to ten minutes. The stream runs this far behind the room, and the delay has to ' +
-      'live after the encoder — not in vMix Video Delay.',
-    type: 'number',
-    unit: 'ms',
-    group: 'service',
-    appliesTo: 'next-session',
-  },
-  {
-    path: 'live.delayAssemblyMs',
-    label: 'Time Soniox gets',
-    help:
-      'How long to wait for a subtitle before showing it. A subtitle cannot exist until ' +
-      'the sentence has finished being spoken, so this needs to be about as long as your ' +
-      'longest sentence plus two seconds — measured at twelve on a real sermon, not four. ' +
-      'Too short and long lines are skipped for arriving late. The venue screens sit this ' +
-      'far behind the speaker, and the reviewer sees each line the moment it is ready.',
-    type: 'number',
-    unit: 'ms',
-    group: 'service',
-    appliesTo: 'next-session',
-  },
-  {
     path: 'live.maxBufferMs',
     label: 'Cut a line after',
     help:
@@ -210,47 +185,6 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     appliesTo: 'next-session',
   },
   {
-    path: 'live.minDisplayMs',
-    label: 'Shortest a caption stays up (live)',
-    help:
-      'Anything briefer is merged into its neighbour rather than flashed, and the queue ' +
-      'leaves at least this long between two lines. Lower it to let short chunks stand on ' +
-      'their own; below about 700ms they are hard to read at the back of a hall.',
-    type: 'number',
-    unit: 'ms',
-    group: 'service',
-    appliesTo: 'next-session',
-  },
-  {
-    path: 'live.skipLateLines',
-    label: 'Drop captions that miss their moment',
-    help:
-      'On, a line that is more than a couple of seconds late is thrown away, because a ' +
-      'caption under the wrong sentence is worse than none. Off, every line goes out however ' +
-      'late — nothing is ever missing, but nothing catches up either, so the words drift ' +
-      'further behind the speaker and stay there. Off is for a transcript or a rehearsal, ' +
-      'on is for a service.',
-    type: 'boolean',
-    on: 'Drop them — right for a service',
-    group: 'service',
-    appliesTo: 'next-session',
-  },
-  {
-    path: 'live.rawPassthrough',
-    label: 'Continuous feed on the raw screen',
-    help:
-      'The fastest this can go: English pushed to /overlay?output=raw the instant Soniox ' +
-      'translates it, with no line building, no queue and no delay. It rewrites itself as ' +
-      'the speaker talks — Gujarati puts the verb last, so a half-finished clause is often ' +
-      're-ordered rather than corrected, and that is what this looks like on screen. It ' +
-      'ADDS a screen: the venue, the stream, the reviewer and the YouTube captions carry on ' +
-      'exactly as before. Rehearse it beside them before pointing a projector at it.',
-    type: 'boolean',
-    on: 'Run the continuous feed as well',
-    group: 'service',
-    appliesTo: 'next-session',
-  },
-  {
     path: 'live.liveSrt',
     label: 'Save subtitles from the live service',
     help:
@@ -260,34 +194,6 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'started, so they line up with a recording that started with it.',
     type: 'boolean',
     on: 'Write an .srt as it goes',
-    group: 'service',
-    appliesTo: 'next-session',
-  },
-  {
-    path: 'live.captionTimestampMode',
-    label: 'How YouTube captions are timed',
-    help:
-      'Where each caption is placed on the stream. "When the words were spoken" needs the ' +
-      'video delayed to match the pipeline and the offset below calibrated. "When it is ' +
-      'sent" places it wherever the stream has got to, which needs no offset and no video ' +
-      'delay at all — but only makes sense with the delays turned down, or captions land ' +
-      'as far behind as the pipeline is.',
-    type: 'choice',
-    choices: [
-      { value: 'speech', label: 'When the words were spoken (needs the offset below)' },
-      { value: 'now', label: 'When it is sent — no offset, no video delay' },
-    ],
-    group: 'service',
-    appliesTo: 'next-session',
-  },
-  {
-    path: 'live.streamOffsetMs',
-    label: 'Encoder to YouTube delay',
-    help:
-      'What puts each caption on the right words in the stream. Confirm it on a private ' +
-      'test stream before a festival.',
-    type: 'number',
-    unit: 'ms',
     group: 'service',
     appliesTo: 'next-session',
   },
@@ -356,14 +262,6 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     type: 'number',
     group: 'setup',
     appliesTo: 'restart',
-  },
-  {
-    path: 'paths.media',
-    label: 'Where sermons are kept',
-    help: 'Videos to ingest are read from here.',
-    type: 'string',
-    group: 'setup',
-    appliesTo: 'immediate',
   },
 ];
 

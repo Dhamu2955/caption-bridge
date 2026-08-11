@@ -82,7 +82,7 @@ export interface AppConfig {
   ingest: IngestConfig;
   youtube: YoutubeConfig;
   search: SearchConfig;
-  paths: { media: string; recordings: string };
+  paths: { recordings: string };
   database: { urlEnv: string };
   server: {
     host: string;
@@ -95,81 +95,22 @@ export interface AppConfig {
     shareTokenOnLan: boolean;
   };
   live: {
-    delayAssemblyMs: number;
-    delayReviewMs: number;
-    minDisplayMs: number;
-    lateSkipMs: number;
     /**
-     * Whether `lateSkipMs` is enforced at all.
-     *
-     * On, a line that misses its moment by more than `lateSkipMs` is thrown
-     * away, because a caption sitting under the wrong sentence is worse than
-     * no caption — that is the whole argument for skipping, and it is the
-     * right one when the words are keyed over a picture.
-     *
-     * Off, every line goes out however late it is, queued behind the one
-     * before it. The cost is real and worth knowing: nothing catches up, so a
-     * slow patch pushes captions further and further behind the speaker and
-     * they stay there for the rest of the service. Worth it when having the
-     * words at all matters more than having them on the right second — a
-     * transcript on an overflow screen, or a rehearsal where a missing line
-     * looks like a bug.
+     * Our own cut. A caption cannot exist until the sentence it covers has
+     * finished being spoken, so this is the biggest lever on how soon one
+     * appears — and the cost of cutting sooner is splitting sentences.
      */
-    skipLateLines: boolean;
-    /**
-     * Continuous passthrough on the `raw` overlay: translation tokens pushed to
-     * screen as Soniox emits them, with no line building, no queue and no delay.
-     *
-     * It is the fastest this can go and it rewrites itself as it goes — see
-     * pipeline/rawStream.ts and INVARIANT 4. It adds an output rather than
-     * changing one: venue, stream, the reviewer and the YouTube captions are
-     * bit-for-bit unaffected whether this is on or off.
-     */
-    rawPassthrough: boolean;
-    /**
-     * Which clock a YouTube caption's timestamp comes from — see
-     * adapters/youtubeLive.ts. `speech` needs the video delayed to match the
-     * pipeline and `streamOffsetMs` calibrated; `now` needs neither, and needs
-     * the delays turned down instead.
-     */
-    captionTimestampMode: 'speech' | 'now';
-    /**
-     * Write an .srt into `paths.recordings` while a live service runs, so the
-     * words that went out can be put on the recording afterwards without
-     * transcribing it a second time.
-     */
-    liveSrt: boolean;
+    maxBufferMs: number;
+    /** -1 patient to 1 eager; how readily Soniox calls a clause finished. */
+    endpointSensitivity: number;
+    /** Ceiling on that wait, for a speaker who does not pause. */
+    maxEndpointDelayMs: number;
     /** Names the variable holding YouTube's caption ingestion URL. The URL
      *  embeds a `cid` that identifies the stream, so it is a credential and
      *  lives in .env with the rest — never in this committed file. */
     youtubeCaptionsUrlEnv: string;
-    /** Delay between this machine's encoder and YouTube receiving the video. */
-    streamOffsetMs: number;
-    /**
-     * How long a speaker may run without a pause before the line is cut.
-     *
-     * The single biggest lever on how soon a caption appears. A caption cannot
-     * exist until the sentence it covers has finished being spoken, so a long
-     * utterance is inherently a late caption — cutting sooner trades whole
-     * sentences for speed.
-     */
-    maxBufferMs: number;
-    /**
-     * How eagerly Soniox closes a clause, -1 (patient) to 1 (eager).
-     *
-     * The other half of how soon a caption appears, and the half that is
-     * Soniox's rather than ours: it decides when a segment is finished, and
-     * nothing can be translated before then. Slightly patient reads better —
-     * it gives the translator enough audio to resolve short words and clause
-     * boundaries rather than committing to a fragment.
-     */
-    endpointSensitivity: number;
-    /**
-     * Hard ceiling on that wait. Without it a speaker who does not pause can
-     * hold a segment open indefinitely, and the caption for it arrives
-     * whenever they finally stop.
-     */
-    maxEndpointDelayMs: number;
+    /** Write an .srt into `paths.recordings` while a service runs. */
+    liveSrt: boolean;
   };
 }
 
@@ -209,30 +150,13 @@ const DEFAULTS = {
     chunkMaxMs: 180_000,
     chunkOverlapMs: 30_000,
   },
-  paths: { media: './media', recordings: './recordings' },
+  paths: { recordings: './recordings' },
   database: { urlEnv: 'DATABASE_URL' },
   server: { host: '0.0.0.0', port: 3000, shareTokenOnLan: true },
   live: {
     // Measured, not guessed: across all 594 cues of a real 69-minute sermon, the
-    // median caption was ready 7s after its first word, 90% within 12s and the
-    // worst at 21s. At the old 4000 a caption is routinely scheduled for an
-    // instant already past, which `lateSkipMs` then drops — speech on screen
-    // with no words under it. 15s clears nine cues in ten.
-    delayAssemblyMs: 15_000,
-    // Three minutes, not the 25 seconds phase 5 was designed around. At 25s a
-    // reviewer can realistically only drop a line; correcting one needs time to
-    // read the Gujarati, judge the English, and type. Tunable up to 10 minutes
-    // — but a delay this long cannot live in vMix's Video Delay, which is
-    // RAM-resident. See docs/vmix-routing.md.
-    delayReviewMs: 180_000,
-    minDisplayMs: 1500,
-    lateSkipMs: 2000,
-    skipLateLines: true,
-    rawPassthrough: false,
-    captionTimestampMode: 'speech' as const,
     liveSrt: true,
     youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
-    streamOffsetMs: 0,
     maxBufferMs: 8000,
     /*
       From the American mandirs' bridge, and kept after trying to beat them.
@@ -248,8 +172,8 @@ const DEFAULTS = {
         -0.75 / 5000  the right word and much worse everywhere else: clauses
                       outran maxBufferMs so our own cut split "Pancham
                       Varasdar" across two captions, and the slowest line was
-                      ready 17.1s after the speech ended — past
-                      delayAssemblyMs, so lateSkipMs would drop it
+                      ready 17.1s after the speech ended — seventeen seconds
+                      of a speaker talking with nothing under them
 
       -0.5 looked like the answer and is not shipped, because watching it run is
       the part a table does not capture: the captions felt sticky, and the
@@ -265,10 +189,6 @@ const DEFAULTS = {
     maxEndpointDelayMs: 2500,
   },
 } satisfies AppConfig;
-
-/** Ten minutes. Past this the stream is so far behind the room that the two
- *  stop being the same event; it is also a lot of buffered video. */
-const MAX_REVIEW_MS = 600_000;
 
 export class ConfigError extends Error {}
 
@@ -405,7 +325,6 @@ export function parseConfig(raw: unknown): AppConfig {
       chunkOverlapMs: num(searchRaw['chunkOverlapMs'], 'search.chunkOverlapMs', DEFAULTS.search.chunkOverlapMs),
     },
     paths: {
-      media: str(paths['media'], 'paths.media', DEFAULTS.paths.media),
       recordings: str(paths['recordings'], 'paths.recordings', DEFAULTS.paths.recordings),
     },
     database: {
@@ -421,25 +340,12 @@ export function parseConfig(raw: unknown): AppConfig {
       ),
     },
     live: {
-      delayAssemblyMs: num(live['delayAssemblyMs'], 'live.delayAssemblyMs', DEFAULTS.live.delayAssemblyMs),
-      delayReviewMs: num(live['delayReviewMs'], 'live.delayReviewMs', DEFAULTS.live.delayReviewMs),
-      minDisplayMs: num(live['minDisplayMs'], 'live.minDisplayMs', DEFAULTS.live.minDisplayMs),
-      lateSkipMs: num(live['lateSkipMs'], 'live.lateSkipMs', DEFAULTS.live.lateSkipMs),
-      skipLateLines: bool(live['skipLateLines'], 'live.skipLateLines', DEFAULTS.live.skipLateLines),
-      rawPassthrough: bool(live['rawPassthrough'], 'live.rawPassthrough', DEFAULTS.live.rawPassthrough),
       liveSrt: bool(live['liveSrt'], 'live.liveSrt', DEFAULTS.live.liveSrt),
-      captionTimestampMode: oneOf(
-        live['captionTimestampMode'],
-        'live.captionTimestampMode',
-        DEFAULTS.live.captionTimestampMode,
-        ['speech', 'now'] as const,
-      ),
       youtubeCaptionsUrlEnv: str(
         live['youtubeCaptionsUrlEnv'],
         'live.youtubeCaptionsUrlEnv',
         DEFAULTS.live.youtubeCaptionsUrlEnv,
       ),
-      streamOffsetMs: num(live['streamOffsetMs'], 'live.streamOffsetMs', DEFAULTS.live.streamOffsetMs),
       maxBufferMs: num(live['maxBufferMs'], 'live.maxBufferMs', DEFAULTS.live.maxBufferMs),
       endpointSensitivity: signed(
         live['endpointSensitivity'],
@@ -464,12 +370,6 @@ export function parseConfig(raw: unknown): AppConfig {
   }
   if (config.soniox.sourceLanguages.length === 0) {
     throw new ConfigError('soniox.sourceLanguages must list at least one language');
-  }
-  if (config.live.delayReviewMs > MAX_REVIEW_MS) {
-    throw new ConfigError(
-      `live.delayReviewMs must be at most ${MAX_REVIEW_MS} (10 minutes) — a longer delay ` +
-        `puts the stream far enough behind the room to stop being the same event`,
-    );
   }
 
   return config;

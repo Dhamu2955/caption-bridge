@@ -49,8 +49,8 @@ describe('YouTube live captions', () => {
     const { posts, fetchImpl } = harness();
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/closedcaption?cid=abc',
-      sessionEpoch: EPOCH,
       fetchImpl,
+      now: () => EPOCH,
     });
 
     await adapter.show(line('a', 0, 'Devotion is the path.'));
@@ -63,48 +63,22 @@ describe('YouTube live captions', () => {
     );
   });
 
-  it('timestamps against audio position, not arrival (INVARIANT 9)', () => {
+  it('stamps with the send time, so nothing needs calibrating', async () => {
+    // The single thing that makes a zero-delay path work: the caption is placed
+    // wherever the stream has actually got to, rather than where the words were
+    // spoken, so there is no offset and no video delay to keep in step.
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
-    });
-
-    expect(adapter.timestampFor(line('a', 90_000))).toBe('2026-08-02T18:31:30.000');
-  });
-
-  it('shifts by the stream offset, because the caption must match the delayed video', () => {
-    const adapter = new YoutubeLiveAdapter({
-      ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
-      streamOffsetMs: 180_000,
-    });
-
-    // Spoken at 0s, but the encoder holds the video three minutes, so the
-    // words reach YouTube's timeline three minutes in.
-    expect(adapter.timestampFor(line('a', 0))).toBe('2026-08-02T18:33:00.000');
-  });
-
-  it('stamps with the send time in "now" mode, so nothing needs calibrating', async () => {
-    // The single change that makes a zero-delay path work: the caption is
-    // placed wherever the stream has actually got to, rather than where the
-    // words were spoken, so there is no offset and no video delay to match.
-    const adapter = new YoutubeLiveAdapter({
-      ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
-      timestampMode: 'now',
-      streamOffsetMs: 180_000,
       now: () => EPOCH + 42_000,
     });
 
-    // Spoken at 90s and the offset is three minutes; neither is consulted.
-    expect(adapter.timestampFor(line('a', 90_000))).toBe('2026-08-02T18:30:42.000');
+    expect(adapter.timestampFor()).toBe('2026-08-02T18:30:42.000');
   });
 
   it('numbers posts from one, in order', async () => {
     const { posts, fetchImpl } = harness();
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
       fetchImpl,
     });
 
@@ -119,7 +93,6 @@ describe('YouTube live captions', () => {
     const { posts, fetchImpl } = harness();
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc',
-      sessionEpoch: EPOCH,
       fetchImpl,
     });
 
@@ -133,7 +106,6 @@ describe('YouTube live captions', () => {
     const { posts, fetchImpl } = harness([new Error('ECONNRESET')]);
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
       fetchImpl,
       sleep: async () => {},
       onError: () => {},
@@ -157,7 +129,6 @@ describe('YouTube live captions', () => {
     const { posts, fetchImpl } = harness([new Error('ECONNRESET')]);
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
       fetchImpl,
       sleep: async () => {},
       onError: (err) => errors.push(err),
@@ -179,7 +150,6 @@ describe('YouTube live captions', () => {
     ]);
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
       fetchImpl,
       sleep: async () => {},
       onError: (err) => errors.push(err),
@@ -198,8 +168,6 @@ describe('YouTube live captions', () => {
     let clock = EPOCH;
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
-      timestampMode: 'now',
       fetchImpl,
       sleep: async () => { clock += 400; },
       now: () => clock,
@@ -221,7 +189,6 @@ describe('YouTube live captions', () => {
     ]);
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
       fetchImpl,
       sleep: async () => {},
       onError: (err) => errors.push(err),
@@ -242,7 +209,6 @@ describe('YouTube live captions', () => {
     ]);
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
       fetchImpl,
       sleep: async () => {},
       onError: (err) => errors.push(err),
@@ -256,7 +222,6 @@ describe('YouTube live captions', () => {
     const { posts, fetchImpl } = harness();
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
       fetchImpl,
     });
 

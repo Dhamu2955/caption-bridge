@@ -37,7 +37,6 @@
     "chunkOverlapMs": 30000
   },
   "paths": {
-    "media": "./media",
     "recordings": "./recordings"
   },
   "database": {
@@ -49,15 +48,7 @@
     "shareTokenOnLan": true
   },
   "live": {
-    "delayAssemblyMs": 1000,
-    "delayReviewMs": 0,
-    "minDisplayMs": 800,
-    "lateSkipMs": 2000,
-    "skipLateLines": false,
-    "rawPassthrough": false,
-    "captionTimestampMode": "speech",
     "liveSrt": true,
-    "streamOffsetMs": 0,
     "endpointSensitivity": 0.6,
     "maxEndpointDelayMs": 800,
     "maxBufferMs": 2000
