@@ -593,13 +593,26 @@ already see. Speech whose English has *not* arrived is held rather than shown,
 because the segment builder otherwise falls back to the source and puts raw
 Gujarati on the English screen.
 
-**What decides caption length now.** It is Soniox's own translation
-granularity — whatever English it hands over in one go becomes one caption. If
-they come out shorter than you want, the lever is `live.maxEndpointDelayMs`:
-raising it makes Soniox group longer clauses before finalising, and costs
-exactly that much more lag. **That is the one real trade left.** Shorter
-captions arrive sooner; longer ones arrive later. There is no setting that
-gives both.
+**Caption length is Soniox's translation granularity** — whatever English it
+hands over in one go becomes one caption. That is short, and deliberately so:
+waiting for more is waiting, and waiting is lag.
+
+**The screen keeps the previous line.** A new caption arrives underneath the
+last one, which dims and stays. Two consecutive captions from a real service:
+
+```
+From 6 to 11—at 11 o'clock, brothers, Bapa to everyone     ← dimmed
+brothers, gives sheero, chickpeas, and lentils.            ← current
+```
+
+They read as the sentence they are, instead of one flashing past and being
+replaced by the other. This is not roll-up: both lines are complete, neither is
+ever edited, and nothing changes under the reader — a new line arrives, the old
+one moves up. `?history=0` on the overlay URL goes back to one at a time.
+
+If you would still rather have longer captions, `live.maxEndpointDelayMs` makes
+Soniox group longer clauses before finalising and costs exactly that much more
+lag. With the previous line held on screen you should not need it.
 
 **One flush is one caption.** However long the run, a flush produces exactly
 one line — the same thing the prototype does when it posts an event's whole
