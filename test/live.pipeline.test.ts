@@ -467,3 +467,55 @@ describe('the Soniox config message matches the working prototype', () => {
     expect(client().buildConfigMessage()['include_nonfinal']).toBe(false);
   });
 });
+
+describe('one flush is one caption', () => {
+  const token = (text: string, s: number, e: number, status: 'original' | 'translation') =>
+    ({ text, start_ms: s, end_ms: e, is_final: true, speaker: '1', translation_status: status }) as SonioxToken;
+
+  /**
+   * The regression this closes: `buildSegments` is the async ingest's cue
+   * splitter, and live it was returning several lines from one flush. All of
+   * them were delivered in the same synchronous loop, the overlay hard-replaced
+   * on each, and only the last was ever seen — eighteen seconds of a sermon
+   * with three quarters of it never displayed.
+   *
+   * The working prototype posts the whole of an event's finalised text as one
+   * caption and never splits. So does this now.
+   */
+  it('never returns more than one line, however long the run', () => {
+    const builder = new LineBuilder({
+      pauseMs: 4000,
+      maxChars: 138,
+      maxSegmentMs: 20_000,
+      minDisplayMs: 1500,
+      maxBufferMs: 8000,
+    });
+
+    const spoken: SonioxToken[] = [];
+    const translated: SonioxToken[] = [];
+    for (let i = 0; i < 12; i++) {
+      spoken.push(token(` વાક્ય ${i}.`, i * 1500, i * 1500 + 1400, 'original'));
+      translated.push(token(` This is sentence ${i} of a long unbroken passage.`, 0, 0, 'translation'));
+    }
+
+    const lines = builder.push([...spoken, ...translated, token('<end>', 18_000, 18_000, 'original')]);
+    expect(lines).toHaveLength(1);
+    // And it carries the whole run, start to finish — nothing dropped.
+    expect(lines[0]!.audioStartMs).toBe(0);
+    expect(lines[0]!.audioEndMs).toBe(17_900);
+    expect(lines[0]!.translation).toContain('sentence 0');
+    expect(lines[0]!.translation).toContain('sentence 11');
+  });
+
+  it('still pairs the Gujarati with its English', () => {
+    const builder = new LineBuilder({ maxBufferMs: 8000, minDisplayMs: 0 });
+    const lines = builder.push([
+      token(' ભક્તિ એ માર્ગ છે.', 0, 2000, 'original'),
+      token(' Devotion is the path.', 0, 0, 'translation'),
+      token('<end>', 2000, 2000, 'original'),
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.original).toContain('ભક્તિ');
+    expect(lines[0]!.translation).toBe('Devotion is the path.');
+  });
+});

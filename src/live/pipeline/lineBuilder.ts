@@ -153,16 +153,45 @@ export class LineBuilder {
     return this.emit(tokens);
   }
 
+  /**
+   * One flush, one caption. Never several.
+   *
+   * `buildSegments` is the async ingest's cue-splitter: given a run of tokens
+   * it returns as many segments as make good SRT cues, breaking on the pause
+   * threshold, the character cap and the duration cap. That is right for a
+   * subtitle file, where each cue gets its own moment on the timeline.
+   *
+   * It is wrong here, and quietly so. Live, every line it returns is delivered
+   * in the same synchronous loop — so a flush that split into four put four
+   * captions on the overlay inside one millisecond, and only the last was ever
+   * seen. Eighteen seconds of a sermon, three quarters of it never displayed.
+   * The old scheduler hid this by pacing releases `minDisplayMs` apart; there
+   * is no scheduler now, and there should not be one.
+   *
+   * So the segments are joined back into a single line. This is also exactly
+   * what the working prototype does — it posts the whole of an event's
+   * finalised text as one caption and never splits — and it is the reason a
+   * run-on speaker now produces one long caption rather than four flashed
+   * ones. `buildSegments` still does the work that matters: pairing spoken
+   * tokens with their translation, and normalising the English.
+   */
   private emit(tokens: SonioxToken[]): CaptionLine[] {
     if (tokens.length === 0) return [];
 
-    return buildSegments(tokens, this.options).map((segment) => ({
-      id: `line-${++this.counter}`,
-      original: segment.original,
-      translation: segment.translation,
-      audioStartMs: segment.startMs,
-      audioEndMs: segment.endMs,
-      speaker: segment.speaker,
-    }));
+    const segments = buildSegments(tokens, this.options);
+    if (segments.length === 0) return [];
+
+    const first = segments[0]!;
+    const last = segments[segments.length - 1]!;
+    return [
+      {
+        id: `line-${++this.counter}`,
+        original: segments.map((segment) => segment.original).join(' ').trim(),
+        translation: segments.map((segment) => segment.translation).join(' ').trim(),
+        audioStartMs: first.startMs,
+        audioEndMs: last.endMs,
+        speaker: first.speaker,
+      },
+    ];
   }
 }
