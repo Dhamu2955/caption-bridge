@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Caption bridge</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23171210'/%3E%3Crect x='3' y='6' width='10' height='1.6' rx='.8' fill='%23F0A92C'/%3E%3Crect x='3' y='9' width='7' height='1.6' rx='.8' fill='%23F7F1E8'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/theme.css">
+<style>
+  /*
+    The front door. Every other page in this project is somebody's workplace —
+    this one is a signpost, and it is opened most often from a machine that is
+    not the one running the bridge.
+
+    So it answers three questions and nothing else:
+
+      is anything going out right now
+      how do I open this from the tablet / the vMix PC / the office
+      which service am I working on
+
+    It is deliberately read-only. Starting and stopping captions lives on the
+    Captions tab, where the person doing it can see the level meter — a start
+    button on a signpost is a start button pressed by accident.
+  */
+
+  .shell { max-width: 1080px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+
+  header.top {
+    display: flex; align-items: baseline; gap: var(--s3);
+    flex-wrap: wrap; margin-bottom: var(--s5);
+  }
+  h1 { margin: 0; font-size: 1.35rem; font-weight: 500; letter-spacing: -0.01em; }
+  .tagline { color: var(--ink-soft); font-size: 0.92rem; }
+
+  /* State, in the bar, because it is the one fact wanted from anywhere. */
+  .state {
+    display: inline-flex; align-items: center; gap: var(--s2);
+    margin-left: auto; padding: 6px var(--s3);
+    border: 1px solid var(--rule); border-radius: 999px;
+    background: var(--raised);
+    font-size: 0.85rem; white-space: nowrap;
+  }
+  .state[data-live="yes"] { border-color: var(--live); background: var(--live-bg); }
+  .state .since { color: var(--ink-faint); font-family: var(--mono); font-size: 0.78rem; }
+
+  section { margin-bottom: var(--s5); }
+
+  .grid {
+    display: grid; gap: var(--s3);
+    grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+  }
+
+  /* A destination. Big enough to hit with a thumb on a tablet in a dim room,
+     and with its own copy button — half the reason to open this page is to get
+     a working link onto a machine that is not this one. */
+  .card {
+    display: flex; flex-direction: column;
+    border: 1px solid var(--rule); border-radius: var(--radius);
+    background: var(--raised);
+  }
+  .card:hover { border-color: var(--ink-faint); }
+  .card .face {
+    flex: 1 1 auto; display: block; padding: var(--s4) var(--s4) var(--s3);
+    color: var(--ink); text-decoration: none;
+  }
+  .card .name { display: block; font-size: 1rem; margin-bottom: var(--s1); }
+  .card .what { display: block; color: var(--ink-soft); font-size: 0.85rem; line-height: 1.45; }
+  .card .foot {
+    display: flex; align-items: center; gap: var(--s2);
+    padding: 0 var(--s3) var(--s3) var(--s4);
+  }
+  .card .tally {
+    flex: 1 1 auto;
+    font-family: var(--mono); font-size: 0.72rem; color: var(--ink-faint);
+  }
+  .card .tally.on { color: var(--live); }
+  .card .foot button { font-size: 0.78rem; min-height: 30px; padding: 5px var(--s2); }
+
+  /* Addresses. Monospace and selectable — these get read aloud across a hall. */
+  .addresses { display: flex; flex-direction: column; gap: var(--s2); }
+  .address {
+    display: flex; align-items: center; gap: var(--s3);
+    padding: var(--s3); border: 1px solid var(--rule-soft); border-radius: var(--radius-sm);
+    background: var(--sunk);
+  }
+  .address .url {
+    flex: 1 1 auto; min-width: 0;
+    font-family: var(--mono); font-size: 0.84rem; word-break: break-all;
+    color: var(--ink);
+  }
+  .address .tag {
+    flex: 0 0 auto; font-family: var(--mono); font-size: 0.68rem;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint);
+  }
+  .address button { flex: 0 0 auto; }
+
+  button {
+    padding: 7px var(--s3); min-height: 34px;
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    background: transparent; color: var(--ink);
+    font-family: var(--sans); font-size: 0.85rem; cursor: pointer;
+  }
+  button:hover { border-color: var(--ink-faint); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th {
+    text-align: left; padding: 0 var(--s3) var(--s2) 0;
+    font-family: var(--mono); font-size: 0.66rem; font-weight: 400;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
+  }
+  td { padding: var(--s2) var(--s3) var(--s2) 0; border-top: 1px solid var(--rule-soft); }
+  td.num { font-family: var(--mono); font-size: 0.82rem; color: var(--ink-soft); }
+  tr td:last-child, tr th:last-child { padding-right: 0; }
+  .speaker { color: var(--ink-soft); }
+
+  .note { margin: 0; color: var(--ink-soft); font-size: 0.85rem; line-height: 1.55; }
+  .note + .note { margin-top: var(--s2); }
+  .note strong { color: var(--ink); font-weight: 500; }
+
+  .todo { display: flex; gap: var(--s3); padding: var(--s2) 0; align-items: flex-start; }
+  .todo .dot { margin-top: 5px; }
+  .todo .label { font-size: 0.9rem; }
+  .todo .fix { color: var(--ink-soft); font-size: 0.85rem; line-height: 1.45; }
+
+  .quiet { color: var(--ink-faint); font-size: 0.85rem; }
+  .stack { display: flex; flex-direction: column; gap: var(--s3); }
+  [hidden] { display: none !important; }
+
+  .banner {
+    padding: var(--s4); margin-bottom: var(--s5);
+    border: 1px solid var(--soon); border-radius: var(--radius);
+    background: var(--soon-bg);
+  }
+  .banner.bad { border-color: var(--stop); background: var(--stop-bg); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="top">
+    <h1>Caption bridge</h1>
+    <span class="tagline">English subtitles for Gujarati sermons</span>
+    <span class="state" id="state" data-live="no">
+      <span class="dot" id="state-dot"></span>
+      <span id="state-text">connecting…</span>
+      <span class="since" id="state-since"></span>
+    </span>
+  </header>
+
+  <div class="banner bad" id="banner" hidden></div>
+
+  <section>
+    <p class="eyebrow">Where to go</p>
+    <div class="grid" id="destinations"></div>
+  </section>
+
+  <section id="network-section">
+    <p class="eyebrow">Open this from another machine</p>
+    <div class="panel stack">
+      <p class="note" id="network-lede"></p>
+      <div class="addresses" id="addresses"></div>
+      <p class="note" id="network-note"></p>
+    </div>
+  </section>
+
+  <section id="todo-section" hidden>
+    <p class="eyebrow">Still to set up</p>
+    <div class="panel" id="todo"></div>
+  </section>
+
+  <section id="sermons-section">
+    <p class="eyebrow">Recent services <span class="count" id="service-count"></span></p>
+    <div class="panel" id="sermons"></div>
+  </section>
+
+  <section>
+    <div class="panel">
+      <p class="note">
+        <strong>Closing this page stops nothing.</strong> It is a signpost, not the
+        bridge. Captions, the queue and every overlay keep running for as long as
+        the terminal that started it is open — the page can be closed, the machine
+        it was opened on can be shut down, and the service carries on.
+      </p>
+      <p class="note">
+        To actually stop, press <strong>Ctrl&#8209;C</strong> in that terminal.
+      </p>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // The token travels in the URL, exactly as it does on every other page here:
+  // a vMix Browser input cannot log in, so there is nothing to be consistent
+  // with but this. Every link built below carries it onward.
+  //
+  // But this is the one page you may arrive at without it — the whole point of
+  // a front door is that you can reach it by typing the short address alone —
+  // so if there is none in the URL, ask the bridge for it. It answers anyone
+  // already on this network. See /api/token.
+  var token = new URLSearchParams(location.search).get('token') || '';
+
+  function suffix() {
+    return token ? '?token=' + encodeURIComponent(token) : '';
+  }
+
+  function link(path, extra) {
+    var query = suffix();
+    if (extra) query = query ? query + '&' + extra : '?' + extra;
+    return path + query;
+  }
+
+  /**
+   * The same link, but absolute and pointed at the LAN address rather than at
+   * whatever host this page happens to be open on.
+   *
+   * This is what the copy buttons hand over, and the distinction matters: a
+   * URL copied at the bridge PC and pasted into a vMix Browser input on the
+   * next machine would say 127.0.0.1 and reach nothing.
+   */
+  var shareOrigin = location.origin;
+
+  /** The LAN address the bridge reports, when it has one. */
+  function useShareOrigin(server) {
+    var lan = (server.urls || []).filter(function (entry) { return entry.kind === 'lan'; })[0];
+    shareOrigin = lan ? lan.url.replace(/\/$/, '') : location.origin;
+  }
+
+  function absolute(path, extra) {
+    return shareOrigin + link(path, extra);
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function duration(ms) {
+    if (!ms || ms < 0) return '';
+    var total = Math.floor(ms / 1000);
+    var h = Math.floor(total / 3600);
+    var m = Math.floor((total % 3600) / 60);
+    var s = total % 60;
+    if (h) return h + 'h ' + m + 'm';
+    if (m) return m + 'm ' + s + 's';
+    return s + 's';
+  }
+
+  /* ---- the destinations, which never change ---------------------------- */
+
+  // Paths, not URLs: the token may still be on its way when this is read, and
+  // every href is built at render time so it is never a link without one.
+  var DESTINATIONS = [
+    {
+      path: '/app',
+      name: 'Captions',
+      what: 'Start and stop a service, pick the sound input, watch the level.',
+      tally: function (d) {
+        return d.session && d.session.running ? { text: 'running', on: true } : { text: 'idle' };
+      },
+    },
+    {
+      path: '/app',
+      hash: '#review',
+      name: 'Reviewer',
+      what: 'Correct lines before they reach air.',
+      tally: function (d) {
+        return { text: d.operators === 1 ? '1 reviewer' : d.operators + ' reviewers', on: d.operators > 0 };
+      },
+    },
+    {
+      path: '/app',
+      hash: '#sermons',
+      name: 'Sermons',
+      what: 'Recorded services: subtitles, corrections, re-export.',
+      tally: function (d) {
+        if (!d.archive) return { text: 'no database' };
+        return { text: d.archive.services + ' in the archive' };
+      },
+    },
+    {
+      path: '/app',
+      hash: '#glossary',
+      name: 'Glossary',
+      what: 'Names and terms the bridge should get right every week.',
+      tally: function () { return null; },
+    },
+    {
+      path: '/app',
+      hash: '#settings',
+      name: 'Settings',
+      what: 'Keys, database, ports. Everything the machine needs.',
+      tally: function (d) {
+        var missing = (d.checks || []).filter(function (c) { return c.state !== 'ok'; }).length;
+        return missing ? { text: missing + ' unfinished' } : { text: 'all set' };
+      },
+    },
+    {
+      path: '/operator',
+      name: 'Reviewer, on its own',
+      what: 'The queue alone, for a tablet with nothing else on screen.',
+      tally: function () { return null; },
+    },
+  ];
+
+  /**
+   * One destination: a link to follow here, and a button that copies the same
+   * link — complete with token, and addressed to the LAN — for a machine that
+   * is not this one. That copy button is the point of the page: nobody should
+   * ever be reading sixteen hex characters off a terminal and typing them in.
+   */
+  function destinationCard(spec, tally) {
+    var card = el('div', 'card');
+
+    var face = el('a', 'face');
+    face.href = link(spec.path, spec.query) + (spec.hash || '');
+    face.appendChild(el('span', 'name', spec.name));
+    face.appendChild(el('span', 'what', spec.what));
+    card.appendChild(face);
+
+    var foot = el('div', 'foot');
+    foot.appendChild(el('span', 'tally' + (tally && tally.on ? ' on' : ''), tally ? tally.text : ''));
+
+    var copy = el('button', null, 'Copy link');
+    copy.setAttribute('aria-label', 'Copy the link to ' + spec.name);
+    copy.addEventListener('click', function () {
+      copyText(absolute(spec.path, spec.query) + (spec.hash || ''), copy, 'Copy link');
+    });
+    foot.appendChild(copy);
+    card.appendChild(foot);
+
+    return card;
+  }
+
+  function renderDestinations(data) {
+    var host = $('destinations');
+    host.textContent = '';
+
+    DESTINATIONS.forEach(function (spec) {
+      host.appendChild(destinationCard(spec, spec.tally(data)));
+    });
+
+    var overlays = data.overlays || {};
+    Object.keys(overlays).forEach(function (name) {
+      var connections = overlays[name];
+      host.appendChild(
+        destinationCard(
+          {
+            path: '/overlay',
+            query: 'output=' + encodeURIComponent(name),
+            name: 'Overlay — ' + name,
+            what: 'Point vMix, OBS or the projector browser at this.',
+          },
+          {
+            text: connections === 1 ? '1 screen connected' : connections + ' screens connected',
+            on: connections > 0,
+          },
+        ),
+      );
+    });
+  }
+
+  /**
+   * Copy, with a fallback that selects the text instead.
+   *
+   * The clipboard API is unavailable outside a secure context, and this is
+   * served over plain http on a LAN that may have no route out — which is
+   * exactly where the button is needed most. Selecting leaves a Ctrl+C away.
+   */
+  function copyText(text, button, restore) {
+    var done = function () {
+      button.textContent = 'Copied';
+      setTimeout(function () { button.textContent = restore; }, 1400);
+    };
+    var fallback = function () {
+      var holder = el('textarea');
+      holder.value = text;
+      holder.style.position = 'fixed';
+      holder.style.opacity = '0';
+      document.body.appendChild(holder);
+      holder.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      document.body.removeChild(holder);
+      if (ok) done();
+      else {
+        button.textContent = 'Copy failed';
+        setTimeout(function () { button.textContent = restore; }, 1800);
+      }
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+      fallback();
+    }
+  }
+
+  /* ---- how to reach this from somewhere else --------------------------- */
+
+  function renderAddresses(server) {
+    var host = $('addresses');
+    host.textContent = '';
+
+    var urls = (server.urls || []).slice();
+    if (!urls.length) return;
+
+    // With the bridge handing out the token on this network, the address to
+    // pass on is the short one — no token, nothing to read out, nothing to
+    // mistype. It is only worth showing the long form when it is turned off.
+    var share = server.shareTokenOnLan !== false;
+
+    var lede = $('network-lede');
+    lede.textContent = '';
+    if (share) {
+      lede.appendChild(el('strong', null, 'Type just this. '));
+      lede.appendChild(document.createTextNode(
+        'No token needed from inside this network — this page hands the full links out ' +
+        'itself, and every Copy button above gives you one complete.',
+      ));
+    } else {
+      lede.appendChild(el('strong', null, 'The whole URL, token and all. '));
+      lede.appendChild(document.createTextNode(
+        'Handing the token out on this network is turned off, so nothing works without it. ' +
+        'Turn it back on under Settings if you would rather type the short address.',
+      ));
+    }
+
+    urls.forEach(function (entry) {
+      // Trailing slash off the short form: it is going to be typed by hand.
+      var full = share ? entry.url.replace(/\/$/, '') : entry.url + suffix();
+      var row = el('div', 'address');
+      row.appendChild(el('span', 'url', full));
+      row.appendChild(el('span', 'tag', entry.kind === 'loopback' ? 'this machine' : 'network'));
+
+      var copy = el('button', null, 'Copy');
+      copy.addEventListener('click', function () { copyText(full, copy, 'Copy'); });
+      row.appendChild(copy);
+      host.appendChild(row);
+    });
+
+    var note = $('network-note');
+    note.textContent = '';
+    if (server.loopbackOnly) {
+      note.appendChild(el('strong', null, 'This machine only. '));
+      note.appendChild(document.createTextNode(
+        'The bridge is listening on ' + server.host + ', so nothing else can reach it. Set ' +
+        '"Listen on" to 0.0.0.0 in Settings and restart to open it to the network.',
+      ));
+    } else {
+      note.appendChild(el('strong', null, 'Anyone on this network can open it.'));
+      note.appendChild(document.createTextNode(
+        ' There are no accounts — being on the mandir network is what stands in for one, so ' +
+        'never forward this port to the internet. The token is kept in .env, so links copied ' +
+        'today still work after a restart.',
+      ));
+    }
+  }
+
+  /* ---- state, checks, services ----------------------------------------- */
+
+  var STATE_WORDS = {
+    idle: 'Nothing running',
+    starting: 'Starting',
+    running: 'Captions going out',
+    draining: 'Draining the queue',
+    stopped: 'Stopped',
+  };
+
+  function renderState(data) {
+    var session = data.session || { state: 'idle' };
+    var pill = $('state');
+    var running = !!session.running;
+    pill.setAttribute('data-live', running ? 'yes' : 'no');
+    $('state-dot').setAttribute('data-state', running ? 'live' : session.state === 'draining' ? 'retry' : '');
+    $('state-text').textContent = STATE_WORDS[session.state] || session.state;
+
+    var since = '';
+    if (session.startedAt) {
+      since = duration(Date.now() - session.startedAt);
+      if (data.live && data.live.released) since += ' · ' + data.live.released + ' lines';
+    } else if (data.startedAt) {
+      // With nothing running, the useful fact is that the bridge itself is
+      // alive — otherwise this pill is indistinguishable from a stale page.
+      since = 'bridge up ' + duration(Date.now() - data.startedAt);
+    }
+    $('state-since').textContent = since;
+  }
+
+  function renderTodo(data) {
+    var outstanding = (data.checks || []).filter(function (check) {
+      return check.state !== 'ok' && check.state !== 'unknown';
+    });
+    $('todo-section').hidden = outstanding.length === 0;
+    if (!outstanding.length) return;
+
+    var host = $('todo');
+    host.textContent = '';
+    outstanding.forEach(function (check) {
+      var row = el('div', 'todo');
+      row.appendChild(el('span', 'dot ' + (check.state === 'error' ? 'error' : 'missing')));
+      var body = el('div');
+      body.appendChild(el('div', 'label', check.label));
+      if (check.fix) body.appendChild(el('div', 'fix', check.fix));
+      else if (check.detail) body.appendChild(el('div', 'fix', check.detail));
+      row.appendChild(body);
+      host.appendChild(row);
+    });
+  }
+
+  function renderServices(data) {
+    var host = $('sermons');
+    host.textContent = '';
+    $('service-count').textContent = data.archive ? String(data.archive.services) : '';
+
+    if (!data.services) {
+      var why = el('p', 'note');
+      why.appendChild(el('strong', null, 'No database yet. '));
+      why.appendChild(document.createTextNode(
+        data.servicesError ||
+        'Recorded services live in Postgres — start it with `docker compose up -d`.',
+      ));
+      host.appendChild(why);
+      return;
+    }
+
+    if (!data.services.length) {
+      host.appendChild(el('p', 'quiet', 'Nothing ingested yet. Add a recording from the Sermons tab.'));
+      return;
+    }
+
+    var table = el('table');
+    var head = el('tr');
+    ['Date', 'Speaker', 'Cues', ''].forEach(function (name) {
+      head.appendChild(el('th', null, name));
+    });
+    table.appendChild(head);
+
+    data.services.forEach(function (service) {
+      var row = el('tr');
+      row.appendChild(el('td', null, service.date));
+      var who = el('td', 'speaker', service.title ? service.speaker + ' — ' + service.title : service.speaker);
+      row.appendChild(who);
+      row.appendChild(el('td', 'num', service.cues));
+      var open = el('td');
+      var anchor = el('a', null, 'Open');
+      anchor.href = link('/app') + '#sermons';
+      open.appendChild(anchor);
+      row.appendChild(open);
+      table.appendChild(row);
+    });
+    host.appendChild(table);
+  }
+
+  /* ---- polling ---------------------------------------------------------- */
+
+  function banner(message) {
+    var node = $('banner');
+    node.hidden = !message;
+    node.textContent = message || '';
+  }
+
+  var failures = 0;
+
+  function poll() {
+    fetch(link('/api/home'), { cache: 'no-store' })
+      .then(function (response) {
+        if (response.status === 401) {
+          banner(
+            'This bridge is not handing out its token on this network, and this link has ' +
+            'none. Use the full URL printed in the terminal that started it, or turn ' +
+            '"Hand out the link on this network" back on in Settings.',
+          );
+          throw new Error('unauthorised');
+        }
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+      })
+      .then(function (data) {
+        failures = 0;
+        banner('');
+        // Before anything is rendered: it decides what the Copy buttons hand
+        // over, and a link copied at the bridge PC has to work on the next one.
+        useShareOrigin(data.server || {});
+        renderState(data);
+        renderDestinations(data);
+        renderAddresses(data.server || {});
+        renderTodo(data);
+        renderServices(data);
+      })
+      .catch(function (err) {
+        if (err.message === 'unauthorised') return;
+        failures++;
+        // One missed poll on a wifi hop is not worth alarming anybody about;
+        // three in a row means the bridge is genuinely not answering.
+        if (failures >= 3) {
+          $('state-dot').setAttribute('data-state', 'off');
+          $('state-text').textContent = 'Bridge not answering';
+          $('state-since').textContent = '';
+        }
+      });
+  }
+
+  /**
+   * Get a token before doing anything else, if this page was opened without
+   * one — which is the ordinary way to arrive here, by typing the short
+   * address off a screen in another room.
+   *
+   * The token is then written into the address bar, so a refresh, a bookmark
+   * or a link dragged onto the desktop all keep working even if handing it out
+   * is later turned off.
+   */
+  function bootstrap() {
+    if (token) return Promise.resolve();
+    return fetch('/api/token', { cache: 'no-store' })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (body) {
+        if (!body || !body.token) return;
+        token = body.token;
+        history.replaceState(null, '', '/?token=' + encodeURIComponent(token));
+      })
+      // Offline, refused, no such route: fall through and let the poll below
+      // put a readable banner on the screen.
+      .catch(function () {});
+  }
+
+  bootstrap().then(function () {
+    poll();
+    // Slow on purpose. This page is left open on a spare screen for hours, and
+    // nothing on it changes second to second.
+    setInterval(function () {
+      if (document.visibilityState === 'visible') poll();
+    }, 4000);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') poll();
+    });
+  });
+})();
+</script>
+</body>
+</html>

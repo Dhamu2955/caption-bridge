@@ -110,6 +110,21 @@ describe('bridge server', () => {
     }
   });
 
+  it('serves the homepage at / rather than redirecting away from it', async () => {
+    // The address somebody types on a tablet has to be the address that stays
+    // in the bar, because that is the one that gets bookmarked — token and all.
+    const response = await fetch(`${base}/?token=${TOKEN}`, { redirect: 'manual' });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('Caption bridge');
+  });
+
+  it('serves the homepage without a token, so a bad link explains itself', async () => {
+    // Same rule as the overlay: never redirect to a login form. The page loads
+    // and says the token is missing; the API behind it is what refuses.
+    const response = await fetch(`${base}/`, { redirect: 'manual' });
+    expect(response.status).toBe(200);
+  });
+
   it('serves the overlay without any login redirect', async () => {
     // §9: vMix's Browser input cannot type credentials. A redirect to a login
     // form would silently kill captions on air.
@@ -393,6 +408,69 @@ describe('operator command parsing', () => {
     expect(parseOperatorCommand('{"type":"edit","lineId":7,"text":{"a":1}}')).toEqual({
       type: 'edit',
     });
+  });
+});
+
+describe('homepage contract', () => {
+  const page = fileURLToPath(new URL('../public/home.html', import.meta.url));
+
+  it('never stores anything in localStorage or sessionStorage (§8)', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/localStorage|sessionStorage/);
+  });
+
+  it('requests no external resources — the mandir LAN may have no route out', async () => {
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+  });
+
+  it('carries the token onward into every link it builds', async () => {
+    // A homepage whose links drop the token is a homepage that sends whoever
+    // opened it to four dead pages.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain("new URLSearchParams(location.search).get('token')");
+    expect(html).toContain('function link(');
+  });
+
+  it('says that closing the page stops nothing', async () => {
+    // The one thing somebody opening this from another PC needs to be sure of
+    // before they shut the lid.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('Closing this page stops nothing');
+  });
+
+  it('offers no way to start or stop captions', async () => {
+    // It is a signpost, opened on machines nobody is watching the level meter
+    // on. Starting belongs on the Captions tab.
+    const html = await readFile(page, 'utf8');
+    expect(html).not.toMatch(/\/api\/session/);
+  });
+
+  it('reads its state from one endpoint, not four', async () => {
+    // It polls forever on a spare screen; one round trip that degrades in
+    // parts beats four that fail independently. The second fetch is the
+    // one-off token bootstrap, which never repeats.
+    const html = await readFile(page, 'utf8');
+    const calls = html.match(/fetch\(/g) ?? [];
+    expect(calls).toHaveLength(2);
+    expect(html).toContain("link('/api/home')");
+    expect(html).toContain("fetch('/api/token'");
+  });
+
+  it('asks for a token when it was opened without one', async () => {
+    // The front door cannot be locked by the thing it exists to hand out.
+    const html = await readFile(page, 'utf8');
+    expect(html).toContain('function bootstrap()');
+    expect(html).toContain("history.replaceState(null, '', '/?token='");
+  });
+
+  it('builds every link at render time, never before the token arrives', async () => {
+    // A DESTINATIONS table of pre-built hrefs would capture the empty token and
+    // send whoever opened it to six pages that 401.
+    const html = await readFile(page, 'utf8');
+    const table = html.slice(html.indexOf('var DESTINATIONS'), html.indexOf('function destinationCard'));
+    expect(table).not.toMatch(/href:/);
+    expect(table).toMatch(/path: '/);
   });
 });
 

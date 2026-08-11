@@ -27,6 +27,8 @@ export class NotConfiguredError extends Error {
 
 export interface StartArgs {
   device: string;
+  /** 1-based input channel to take. Undefined mixes them all. */
+  channel?: number | undefined;
   outputs?: OutputName[];
   format?: CaptureFormat | undefined;
   youtubeCaptionsUrl?: string | undefined;
@@ -60,6 +62,7 @@ export class LiveSessionManager {
   private session: LiveSession | undefined;
   /** Remembered so the control page can offer it again after a stop. */
   private lastDevice: string | undefined;
+  private lastChannel: number | undefined;
   private lastFormat: CaptureFormat | undefined;
 
   constructor(options: LiveSessionManagerOptions) {
@@ -84,6 +87,7 @@ export class LiveSessionManager {
         state: 'idle',
         running: false,
         ...(this.lastDevice ? { device: this.lastDevice } : {}),
+        ...(this.lastChannel ? { channel: this.lastChannel } : {}),
       };
     }
     return { ...this.session.status, running: this.session.status.running };
@@ -114,6 +118,7 @@ export class LiveSessionManager {
       config,
       apiKey,
       device: merged.device,
+      channel: merged.channel,
       format: merged.format,
       outputs: merged.outputs ?? ['venue', 'stream'],
       overlays: this.options.overlays,
@@ -128,6 +133,7 @@ export class LiveSessionManager {
     session.start();
     this.session = session;
     this.lastDevice = merged.device;
+    this.lastChannel = merged.channel;
     this.lastFormat = merged.format;
     info(
       merged.format === 'file'
@@ -156,7 +162,7 @@ export class LiveSessionManager {
   async handle(
     action: 'start' | 'stop' | 'end',
     device?: string,
-    options: { format?: CaptureFormat | undefined } = {},
+    options: { format?: CaptureFormat | undefined; channel?: number | undefined } = {},
   ): Promise<void> {
     if (action === 'end') {
       await this.stop();
@@ -171,15 +177,19 @@ export class LiveSessionManager {
     // Switching between a microphone and a recording changes how ffmpeg is
     // invoked, so it needs a new session rather than a resume.
     const formatChanged = options.format !== undefined && options.format !== this.lastFormat;
+    // Same reasoning as the format: which channel is taken is baked into the
+    // ffmpeg command line, so changing it has to reach a new capture.
+    const channelChanged = options.channel !== this.lastChannel;
 
-    if (this.session && !formatChanged) {
-      this.session.resumeCapture(device);
+    if (this.session && !formatChanged && !channelChanged) {
+      this.session.resumeCapture(device, options.channel);
       if (device) this.lastDevice = device;
       return;
     }
 
     await this.start({
       device: device ?? this.lastDevice ?? '',
+      channel: options.channel,
       ...(options.format ? { format: options.format } : {}),
     });
   }

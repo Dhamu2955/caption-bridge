@@ -42,12 +42,17 @@ Usage:
   sermon-captions search "<query>" [--limit n]
   sermon-captions play   <video|service-id> --input <vmix-guid> [--lines both]
   sermon-captions live   --device "<audio device>" [--outputs venue,stream]
-  sermon-captions serve  [--format <dshow|avfoundation|pulse>]
+  sermon-captions serve  [--format <dshow|avfoundation|pulse>] [--no-open]
   sermon-captions devices
 
 serve opens the web interface, where everything else can be set up and run.
 It starts on a machine with nothing configured — no API key, no database —
 and tells you what is missing rather than refusing. "npm run dev" runs it.
+
+It prints a homepage URL for every address this machine answers on, opens the
+local one in a browser, and keeps running whether that page is open or not.
+--no-open leaves the browser alone, for a machine nobody is sitting at.
+Stop it with Ctrl+C; closing the page stops nothing.
 
 ingest options:
   --speaker <name>    Who is speaking. Required.
@@ -116,6 +121,7 @@ const BOOLEAN_FLAGS = new Set([
   'force',
   'help',
   'no-db',
+  'no-open',
   'replace-edited',
   'retry-failed',
   'redo',
@@ -466,6 +472,7 @@ async function main(argv: string[]): Promise<number> {
       {
         format: optionalString(flags, 'format') as CaptureFormat | undefined,
         token: optionalString(flags, 'token'),
+        open: flags.get('no-open') !== true,
         verbose: flags.get('verbose') === true,
       },
       loadConfigSafe(resolvedConfigPath),

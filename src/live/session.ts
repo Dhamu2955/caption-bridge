@@ -39,6 +39,8 @@ export interface LiveSessionOptions {
   apiKey: string;
   device: string;
   format?: CaptureFormat | undefined;
+  /** 1-based input channel to take. Undefined mixes them all — see capture.ts. */
+  channel?: number | undefined;
   outputs: OutputName[];
   /** Long-lived, owned by the server. Read, never replaced. */
   overlays: OverlayRegistry;
@@ -53,6 +55,7 @@ export interface LiveSessionOptions {
     device: string;
     format?: CaptureFormat | undefined;
     sampleRate: number;
+    channel?: number | undefined;
   }) => AudioCapture;
   createClient?: (options: ConstructorParameters<typeof SonioxRealtimeClient>[0]) =>
     SonioxRealtimeClient;
@@ -68,6 +71,17 @@ export interface SessionStatus {
   /** True only while audio is actually being captured. */
   running: boolean;
   device: string;
+  /** The input channel being taken, when one was chosen. */
+  channel?: number | undefined;
+  /**
+   * The last thing capture complained about, or null.
+   *
+   * It used to go to the server's terminal alone, which is the one screen
+   * nobody is looking at: the operator may be driving this from a tablet in
+   * another room, and a device that failed to open looked exactly like a
+   * speaker who had not started yet.
+   */
+  captureError?: string | null;
   level: number;
   outputs: string[];
   sessionEpoch: number;
@@ -127,6 +141,7 @@ export class LiveSession {
   private lastSpeechAt: number | undefined;
   private lastSilenceWarnAt = 0;
   private lastLevel = 0;
+  private lastCaptureError: string | null = null;
   private audioStarted = false;
   private youtube: YoutubeLiveAdapter | undefined;
   private capturing = false;
@@ -229,6 +244,7 @@ export class LiveSession {
       device: options.device,
       format: options.format,
       sampleRate: 16000,
+      channel: options.channel,
     };
     this.capture = options.createCapture
       ? options.createCapture(captureOptions)
@@ -248,7 +264,12 @@ export class LiveSession {
         this.lastSilenceWarnAt = 0;
       }
     });
-    this.capture.on('error', (err) => warn(`capture: ${err.message}`));
+    // Held as well as logged: the operator may be three rooms away with only
+    // this page to go on, and "the device would not open" must reach them.
+    this.capture.on('error', (err) => {
+      this.lastCaptureError = err.message;
+      warn(`capture: ${err.message}`);
+    });
   }
 
   /**
@@ -336,6 +357,8 @@ export class LiveSession {
       state: this.state,
       running: this.capturing,
       device: this.capture.device,
+      channel: this.capture.channel,
+      captureError: this.lastCaptureError,
       level: this.lastLevel,
       outputs: this.options.outputs,
       sessionEpoch: this.sessionEpoch,
@@ -346,6 +369,7 @@ export class LiveSession {
 
   start(): void {
     this.client.connect();
+    this.lastCaptureError = null;
     this.capture.start();
     this.capturing = true;
     this.state = 'running';
@@ -379,16 +403,17 @@ export class LiveSession {
     this.state = 'paused';
   }
 
-  resumeCapture(device?: string): void {
+  resumeCapture(device?: string, channel?: number | undefined): void {
     if (this.capturing) this.capture.stop();
-    if (device) this.capture.setDevice(device);
+    if (device) this.capture.setDevice(device, channel);
+    this.lastCaptureError = null;
     this.capture.start();
     this.capturing = true;
     this.state = 'running';
   }
 
-  setDevice(device: string): void {
-    this.capture.setDevice(device);
+  setDevice(device: string, channel?: number | undefined): void {
+    this.capture.setDevice(device, channel);
   }
 
   /** Advisory: the queue decides whether a decision still applies. */

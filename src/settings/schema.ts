@@ -240,11 +240,25 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     path: 'server.host',
     label: 'Listen on',
     help:
-      '127.0.0.1 keeps this machine only. 0.0.0.0 lets the tablet and the vMix PC reach ' +
-      'it — and anyone else on the mandir network, so only do that on a trusted one.',
+      '0.0.0.0, the default, lets the tablet, the vMix PC and the office machine open the ' +
+      'homepage — and so can anyone else on the mandir network, which is why every link ' +
+      'carries a token. Never forward this port to the internet. 127.0.0.1 keeps it to ' +
+      'this machine alone.',
     type: 'string',
     group: 'setup',
     appliesTo: 'restart',
+  },
+  {
+    path: 'server.shareTokenOnLan',
+    label: 'Hand out the link on this network',
+    help:
+      'On, anyone already on this network can open the homepage by typing the short address ' +
+      'with no token, and every link on it is then complete and one click away. That is what ' +
+      'makes it usable from the vMix PC and a tablet. Off, every page needs its token typed ' +
+      'out by hand — only worth it on a network you do not control.',
+    type: 'boolean',
+    group: 'setup',
+    appliesTo: 'immediate',
   },
   {
     path: 'server.port',

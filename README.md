@@ -74,13 +74,47 @@ npm install
 npm run dev
 ```
 
-That's it. It prints a URL — open it, and everything else is set up from the
-app: the Soniox key, the database, the audio input, the YouTube caption URL.
+It prints one address per network this machine is on, and opens the local one in
+a browser:
+
+```
+open this, from here or from any machine on the network:
+
+  http://192.168.1.42:3000
+  http://127.0.0.1:3000
+
+no token needed on this network — the homepage hands out the rest of the links
+```
+
+Type the first one on the vMix PC, a tablet or the office machine and you get
+the homepage — **no token to read off a screen and type in.** Every page below
+is one click from there, and every card has a **Copy link** button that gives
+you the complete URL, token included, ready to paste into a vMix Browser input
+on a third machine. Everything else is set up from the app: the Soniox key, the
+database, the audio input, the YouTube caption URL.
 
 **It starts before any of that exists.** A fresh clone with no `.env`, no
-database and no ffmpeg still serves every page. The top of the Captions tab
-lists what is missing and one thing to do about each, rather than refusing to
-run.
+database and no ffmpeg still serves every page. The homepage, and the top of the
+Captions tab, list what is missing and one thing to do about each, rather than
+refusing to run.
+
+**Closing the page stops nothing.** The bridge runs in the terminal, not in the
+browser: close the tab, close the browser, shut the laptop you opened it from,
+and a service being captioned carries on. Only `Ctrl+C` in that terminal stops
+it. Add `--no-open` (`npm run dev -- --no-open`) on a machine nobody is sitting
+at.
+
+**Being on the network is what stands in for a login.** Every page carries a
+`?token=` because a vMix Browser input cannot type a password — and the homepage
+hands that token to any browser that asks from a private address, which is what
+makes the short URL above work at all. So treat the mandir LAN as the boundary:
+anyone on it can open the app, and the app can write API keys. **Never forward
+this port to the internet.** On a network you do not control, turn off *Hand out
+the link on this network* in Settings; every page then needs its full URL.
+
+The token itself is written to `.env` on first run and reused after that, so a
+link copied today still works next Sunday. Change `BRIDGE_TOKEN` in `.env` to
+rotate it — every link already handed out then stops working.
 
 Prefer a terminal, or setting up a machine you won't be sitting at? [Setup by
 hand](#setup-by-hand) below does the same work.
@@ -88,6 +122,25 @@ hand](#setup-by-hand) below does the same work.
 ---
 
 ## The app
+
+### The homepage
+
+`/` is a signpost, not a workplace, and it is the page most often opened from a
+machine that is not the one running the bridge. It shows:
+
+- **Where to go** — every screen the bridge serves, each with the token already
+  in the link and a **Copy link** button that hands you the whole thing
+  addressed to the LAN, plus what is currently attached to it: how many
+  reviewers, how many overlays connected, how many sermons in the archive
+- **Open this from another machine** — the short address for each network this
+  machine is on, so nobody has to run `ipconfig` under pressure
+- **Still to set up** — anything preflight is unhappy about
+- **Recent services** — the last eight, as a way into the Sermons tab
+
+It is deliberately read-only. Starting and stopping captions lives on the
+Captions tab, next to the level meter that tells you whether it worked.
+
+### The tabs
 
 One tab per job. Whether captions are going out is shown in the bar, from
 whichever tab you are on.
@@ -107,19 +160,52 @@ unchanged, so a tablet or a saved vMix Browser input is unaffected.
 
 | | | |
 |---|---|---|
-| **An audio device on this machine** | ffmpeg captures a named device | What a real service uses |
+| **An audio device on this machine** | ffmpeg captures a named device | What a real service uses, and the only one that can be driven from another machine |
 | **This browser** | the page captures it and streams PCM to the bridge | No ffmpeg, no device names typed exactly right |
 | **A recording** | played in at the speed it was recorded | Rehearsal without a microphone |
+
+Browser capture takes the sound from **whichever machine has the page open**, so
+it cannot be used to run a service remotely: open the app on a laptop and it
+captures that laptop, not the mixer plugged into the bridge. Device capture is
+the one that keeps working when the page is somewhere else.
+
+### Which input on the device
+
+An interface or a capture card is **one device with several inputs**, and each
+input is a channel of it. A Blackmagic UltraStudio presents sixteen; a Focusrite
+2i2 presents two; the speaker is on one of them.
+
+Taking all of them and mixing them down — which is what the bridge used to do,
+and is still right for a virtual cable — averages the speaker with however many
+silent channels sit beside them. On a two-channel interface that is 6 dB down.
+On a sixteen-channel card it is **24 dB down**: a meter that barely moves, a
+feed that looks connected, and a transcription of nothing. Nothing errors,
+because nothing is wrong as far as ffmpeg is concerned.
+
+So press **Test this input**. It listens for four seconds and reports the level
+on every channel separately:
+
+```
+Sound on input 1 only, out of 16. Choose it above — mixing all 16
+together drops the speaker 24 dB and can look like silence.
+
+Input 1   ████████████░░░░░░░░░░░░   −27.3 dB
+Input 2   ░░░░░░░░░░░░░░░░░░░░░░░░   silent
+…
+```
+
+If exactly one input has sound on it, it is selected for you. Sixteen silent
+channels means the device is fine and nothing is reaching it — a cable, a
+muted bus, or a source that is not playing.
 
 Browser capture only works where the browser allows it: **https, or localhost**.
 Opening the bridge from another machine by IP is neither, so the dropdown says
 so rather than failing silently. The machine running the bridge can always use
 it, which is usually the vMix PC.
 
-To reach it from the vMix machine and a tablet, set **Listen on** to `0.0.0.0`
-in Settings and restart. Note what that means: anyone on the mandir network can
-then open the app, and the app can write API keys. Only do it on a network you
-trust — there are no user accounts yet.
+The bridge listens on `0.0.0.0` by default, which is what lets the vMix machine
+and a tablet reach it at all. To go back to this machine alone, set **Listen on**
+to `127.0.0.1` in Settings and restart.
 
 ---
 
@@ -681,6 +767,13 @@ past its `delayAssemblyMs` deadline. The stream and YouTube outputs wait `A + B`
 so they carry it. Start captions a few seconds before the speaker does and there
 is nothing to lose.
 
+**The device is in the list, captions start, and nothing is transcribed**
+Press **Test this input** on the Captions tab. The usual answer is a capture
+card or an interface presenting several inputs as channels of one device, with
+the speaker on one of them — see [Which input on the
+device](#which-input-on-the-device). If every channel reads silent, the device
+is fine and nothing is arriving at it.
+
 **`ffmpeg not found on PATH`**
 `brew install ffmpeg` on macOS.
 
@@ -741,9 +834,11 @@ src/
   search/                chunking, embeddings, vector search
   live/                  real-time bridge: capture, websocket, queue, adapters
   settings/              reads and writes .env and config.json, atomically
-  web/                   HTTP routes the app pages call
+  web/                   HTTP routes the app pages call, and the URL token
+  util/                  logging, network addresses, opening a browser
   commands/              one file per CLI command
 public/
+  home.html              the homepage: where to go, and how to get here
   app.html               the app — one tab per job
   operator.html          reviewer page: video, queue, transcript
   control.html           the older standalone setup page
@@ -751,7 +846,7 @@ public/
   capture-worklet.js     browser audio capture, on the audio thread
 prisma/schema.prisma     database schema
 docs/                    architecture and vMix routing
-test/                    394 tests
+test/                    420 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else
