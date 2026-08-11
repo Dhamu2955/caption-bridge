@@ -72,6 +72,10 @@
   input[type="password"], input.mono { font-family: var(--mono); font-size: 0.88rem; }
   textarea { min-height: 76px; resize: vertical; line-height: 1.45; }
   input[type="checkbox"] { width: auto; min-height: 0; }
+  .toggle {
+    display: flex; align-items: center; gap: var(--s2);
+    padding: 7px 0; font-size: 0.95rem; cursor: pointer;
+  }
 
   .hint { margin: var(--s2) 0 0; color: var(--ink-soft); font-size: 0.85rem; line-height: 1.5; }
   .hint strong { color: var(--ink); font-weight: 500; }
@@ -1595,9 +1599,28 @@
 
         var multiline = setting.type === 'string[]' || setting.type === 'termPairs';
         var input = document.createElement(multiline ? 'textarea' : 'input');
-        if (!multiline) input.type = setting.type === 'number' ? 'number' : 'text';
-        input.value = valueToInput(setting, body.values[setting.path]);
-        field.appendChild(input);
+        if (!multiline) {
+          input.type = setting.type === 'boolean'
+            ? 'checkbox'
+            : setting.type === 'number' ? 'number' : 'text';
+        }
+
+        if (setting.type === 'boolean') {
+          // A yes/no rendered as a text box asked people to type the word
+          // "true", and the config writer rejects anything that is not a real
+          // boolean — so the field could be edited and never saved.
+          input.checked = body.values[setting.path] === true;
+          var toggle = document.createElement('label');
+          toggle.className = 'toggle';
+          toggle.appendChild(input);
+          var word = document.createElement('span');
+          text(word, setting.on || 'On');
+          toggle.appendChild(word);
+          field.appendChild(toggle);
+        } else {
+          input.value = valueToInput(setting, body.values[setting.path]);
+          field.appendChild(input);
+        }
         inputs.push({ setting: setting, input: input });
 
         var help = document.createElement('p');
@@ -1617,7 +1640,9 @@
         var patch = {};
         try {
           inputs.forEach(function (entry) {
-            patch[entry.setting.path] = inputToValue(entry.setting, entry.input.value);
+            patch[entry.setting.path] = entry.setting.type === 'boolean'
+              ? entry.input.checked
+              : inputToValue(entry.setting, entry.input.value);
           });
         } catch (err) {
           notice(el('settings-notice'), 'bad', err.message);

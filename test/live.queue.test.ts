@@ -26,6 +26,7 @@ const output = (name: string, delayMs: number, over: Partial<OutputConfig> = {})
   reviewed: false,
   minDisplayMs: 1500,
   lateSkipMs: 2000,
+  skipLate: true,
   ...over,
 });
 
@@ -123,6 +124,74 @@ describe('late release', () => {
     queue.add(line('a', 0));
     queue.tick(EPOCH + 2000);
     expect(adapters.get('venue')!.shown()).toEqual(['a']);
+  });
+});
+
+describe('skipLate off — show everything, however late', () => {
+  const late = (over = {}) => output('venue', 0, { lateSkipMs: 2000, skipLate: false, ...over });
+
+  it('shows a line that is hours overdue instead of skipping it', () => {
+    const { queue, adapters, events } = setup([late()]);
+    queue.add(line('a', 0));
+    queue.tick(EPOCH + 3_600_000);
+
+    expect(adapters.get('venue')!.shown()).toEqual(['a']);
+    expect(events.some((e) => e.type === 'skipped')).toBe(false);
+  });
+
+  it('paces a backlog by minDisplayMs rather than dumping it at once', () => {
+    // The reason this is safe to turn on: nothing is lost, and nothing floods
+    // the screen either. Each line still waits its turn behind the last.
+    const { queue, adapters } = setup([late({ minDisplayMs: 1500 })]);
+    for (const id of ['a', 'b', 'c']) queue.add(line(id, 0));
+
+    queue.tick(EPOCH + 60_000);
+    expect(adapters.get('venue')!.shown()).toEqual(['a']);
+
+    queue.tick(EPOCH + 60_100);
+    expect(adapters.get('venue')!.shown()).toEqual(['a']);
+
+    queue.tick(EPOCH + 61_500);
+    expect(adapters.get('venue')!.shown()).toEqual(['a', 'b']);
+
+    queue.tick(EPOCH + 63_000);
+    expect(adapters.get('venue')!.shown()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('releases the whole of a long hold on resume', () => {
+    // With skipping on this is exactly the case that gets thrown away; with it
+    // off the operator gets every word back, late.
+    const { queue, adapters, events } = setup([late()]);
+    queue.add(line('a', 0));
+    queue.hold('venue');
+    queue.tick(EPOCH + 30_000);
+    expect(adapters.get('venue')!.shown()).toEqual([]);
+    expect(events.some((e) => e.type === 'skipped')).toBe(false);
+
+    queue.resume('venue');
+    queue.tick(EPOCH + 30_100);
+    expect(adapters.get('venue')!.shown()).toEqual(['a']);
+  });
+
+  it('still honours a reviewer drop — late is not the same as unreviewed', () => {
+    const { queue, adapters } = setup([late()]);
+    queue.add(line('a', 0));
+    queue.drop('a');
+    queue.tick(EPOCH + 60_000);
+    expect(adapters.get('venue')!.shown()).toEqual([]);
+  });
+
+  it('is per output, so the venue can drop late lines while a transcript keeps them', () => {
+    const { queue, adapters, events } = setup([
+      output('venue', 0, { lateSkipMs: 2000, skipLate: true }),
+      output('overflow', 0, { lateSkipMs: 2000, skipLate: false }),
+    ]);
+    queue.add(line('a', 0));
+    queue.tick(EPOCH + 10_000);
+
+    expect(adapters.get('venue')!.shown()).toEqual([]);
+    expect(adapters.get('overflow')!.shown()).toEqual(['a']);
+    expect(events.filter((e) => e.type === 'skipped')).toHaveLength(1);
   });
 });
 

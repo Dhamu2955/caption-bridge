@@ -52,6 +52,7 @@
     "delayReviewMs": 180000,
     "minDisplayMs": 1500,
     "lateSkipMs": 2000,
+    "skipLateLines": true,
     "streamOffsetMs": 0,
     "endpointSensitivity": -0.25,
     "maxEndpointDelayMs": 2500,

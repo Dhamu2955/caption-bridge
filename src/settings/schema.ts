@@ -78,6 +78,8 @@ export interface SettingDescriptor {
   group: SettingGroup;
   appliesTo: AppliesTo;
   unit?: string;
+  /** Booleans only: what ticking the box means, beside the checkbox. */
+  on?: string;
 }
 
 /** A credential. Lives in `.env`, never in config.json, never sent to a page. */
@@ -206,6 +208,20 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     appliesTo: 'next-session',
   },
   {
+    path: 'live.skipLateLines',
+    label: 'Drop captions that miss their moment',
+    help:
+      'On, a line that is more than a couple of seconds late is thrown away, because a ' +
+      'caption under the wrong sentence is worse than none. Off, every line goes out however ' +
+      'late — nothing is ever missing, but nothing catches up either, so the words drift ' +
+      'further behind the speaker and stay there. Off is for a transcript or a rehearsal, ' +
+      'on is for a service.',
+    type: 'boolean',
+    on: 'Drop them — right for a service',
+    group: 'service',
+    appliesTo: 'next-session',
+  },
+  {
     path: 'live.streamOffsetMs',
     label: 'Encoder to YouTube delay',
     help:
@@ -257,6 +273,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'makes it usable from the vMix PC and a tablet. Off, every page needs its token typed ' +
       'out by hand — only worth it on a network you do not control.',
     type: 'boolean',
+    on: 'Hand it out, so the short address works',
     group: 'setup',
     appliesTo: 'immediate',
   },

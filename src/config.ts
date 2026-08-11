@@ -91,6 +91,23 @@ export interface AppConfig {
     delayReviewMs: number;
     minDisplayMs: number;
     lateSkipMs: number;
+    /**
+     * Whether `lateSkipMs` is enforced at all.
+     *
+     * On, a line that misses its moment by more than `lateSkipMs` is thrown
+     * away, because a caption sitting under the wrong sentence is worse than
+     * no caption — that is the whole argument for skipping, and it is the
+     * right one when the words are keyed over a picture.
+     *
+     * Off, every line goes out however late it is, queued behind the one
+     * before it. The cost is real and worth knowing: nothing catches up, so a
+     * slow patch pushes captions further and further behind the speaker and
+     * they stay there for the rest of the service. Worth it when having the
+     * words at all matters more than having them on the right second — a
+     * transcript on an overflow screen, or a rehearsal where a missing line
+     * looks like a bug.
+     */
+    skipLateLines: boolean;
     /** Names the variable holding YouTube's caption ingestion URL. The URL
      *  embeds a `cid` that identifies the stream, so it is a credential and
      *  lives in .env with the rest — never in this committed file. */
@@ -178,6 +195,7 @@ const DEFAULTS = {
     delayReviewMs: 180_000,
     minDisplayMs: 1500,
     lateSkipMs: 2000,
+    skipLateLines: true,
     youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
     streamOffsetMs: 0,
     maxBufferMs: 8000,
@@ -353,6 +371,7 @@ export function parseConfig(raw: unknown): AppConfig {
       delayReviewMs: num(live['delayReviewMs'], 'live.delayReviewMs', DEFAULTS.live.delayReviewMs),
       minDisplayMs: num(live['minDisplayMs'], 'live.minDisplayMs', DEFAULTS.live.minDisplayMs),
       lateSkipMs: num(live['lateSkipMs'], 'live.lateSkipMs', DEFAULTS.live.lateSkipMs),
+      skipLateLines: bool(live['skipLateLines'], 'live.skipLateLines', DEFAULTS.live.skipLateLines),
       youtubeCaptionsUrlEnv: str(
         live['youtubeCaptionsUrlEnv'],
         'live.youtubeCaptionsUrlEnv',

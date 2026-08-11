@@ -20,8 +20,8 @@ import type { OutputConfig } from './types.js';
 export type OutputName = 'stream' | 'reviewer' | 'venue' | 'overflow' | 'stub';
 
 export function outputConfigs(config: AppConfig): Record<OutputName, OutputConfig> {
-  const { delayAssemblyMs, delayReviewMs, minDisplayMs, lateSkipMs } = config.live;
-  const base = { minDisplayMs, lateSkipMs };
+  const { delayAssemblyMs, delayReviewMs, minDisplayMs, lateSkipMs, skipLateLines } = config.live;
+  const base = { minDisplayMs, lateSkipMs, skipLate: skipLateLines };
 
   return {
     // INVARIANT 8 — A and B are two different jobs. A exists so a pop-on

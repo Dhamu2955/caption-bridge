@@ -251,7 +251,9 @@ export class CaptionQueue {
 
     for (const state of this.outputs.values()) {
       // A held output keeps accruing lateness; anything that ages out past
-      // lateSkipMs is skipped on resume rather than dumped on screen at once.
+      // lateSkipMs is skipped on resume rather than dumped on screen at once —
+      // unless skipping is off, in which case the whole hold comes out, paced
+      // by minDisplayMs. That is the point of the setting, not a side effect.
       const remaining: Scheduled[] = [];
 
       for (const entry of state.pending) {
@@ -262,8 +264,14 @@ export class CaptionQueue {
           continue;
         }
 
+        // Skipping is what keeps a caption under the sentence it belongs to,
+        // and turning it off is a deliberate trade rather than a repair: every
+        // line goes out, none of them catches up, and the feed sits further
+        // behind the speaker for the rest of the service. The queue still
+        // paces them — a late line waits its minDisplayMs turn like any other,
+        // so they cascade rather than arriving all at once.
         const lateBy = now - entry.releaseAt;
-        if (lateBy > state.config.lateSkipMs) {
+        if (state.config.skipLate && lateBy > state.config.lateSkipMs) {
           this.emit({ type: 'skipped', output: state.config.name, line: entry.line, lateByMs: lateBy });
           continue;
         }

@@ -618,6 +618,36 @@ The venue screens are unaffected — they stay `delayAssemblyMs` behind the
 speaker (15 seconds by default), because a congregation in the room cannot
 watch captions three minutes late.
 
+### Showing every line, however late
+
+A line that becomes ready more than `live.lateSkipMs` (2s) after its moment is
+thrown away, and the counter on the Captions tab calls it **missed**. That is
+the right default for a service: a caption sitting under the wrong sentence is
+worse than no caption, and once the words are on a screen beside a speaker,
+being wrong is louder than being absent.
+
+It is the wrong default for a transcript. Turn off **Drop captions that miss
+their moment** (Settings → This service, `live.skipLateLines`) and nothing is
+ever discarded — every line goes out, each waiting its `minDisplayMs` turn
+behind the one before it, so a backlog cascades rather than arriving at once.
+
+Know what you are buying:
+
+| | Skipping on | Skipping off |
+|---|---|---|
+| A line that runs late | discarded | shown, late |
+| After a slow patch | back in sync within seconds | permanently further behind |
+| After a long **Pause** | the held lines are dropped on resume | the whole hold comes out |
+
+**Nothing catches up.** There is no fast-forward — every line still occupies
+`minDisplayMs` on screen, so a minute lost to a slow patch is a minute the
+captions stay behind for the rest of the service. If lines are being missed
+during a real service, the fix is usually a longer `delayAssemblyMs` or a
+shorter `maxBufferMs`, not this toggle.
+
+Reviewer decisions are unaffected: a dropped line stays dropped however late it
+is, because late and unreviewed are different things.
+
 **The reviewer is told how long they have.** The queue header states the window
 in words, and a line that goes to air while it is being corrected says so rather
 than the editor simply closing. A reviewer never holds a line back — INVARIANT
@@ -767,6 +797,14 @@ past its `delayAssemblyMs` deadline. The stream and YouTube outputs wait `A + B`
 so they carry it. Start captions a few seconds before the speaker does and there
 is nothing to lose.
 
+**Lines are being missed — the counter climbs and words never appear**
+A caption is discarded if it is ready more than two seconds after its moment.
+Usually the fix is to give Soniox more room: raise **Time Soniox gets**
+(`delayAssemblyMs`) or lower **Cut a line after** (`maxBufferMs`). If you would
+rather have every line late than miss any, turn off **Drop captions that miss
+their moment** — see [Showing every line, however
+late](#showing-every-line-however-late), and read the trade first.
+
 **The device is in the list, captions start, and nothing is transcribed**
 Press **Test this input** on the Captions tab. The usual answer is a capture
 card or an interface presenting several inputs as channels of one device, with
@@ -846,7 +884,7 @@ public/
   capture-worklet.js     browser audio capture, on the audio thread
 prisma/schema.prisma     database schema
 docs/                    architecture and vMix routing
-test/                    420 tests
+test/                    446 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else

@@ -30,6 +30,12 @@ export interface OutputConfig {
   /** Past this much lateness a line is skipped: a desynced caption is worse
    *  than no caption. */
   readonly lateSkipMs: number;
+  /**
+   * Whether `lateSkipMs` is enforced. False shows every line however late,
+   * each still waiting its `minDisplayMs` turn behind the one before it, so
+   * the feed falls further behind rather than dropping anything.
+   */
+  readonly skipLate: boolean;
 }
 
 /**

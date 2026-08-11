@@ -218,6 +218,7 @@ describe('reviewer decisions reach the YouTube output', () => {
     reviewed: true,
     minDisplayMs: 1500,
     lateSkipMs: 2000,
+    skipLate: true,
   };
 
   function setup() {
