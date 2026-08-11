@@ -15,7 +15,8 @@ import type { PrismaClient } from './generated/prisma/client.js';
 import { ingest } from './commands/ingest.js';
 import { exportSrt } from './commands/export.js';
 import { createYoutubeClient, publish, publishAll } from './commands/publish.js';
-import { authorise } from './youtube/auth.js';
+import { authorise } from './google/auth.js';
+import { YOUTUBE_SCOPE } from './youtube/client.js';
 import { editTranslation, listAllServices, showSegments } from './commands/edit.js';
 import { backfill } from './commands/backfill.js';
 import { formatHit, runIndex, runSearch } from './commands/search.js';
@@ -249,6 +250,7 @@ async function runPublish(positional: string[], flags: ParsedArgs['flags'], conf
       clientId: credentials.clientId,
       clientSecret: credentials.clientSecret,
       port: config.youtube.authPort,
+      scope: YOUTUBE_SCOPE,
       onUrl: (url) => {
         info('Open this in a browser and approve access:');
         info('');

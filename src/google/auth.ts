@@ -1,7 +1,12 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 
-import type { TokenResponse } from './types.js';
+import type { TokenResponse as AccessTokenResponse } from './oauth.js';
+
+/** The consent exchange also returns a refresh token; the runtime one does not. */
+interface TokenResponse extends AccessTokenResponse {
+  refresh_token?: string;
+}
 
 /**
  * One-off refresh-token mint for `publish --auth`.
@@ -16,12 +21,18 @@ import type { TokenResponse } from './types.js';
  * on this one consent screen and is capped at 100 users.
  */
 
-export const YOUTUBE_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
+/**
+ * What the consent screen is asked for. A parameter rather than a constant
+ * because there are two credentials now — captions on a channel, and a Google
+ * Doc — and they must not be granted the same scopes.
+ */
 
 export interface AuthOptions {
   clientId: string;
   clientSecret: string;
   port: number;
+  /** Space-separated, as Google wants it. */
+  scope: string;
   tokenUrl?: string;
   authUrl?: string;
   fetchImpl?: typeof fetch;
@@ -33,13 +44,14 @@ export function buildConsentUrl(options: {
   clientId: string;
   redirectUri: string;
   state: string;
+  scope: string;
   authUrl?: string;
 }): string {
   const params = new URLSearchParams({
     client_id: options.clientId,
     redirect_uri: options.redirectUri,
     response_type: 'code',
-    scope: YOUTUBE_SCOPE,
+    scope: options.scope,
     // Both are required to get a refresh token back: offline asks for one, and
     // consent forces a fresh one even if this client was authorised before.
     access_type: 'offline',
@@ -138,6 +150,7 @@ export async function authorise(options: AuthOptions): Promise<string> {
           clientId: options.clientId,
           redirectUri,
           state,
+          scope: options.scope,
           ...(options.authUrl ? { authUrl: options.authUrl } : {}),
         }),
       );
