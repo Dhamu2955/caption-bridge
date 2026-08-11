@@ -4,7 +4,6 @@ import { LineBuilder } from '../src/live/pipeline/lineBuilder.js';
 import { SonioxRealtimeClient } from '../src/live/soniox/client.js';
 import { buildCaptureArgs, rmsLevel } from '../src/live/capture.js';
 import { VmixAdapter, extractTextField } from '../src/live/adapters/vmix.js';
-import { outputConfigs } from '../src/live/outputs.js';
 import { parseConfig } from '../src/config.js';
 import type { SonioxToken } from '../src/soniox/types.js';
 
@@ -361,33 +360,6 @@ describe('vMix adapter', () => {
   });
 });
 
-describe('output table (INVARIANT 7)', () => {
-  const config = parseConfig({
-    live: { delayAssemblyMs: 4000, delayReviewMs: 25000, minDisplayMs: 1500, lateSkipMs: 2000 },
-  });
-  const outputs = outputConfigs(config);
-
-  it('gives the reviewed path delayA + delayB, never a single global constant', () => {
-    expect(outputs.stream.delayMs).toBe(29_000);
-    expect(outputs.stream.reviewed).toBe(true);
-  });
-
-  it('gives every single-composite output delay A only', () => {
-    expect(outputs.reviewer.delayMs).toBe(4000);
-    expect(outputs.venue.delayMs).toBe(4000);
-    expect(outputs.overflow.delayMs).toBe(4000);
-  });
-
-  it('leaves the stub undelayed for development', () => {
-    expect(outputs.stub.delayMs).toBe(0);
-  });
-
-  it('applies the 1500ms floor to every output', () => {
-    for (const output of Object.values(outputs)) {
-      expect(output.minDisplayMs).toBe(1500);
-    }
-  });
-});
 
 describe('English the speaker slips into a Gujarati sentence', () => {
   const options = {
@@ -438,33 +410,3 @@ describe('English the speaker slips into a Gujarati sentence', () => {
   });
 });
 
-describe('review window length', () => {
-  it('defaults to three minutes, so correcting a line is realistic', () => {
-    // At 25 seconds a reviewer can only drop; reading the Gujarati, judging
-    // the English and typing a fix does not fit.
-    //
-    // Asserted as A + B rather than as one number: the sum moved when the
-    // assembly delay was corrected to 15s, and the claim being made here is
-    // about the review window, not about what the two happen to add up to.
-    const config = parseConfig({});
-    expect(config.live.delayReviewMs).toBe(180_000);
-    expect(outputConfigs(config).stream.delayMs).toBe(
-      config.live.delayAssemblyMs + config.live.delayReviewMs,
-    );
-  });
-
-  it('carries a longer window straight through to the reviewed output', () => {
-    const config = parseConfig({ live: { delayAssemblyMs: 4000, delayReviewMs: 600_000 } });
-    expect(outputConfigs(config).stream.delayMs).toBe(604_000);
-  });
-
-  it('leaves unreviewed outputs on assembly delay however long review gets', () => {
-    // The venue screen cannot be ten minutes behind the room.
-    const config = parseConfig({ live: { delayAssemblyMs: 4000, delayReviewMs: 600_000 } });
-    expect(outputConfigs(config).venue.delayMs).toBe(4000);
-  });
-
-  it('refuses a window past ten minutes', () => {
-    expect(() => parseConfig({ live: { delayReviewMs: 600_001 } })).toThrow(/10 minutes/);
-  });
-});

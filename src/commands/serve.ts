@@ -11,11 +11,10 @@ import { SETTINGS, SETTING_GROUPS } from '../settings/schema.js';
 import { YoutubeLiveAdapter, checkIngestionUrl } from '../live/adapters/youtubeLive.js';
 import type { CaptureFormat } from '../live/capture.js';
 import { listAudioDevices } from '../live/devices.js';
-import { OverlayRegistry, OVERLAY_NAMES } from '../live/overlays.js';
 import { capabilitiesFrom, PreflightChecks } from '../live/preflight.js';
 import { QueueCounters } from '../live/counters.js';
 import { probeInput } from '../live/probe.js';
-import { LATENCY_PRESETS } from '../live/presets.js';
+import { BrowserAdapter } from '../live/adapters/browser.js';
 import { BridgeServer } from '../live/server.js';
 import { LiveSessionManager, NotConfiguredError } from '../live/sessionManager.js';
 import { listAllServices } from './edit.js';
@@ -52,7 +51,10 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
   // Stable between restarts, so the tablet's bookmark and the vMix Browser
   // input survive one. See web/token.ts.
   const { token, created: tokenCreated } = await resolveToken(args.token);
-  const overlays = new OverlayRegistry(OVERLAY_NAMES);
+  // One screen, made here and never replaced: a socket is bound to this
+  // instance at upgrade time, so a session that swapped it would leave every
+  // vMix Browser input attached to an orphan.
+  const overlay = new BrowserAdapter('captions');
   const startedAt = Date.now();
 
   const database = new PrismaProvider(() =>
@@ -74,14 +76,10 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
 
   const manager = new LiveSessionManager({
     getConfig,
-    overlays,
+    overlay,
     defaults: {
       format: args.format,
       verbose: args.verbose ?? false,
-      // Every overlay the page offers a URL for, so none of them is a dead
-      // link. Outputs are cheap by design (INVARIANT 7) — it is sessions that
-      // cost, and there is still only one.
-      outputs: [...OVERLAY_NAMES],
     },
     // Read at start time, so a URL pasted into Settings is picked up by the
     // next session without restarting anything.
@@ -121,7 +119,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
         checks,
         capabilities: capabilitiesFrom(checks),
         session: manager.status,
-        overlays: overlays.connections(),
+        overlay: { connections: overlay.connections },
       });
     })();
   });
@@ -201,7 +199,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
         startedAt,
         session: manager.status,
         live: counters.snapshot,
-        overlays: overlays.connections(),
+        overlay: { connections: overlay.connections },
         checks,
         capabilities: capabilitiesFrom(checks),
         archive,
@@ -299,9 +297,6 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     res.json({
       settings: SETTINGS,
       groups: SETTING_GROUPS,
-      // Offered by the page as a way to fill the form, never applied here: the
-      // operator sees every value it would change and presses Save themselves.
-      latencyPresets: LATENCY_PRESETS,
       values: Object.fromEntries(
         SETTINGS.map((setting) => [setting.path, readAt(store.current, setting.path)]),
       ),
@@ -406,7 +401,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
   const server: BridgeServer = new BridgeServer({
     host: getConfig().server.host,
     port: getConfig().server.port,
-    outputs: overlays.map,
+    overlay,
     token,
     routers: [
       api,

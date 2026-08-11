@@ -5,15 +5,12 @@ import { AudioCapture, type CaptureFormat } from './capture.js';
 import { SonioxRealtimeClient } from './soniox/client.js';
 import { buildContext } from '../soniox/context.js';
 import { LineBuilder } from './pipeline/lineBuilder.js';
-import { CaptionQueue } from './pipeline/queue.js';
-import { RawTranslationStream } from './pipeline/rawStream.js';
 import { LiveSrtWriter } from './liveSrt.js';
 import { StubAdapter } from './adapters/stub.js';
 import { VmixAdapter } from './adapters/vmix.js';
 import { YoutubeLiveAdapter, checkIngestionUrl } from './adapters/youtubeLive.js';
-import { outputConfigs, type OutputName } from './outputs.js';
-import type { OverlayRegistry } from './overlays.js';
-import type { CaptionLine, QueueEvent } from './types.js';
+import type { BrowserAdapter } from './adapters/browser.js';
+import { INCLUDE_NON_FINAL, type CaptionLine, type QueueEvent } from './types.js';
 import { info, warn } from '../util/log.js';
 
 /**
@@ -40,9 +37,11 @@ export interface LiveSessionOptions {
   format?: CaptureFormat | undefined;
   /** 1-based input channel to take. Undefined mixes them all — see capture.ts. */
   channel?: number | undefined;
-  outputs: OutputName[];
-  /** Long-lived, owned by the server. Read, never replaced. */
-  overlays: OverlayRegistry;
+  /**
+   * The caption screen. Long-lived and owned by the server, never replaced —
+   * see adapters/browser.ts for why a session must not close it.
+   */
+  overlay: BrowserAdapter;
   sink: SessionSink;
   youtubeCaptionsUrl?: string | undefined;
   streamOffsetMs?: number | undefined;
@@ -82,7 +81,6 @@ export interface SessionStatus {
    */
   captureError?: string | null;
   level: number;
-  outputs: string[];
   sessionEpoch: number;
   startedAt: number | undefined;
   /**
@@ -122,23 +120,17 @@ export class LiveSession {
   }
 
   private readonly options: LiveSessionOptions;
-  private readonly queue: CaptionQueue;
   private readonly builder: LineBuilder;
   private readonly client: SonioxRealtimeClient;
   private readonly capture: AudioCapture;
-  /** Delays snapshotted at construction — a settings edit mid-service must not
-   *  re-time lines that were already scheduled against the old ones. */
-  private readonly configs: ReturnType<typeof outputConfigs>;
   /** Drives checkFeed — the "is the cable still live" alarm. */
   private viewTimer: ReturnType<typeof setInterval> | undefined;
   private lastSpeechAt: number | undefined;
   private lastSilenceWarnAt = 0;
   private lastLevel = 0;
   private lastCaptureError: string | null = null;
-  private audioStarted = false;
   private youtube: YoutubeLiveAdapter | undefined;
-  /** Continuous passthrough, when live.rawPassthrough is on. */
-  private readonly raw: RawTranslationStream | undefined;
+  private vmix: VmixAdapter | undefined;
   private readonly srt: LiveSrtWriter | undefined;
   private capturing = false;
   private startedAt: number | undefined;
@@ -147,28 +139,6 @@ export class LiveSession {
   constructor(options: LiveSessionOptions) {
     this.options = options;
     this.epoch = Date.now();
-    this.configs = outputConfigs(options.config);
-    this.queue = new CaptionQueue({ sessionEpoch: this.sessionEpoch });
-
-    for (const name of options.outputs) {
-      const adapter = options.overlays.get(name);
-      if (!adapter) {
-        warn(`no overlay registered for output "${name}"`);
-        continue;
-      }
-      // Binds to the adapter the server already owns, so overlay pages opened
-      // before this session keep working.
-      this.queue.addOutput(this.configs[name], adapter);
-    }
-
-    // Only when asked for. Its delay is 0 and a caption cannot exist until the
-    // speech it covers has finished, so every line arrives "late" for it and is
-    // skipped — a warning per line, and 84 of them counted as Missed on a run
-    // where nothing was actually missed. It is a development sink (§10), and
-    // silent unless `verbose`, so off it was pure noise.
-    if (options.verbose) {
-      this.queue.addOutput(this.configs.stub, new StubAdapter('stub', { log: true }));
-    }
 
     if (options.youtubeCaptionsUrl) {
       const check = checkIngestionUrl(options.youtubeCaptionsUrl);
@@ -182,13 +152,11 @@ export class LiveSession {
         timestampMode: options.config.live.captionTimestampMode,
         onError: (err) => warn(`youtube captions: ${err.message}`),
       });
-      this.queue.addOutput({ ...this.configs.stream, name: 'youtube' }, this.youtube);
       info('posting closed captions to YouTube');
     }
 
     if (options.captionInput) {
-      const gt = new VmixAdapter({ inputGuid: options.captionInput });
-      this.queue.addOutput({ ...this.configs.venue, name: 'vmix-title' }, gt);
+      this.vmix = new VmixAdapter({ inputGuid: options.captionInput });
       info(`driving vMix GT title ${options.captionInput}`);
     }
 
@@ -199,24 +167,11 @@ export class LiveSession {
       info(`writing subtitles to ${this.srt.path}`);
     }
 
-    this.queue.on((event) => {
-      options.sink.notify(event);
-      if (event.type === 'skipped') {
-        warn(`skipped on ${event.output}: ${event.lateByMs}ms late`);
-      }
-      // One output only, or every line would be written once per screen. The
-      // venue feed is the unreviewed one that always exists; taking `stream`
-      // would mean no subtitles at all when nothing is being broadcast.
-      if (event.type === 'released' && event.output === 'venue') {
-        this.srt?.add(event.line);
-      }
-    });
-
     this.builder = new LineBuilder({
       pauseMs: options.config.ingest.pauseMs,
       maxChars: options.config.ingest.maxChars,
       maxSegmentMs: options.config.ingest.maxSegmentMs,
-      minDisplayMs: options.config.live.minDisplayMs,
+      minDisplayMs: options.config.ingest.minDisplayMs,
       maxBufferMs: options.config.live.maxBufferMs,
     });
 
@@ -230,34 +185,21 @@ export class LiveSession {
       context: buildContext(options.config),
       endpointSensitivity: options.config.live.endpointSensitivity,
       maxEndpointDelayMs: options.config.live.maxEndpointDelayMs,
-      // Only the raw overlay consumes these; the line builder drops them.
-      includeNonFinal: options.config.live.rawPassthrough,
+      // INVARIANT 4 rule 1. Nothing here renders provisional text, so there is
+      // nothing to ask for — and asking would put revisable tokens one bug away
+      // from a screen.
+      includeNonFinal: INCLUDE_NON_FINAL,
       recordPath: options.recordPath ? resolve(options.recordPath) : undefined,
     } as const;
     this.client = options.createClient
       ? options.createClient(clientOptions)
       : new SonioxRealtimeClient(clientOptions);
 
-    if (options.config.live.rawPassthrough) {
-      this.raw = new RawTranslationStream();
-      info('raw passthrough on — /overlay?output=raw shows words as they are translated');
-    }
-
     this.client.on('tokens', (tokens) => {
-      // First, and outside everything else: the whole point is that no part of
-      // the pipeline stands between Soniox and the screen. Straight to its own
-      // overlay, never through the queue, never near a pop-on output.
-      if (this.raw) {
-        const adapter = options.overlays.get('raw');
-        if (adapter) adapter.raw(this.raw.push(tokens));
-      }
-
-      for (const line of this.builder.push(tokens)) {
-        this.queue.add(line);
-      }
+      for (const line of this.builder.push(tokens)) this.deliver(line);
     });
     this.client.on('gap', (durationMs) => {
-      this.queue.gap(durationMs);
+      options.sink.notify({ type: 'gap', durationMs });
       warn(`audio gap: ${Math.round(durationMs / 1000)}s`);
     });
     this.client.on('error', (err) => warn(`soniox: ${err.message}`));
@@ -274,7 +216,6 @@ export class LiveSession {
       : new AudioCapture(captureOptions);
 
     this.capture.on('audio', (chunk) => {
-      this.markAudioStarted();
       this.client.sendAudio(chunk);
     });
     this.capture.on('level', (level) => {
@@ -325,31 +266,25 @@ export class LiveSession {
   }
 
   /**
-   * The first sample is where the timeline really starts.
+   * One finished line, to every screen that wants it.
    *
-   * A device or a file begins within milliseconds of `start()`, so the epoch
-   * taken there is right. A browser does not: the page has to open a socket and
-   * spin up an audio worklet, and if the operator is asked for microphone
-   * permission it can be many seconds. Every one of those seconds is a caption
-   * scheduled into the past, and `lateSkipMs` then drops the lot — captions
-   * that never appear, with nothing on screen to say why.
+   * This is the whole of what used to be a 330-line scheduler. There is no
+   * delay left to schedule against: a line exists only once Soniox has
+   * finalised and translated it, and that moment is the moment it belongs on
+   * screen.
    *
-   * Measured on the first browser-fed session: 25 seconds of skew, 50 lines
-   * skipped, 0 released.
+   * The order is deliberate. The overlay is the job — a projector in a hall
+   * full of people — so it goes first and synchronously. Everything after it is
+   * either a network call that must not block the screen or a by-product that
+   * must not be able to take the broadcast down, and each swallows its own
+   * failures by contract.
    */
-  private markAudioStarted(): void {
-    if (this.audioStarted) return;
-    this.audioStarted = true;
-
-    const drift = Date.now() - this.epoch;
-    // Under a second is the ordinary cost of spawning something, and re-basing
-    // for it would only add jitter.
-    if (drift < 1000) return;
-
-    this.epoch += drift;
-    this.queue.rebase(this.epoch);
-    this.youtube?.rebase(this.epoch);
-    info(`audio began ${(drift / 1000).toFixed(1)}s after start; timeline moved to match`);
+  private deliver(line: CaptionLine): void {
+    this.options.overlay.show(line);
+    void this.youtube?.show(line);
+    void this.vmix?.show(line);
+    this.srt?.add(line);
+    this.options.sink.notify({ type: 'line', line });
   }
 
   /**
@@ -383,8 +318,7 @@ export class LiveSession {
       channel: this.capture.channel,
       captureError: this.lastCaptureError,
       level: this.lastLevel,
-      outputs: this.options.outputs,
-      sessionEpoch: this.sessionEpoch,
+        sessionEpoch: this.sessionEpoch,
       startedAt: this.startedAt,
       silentForMs: this.silentForMs,
     };
@@ -397,13 +331,11 @@ export class LiveSession {
     this.capturing = true;
     this.state = 'running';
     this.startedAt = Date.now();
-    this.queue.start(100);
     this.viewTimer = setInterval(() => this.checkFeed(), 250);
     this.client.recordEvent({
       session: {
         sessionEpoch: this.sessionEpoch,
         device: this.capture.device,
-        outputs: this.options.outputs,
       },
     });
   }
@@ -446,14 +378,14 @@ export class LiveSession {
     this.capture.stop();
     this.capturing = false;
 
-    for (const line of this.builder.flush()) this.queue.add(line);
+    // Whatever is still buffered goes out before the socket closes.
+    for (const line of this.builder.flush()) this.deliver(line);
     await this.client.close();
 
-    // Before close, so each overlay is blanked rather than left frozen on the
-    // last line of a finished service — and so a page connecting between
-    // sessions is not replayed something from the previous one.
-    await this.queue.clearAll();
-    await this.queue.close();
-
+    // Blanked rather than left frozen on the last line of a finished service,
+    // and so a page connecting between sessions is not replayed the previous
+    // one's words.
+    this.options.overlay.clear();
+    this.vmix?.clear();
   }
 }

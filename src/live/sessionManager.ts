@@ -2,8 +2,7 @@ import type { AppConfig } from '../config.js';
 import { resolveApiKey } from '../config.js';
 import type { CaptureFormat } from './capture.js';
 import { LiveSession, type SessionSink, type SessionStatus } from './session.js';
-import type { OutputName } from './outputs.js';
-import type { OverlayRegistry } from './overlays.js';
+import type { BrowserAdapter } from './adapters/browser.js';
 import type { CheckId } from './preflight.js';
 import { info } from '../util/log.js';
 
@@ -28,7 +27,6 @@ export interface StartArgs {
   device: string;
   /** 1-based input channel to take. Undefined mixes them all. */
   channel?: number | undefined;
-  outputs?: OutputName[];
   format?: CaptureFormat | undefined;
   youtubeCaptionsUrl?: string | undefined;
   streamOffsetMs?: number | undefined;
@@ -40,7 +38,8 @@ export interface StartArgs {
 export interface LiveSessionManagerOptions {
   /** Read through the settings store, so an edit is picked up next start. */
   getConfig: () => AppConfig;
-  overlays: OverlayRegistry;
+  /** The one caption screen, owned by the server and outliving every session. */
+  overlay: BrowserAdapter;
   /** Applied to every start unless the caller overrides them. */
   defaults?: Partial<StartArgs>;
   /**
@@ -119,8 +118,7 @@ export class LiveSessionManager {
       device: merged.device,
       channel: merged.channel,
       format: merged.format,
-      outputs: merged.outputs ?? ['venue', 'stream'],
-      overlays: this.options.overlays,
+      overlay: this.options.overlay,
       sink: this.sink,
       youtubeCaptionsUrl: merged.youtubeCaptionsUrl ?? this.options.getYoutubeCaptionsUrl?.(),
       streamOffsetMs: merged.streamOffsetMs ?? config.live.streamOffsetMs,
@@ -147,7 +145,7 @@ export class LiveSessionManager {
     this.session = undefined;
     if (!session) return;
     await session.stop();
-    await this.options.overlays.clearAll();
+    this.options.overlay.clear();
     info('captions ended');
   }
 

@@ -6,7 +6,6 @@ import {
   formatCaptionTimestamp,
 } from '../src/live/adapters/youtubeLive.js';
 import { StubAdapter } from '../src/live/adapters/stub.js';
-import { CaptionQueue } from '../src/live/pipeline/queue.js';
 import {
   listAudioDevices,
   looksLikeBus,
@@ -310,74 +309,6 @@ describe('checkIngestionUrl', () => {
  * skipped it, and a line the reviewer had rejected still went out as a caption
  * on the public stream — the one place a bad translation is permanent.
  */
-describe('reviewer decisions reach the YouTube output', () => {
-  const STREAM: OutputConfig = {
-    name: 'stream',
-    delayMs: 184_000,
-    reviewed: true,
-    minDisplayMs: 1500,
-    lateSkipMs: 2000,
-    skipLate: true,
-  };
-
-  function setup() {
-    const { posts, fetchImpl } = harness();
-    const queue = new CaptionQueue({ sessionEpoch: EPOCH });
-    const overlay = new StubAdapter('stream');
-    const youtube = new YoutubeLiveAdapter({
-      ingestionUrl: 'http://upload.test/cc?cid=abc',
-      sessionEpoch: EPOCH,
-      fetchImpl,
-    });
-
-    queue.addOutput(STREAM, overlay);
-    queue.addOutput({ ...STREAM, name: 'youtube' }, youtube);
-
-    // What runLive scopes reviewer actions to once both outputs exist.
-    const reviewed = ['stream', 'youtube'];
-    return { queue, overlay, posts, reviewed };
-  }
-
-  it('a dropped line is never posted', async () => {
-    const { queue, overlay, posts, reviewed } = setup();
-
-    queue.add(line('a', 0, 'A bad translation.'));
-    queue.drop('a', 'reviewer', reviewed);
-    queue.tick(EPOCH + 184_000 + 1);
-    await Promise.resolve();
-
-    expect(overlay.shown()).toEqual([]);
-    expect(posts).toEqual([]);
-  });
-
-  it('an edited line is posted with the correction', async () => {
-    const { queue, posts, reviewed } = setup();
-
-    queue.add(line('a', 0, 'Machine wording.'));
-    queue.editLine('a', 'The corrected line.', 'reviewer', reviewed);
-    queue.tick(EPOCH + 184_000 + 1);
-    await Promise.resolve();
-
-    expect(posts).toHaveLength(1);
-    expect(posts[0]?.body).toContain('The corrected line.');
-    expect(posts[0]?.body).not.toContain('Machine wording.');
-  });
-
-  it('still leaves unreviewed outputs alone', async () => {
-    const { queue, reviewed } = setup();
-    const venue = new StubAdapter('venue');
-    queue.addOutput({ ...STREAM, name: 'venue', delayMs: 4000, reviewed: false }, venue);
-
-    queue.add(line('a', 0, 'Machine wording.'));
-    queue.drop('a', 'reviewer', reviewed);
-    queue.tick(EPOCH + 4001);
-    await Promise.resolve();
-
-    // The venue screen showed it four seconds in; a drop three minutes later
-    // cannot un-show it, and must not try.
-    expect(venue.shown()).toHaveLength(1);
-  });
-});
 
 const DSHOW_STDERR = `[dshow @ 0000019] "Integrated Camera" (video)
 [dshow @ 0000019]   Alternative name "@device_pnp_..."

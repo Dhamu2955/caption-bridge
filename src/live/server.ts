@@ -26,8 +26,13 @@ const PUBLIC_DIR = join(here, '..', '..', 'public');
 export interface BridgeServerOptions {
   host: string;
   port: number;
-  /** Overlay adapters by output name. */
-  outputs: Map<string, BrowserAdapter>;
+  /**
+   * The one caption screen. Owned here rather than by a session, because a
+   * socket is bound to an adapter instance at upgrade time and never re-looked
+   * up — a session that replaced it would leave every vMix Browser input
+   * connected to an orphan, still looking healthy and never showing a word.
+   */
+  overlay: BrowserAdapter;
   /** Shared secret; omit to run without one on a trusted localhost. */
   token?: string | undefined;
   /** Audio devices for the control page's dropdown. */
@@ -199,23 +204,18 @@ export class BridgeServer {
       }
     }
 
-      for (const name of this.options.outputs.keys()) {
-      info(`overlay   ${base}/overlay${suffix ? `${suffix}&` : '?'}output=${name}`);
-    }
+    info(`overlay   ${base}/overlay${suffix}`);
   }
 
   private accept(ws: WebSocket, url: URL): void {
     const role = url.searchParams.get('role');
 
     if (role === 'overlay') {
-      const name = url.searchParams.get('output') ?? 'venue';
-      const adapter = this.options.outputs.get(name);
-      if (!adapter) {
-        warn(`overlay asked for unknown output "${name}"`);
-        ws.close();
-        return;
-      }
-      const detach = adapter.attach({
+      // `?output=` is ignored rather than rejected. There is one screen now,
+      // but vMix Browser inputs and tablet bookmarks all over the mandir still
+      // carry `output=venue` from when there were four, and a caption path that
+      // breaks on a stale query parameter is not worth the tidiness.
+      const detach = this.options.overlay.attach({
         send: (data) => ws.send(data),
         get open() {
           return ws.readyState === ws.OPEN;

@@ -90,7 +90,7 @@ describe('bridge server', () => {
     server = new BridgeServer({
       host: '127.0.0.1',
       port: PORT,
-      outputs: new Map([['venue', venue]]),
+      overlay: venue,
       token: TOKEN,
     });
     await server.start();
@@ -170,7 +170,7 @@ describe('control endpoints', () => {
     server = new BridgeServer({
       host: '127.0.0.1',
       port: PORT,
-      outputs: new Map([['venue', new BrowserAdapter('venue')]]),
+      overlay: new BrowserAdapter('captions'),
       token: TOKEN,
       listDevices: async () => [
         { name: 'CABLE Output (VB-Audio Virtual Cable)', likelyBus: true },

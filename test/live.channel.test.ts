@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AudioCapture } from '../src/live/capture.js';
 import { LiveSessionManager } from '../src/live/sessionManager.js';
-import { OverlayRegistry } from '../src/live/overlays.js';
+import { BrowserAdapter } from '../src/live/adapters/browser.js';
 import { parseConfig } from '../src/config.js';
 
 /**
@@ -21,14 +21,13 @@ class SpyCapture extends AudioCapture {
 }
 
 function managerWith(captures: SpyCapture[]) {
-  const overlays = new OverlayRegistry(['venue']);
+  const overlay = new BrowserAdapter('captions');
   const manager = new LiveSessionManager({
     getConfig: () => parseConfig({}),
-    overlays,
-    defaults: { outputs: ['venue'] },
+    overlay,
   });
   manager.attachSink({ notify: () => {} });
-  return { manager, overlays, captures };
+  return { manager, overlay, captures };
 }
 
 describe('the chosen input channel reaches ffmpeg', () => {

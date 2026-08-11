@@ -61,38 +61,16 @@ export interface OutputAdapter {
   close?(): void | Promise<void>;
 }
 
+/**
+ * What the live path did, for the counters on the Captions tab.
+ *
+ * Two cases, where there were seven. The other five — released, skipped,
+ * dropped, edited and their rejections — described a scheduler holding lines
+ * back and a reviewer acting on them, and neither exists any more. A line is
+ * built and it goes out; there is no third state to report.
+ */
 export type QueueEvent =
-  | {
-      type: 'released';
-      output: string;
-      line: CaptionLine;
-      scheduledAt: number;
-      releasedAt: number;
-    }
-  | { type: 'skipped'; output: string; line: CaptionLine; lateByMs: number }
-  | { type: 'dropped'; output: string; lineId: string; by: string }
-  | {
-      type: 'drop-rejected';
-      output: string;
-      lineId: string;
-      reason: 'already-released' | 'unknown-line';
-    }
-  | {
-      type: 'edited';
-      output: string;
-      lineId: string;
-      by: string;
-      /** The text being replaced, kept for the same reason the database keeps
-       *  previousTranslation: the machine baseline must stay recoverable. */
-      previousTranslation: string;
-      translation: string;
-    }
-  | {
-      type: 'edit-rejected';
-      output: string;
-      lineId: string;
-      reason: 'already-released' | 'unknown-line';
-    }
+  | { type: 'line'; line: CaptionLine }
   | { type: 'gap'; durationMs: number };
 
 export type QueueListener = (event: QueueEvent) => void;

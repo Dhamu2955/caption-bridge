@@ -166,7 +166,7 @@ export async function runPlay(
   const server = new BridgeServer({
     host: config.server.host,
     port: config.server.port,
-    outputs: new Map([['venue', overlay]]),
+    overlay,
     token,
   });
   await server.start();

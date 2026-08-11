@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseConfig } from '../src/config.js';
 import { AudioCapture } from '../src/live/capture.js';
 import { LiveSession, type SessionSink } from '../src/live/session.js';
-import { OverlayRegistry } from '../src/live/overlays.js';
+import { BrowserAdapter } from '../src/live/adapters/browser.js';
 import { SonioxRealtimeClient } from '../src/live/soniox/client.js';
 import type { QueueEvent } from '../src/live/types.js';
 import type { SonioxToken } from '../src/soniox/types.js';
@@ -64,6 +64,14 @@ class FakeClient extends SonioxRealtimeClient {
     ];
     this.emit('tokens', tokens);
   }
+
+  /** Provisional tokens, the kind that get revised. Must never reach a screen. */
+  sayProvisionally(text: string, startMs: number): void {
+    this.emit('tokens', [
+      { text, start_ms: startMs, end_ms: startMs + 1500, is_final: false, speaker: '1', language: 'gu' },
+      { text, start_ms: 0, end_ms: 0, is_final: false, speaker: '1', language: 'en', translation_status: 'translation' },
+    ]);
+  }
 }
 
 function collectSink(): SessionSink & { events: QueueEvent[] } {
@@ -85,15 +93,16 @@ function fakeOverlaySocket() {
   };
 }
 
-function build(overlays: OverlayRegistry, sink: SessionSink, live: Record<string, number> = {}) {
+function build(overlay: BrowserAdapter, sink: SessionSink, live: Record<string, number> = {}) {
   const capture = new FakeCapture({ device: 'CABLE Output', sampleRate: 16000 });
   let client: FakeClient | undefined;
   const session = new LiveSession({
-    config: parseConfig({ live }),
+    // liveSrt off: these run dozens of times and would litter recordings/ with
+    // empty files. The writer has its own tests.
+    config: parseConfig({ live: { liveSrt: false, ...live } }),
     apiKey: 'sk-test',
     device: 'CABLE Output',
-    outputs: ['venue', 'stream'],
-    overlays,
+    overlay,
     sink,
     createCapture: () => capture,
     createClient: (options) => {
@@ -113,15 +122,15 @@ describe('overlay adapters outlive the session', () => {
     // No delay, so the queue's own 100ms tick releases the line rather than the
     // test reaching past the session to poke the adapter directly.
     const noDelay = { delayAssemblyMs: 0, delayReviewMs: 0 };
-    const overlays = new OverlayRegistry(['venue', 'stream']);
+    const overlay = new BrowserAdapter('captions');
     const { sent, socket } = fakeOverlaySocket();
-    overlays.get('venue')!.attach(socket);
+    overlay.attach(socket);
 
-    const first = build(overlays, collectSink(), noDelay);
+    const first = build(overlay, collectSink(), noDelay);
     first.session.start();
     await first.session.stop();
 
-    const second = build(overlays, collectSink(), noDelay);
+    const second = build(overlay, collectSink(), noDelay);
     second.session.start();
     second.client.say('Bhakti is the path.', 0);
     await new Promise((r) => setTimeout(r, 250));
@@ -137,11 +146,11 @@ describe('overlay adapters outlive the session', () => {
   });
 
   it('blanks the overlays at a session boundary instead of freezing', async () => {
-    const overlays = new OverlayRegistry(['venue', 'stream']);
+    const overlay = new BrowserAdapter('captions');
     const { sent, socket } = fakeOverlaySocket();
-    overlays.get('venue')!.attach(socket);
+    overlay.attach(socket);
 
-    const { session } = build(overlays, collectSink());
+    const { session } = build(overlay, collectSink());
     session.start();
     await session.stop();
 
@@ -149,22 +158,38 @@ describe('overlay adapters outlive the session', () => {
     expect(sent).toContainEqual({ type: 'clear' });
   });
 
-  it('keeps the same adapter instances across sessions', async () => {
-    const overlays = new OverlayRegistry(['venue', 'stream']);
-    const before = overlays.get('venue');
+  it('a socket attached before a session is still attached after it', async () => {
+    // The reason the adapter is owned by the server rather than the session:
+    // BridgeServer binds a socket to this instance at upgrade and never looks
+    // it up again, so a session that replaced it would leave every vMix Browser
+    // input connected to an orphan — open, healthy-looking, permanently silent.
+    const overlay = new BrowserAdapter('captions');
+    const socket = fakeOverlaySocket();
+    overlay.attach(socket.socket);
 
-    const { session } = build(overlays, collectSink());
+    const { session } = build(overlay, collectSink());
     session.start();
     await session.stop();
 
-    expect(overlays.get('venue')).toBe(before);
+    overlay.show({
+      id: 'after',
+      original: 'ભક્તિ',
+      translation: 'Still connected.',
+      audioStartMs: 0,
+      audioEndMs: 2000,
+      speaker: '1',
+    });
+    expect(socket.sent).toContainEqual({
+      type: 'show',
+      line: expect.objectContaining({ translation: 'Still connected.' }),
+    });
   });
 });
 
 describe('pause is not stop', () => {
   it('pauseCapture stops audio but leaves the session alive', () => {
-    const overlays = new OverlayRegistry(['venue', 'stream']);
-    const { session, capture, client } = build(overlays, collectSink());
+    const overlay = new BrowserAdapter('captions');
+    const { session, capture, client } = build(overlay, collectSink());
     session.start();
 
     session.pauseCapture();
@@ -179,8 +204,8 @@ describe('pause is not stop', () => {
   });
 
   it('resumeCapture can switch device without ending the session', () => {
-    const overlays = new OverlayRegistry(['venue', 'stream']);
-    const { session, capture, client } = build(overlays, collectSink());
+    const overlay = new BrowserAdapter('captions');
+    const { session, capture, client } = build(overlay, collectSink());
     session.start();
     session.pauseCapture();
 
@@ -193,8 +218,8 @@ describe('pause is not stop', () => {
   });
 
   it('stop closes the client, unlike pause', async () => {
-    const overlays = new OverlayRegistry(['venue', 'stream']);
-    const { session, client } = build(overlays, collectSink());
+    const overlay = new BrowserAdapter('captions');
+    const { session, client } = build(overlay, collectSink());
     session.start();
 
     await session.stop();
@@ -204,8 +229,8 @@ describe('pause is not stop', () => {
   });
 
   it('stop is idempotent, because it runs on the shutdown path', async () => {
-    const overlays = new OverlayRegistry(['venue', 'stream']);
-    const { session, client } = build(overlays, collectSink());
+    const overlay = new BrowserAdapter('captions');
+    const { session, client } = build(overlay, collectSink());
     session.start();
 
     await session.stop();
@@ -216,11 +241,58 @@ describe('pause is not stop', () => {
 
 });
 
-describe('OverlayRegistry', () => {
-  it('reports connections per output for the status endpoint', () => {
-    const overlays = new OverlayRegistry(['venue', 'stream']);
-    overlays.get('venue')!.attach(fakeOverlaySocket().socket);
+describe('the one overlay', () => {
+  it('reports its connection count for the status endpoint', () => {
+    const overlay = new BrowserAdapter('captions');
+    expect(overlay.connections).toBe(0);
+    overlay.attach(fakeOverlaySocket().socket);
+    expect(overlay.connections).toBe(1);
+  });
+});
 
-    expect(overlays.connections()).toEqual({ venue: 1, stream: 0 });
+describe('nothing rewrites itself on air', () => {
+  /**
+   * The guarantee this whole pipeline is shaped around, and the failure it
+   * exists to prevent: another mandir rendered partial results and watched
+   * sentences restructure themselves mid-air, which was worse than no captions.
+   * Gujarati is verb-final, so a revision re-orders the clause rather than
+   * fixing a word — no amount of fading hides it.
+   *
+   * Four things stop it, and this covers the one that would break silently.
+   */
+  it('shows a line once it is final, and never before', async () => {
+    const overlay = new BrowserAdapter('captions');
+    const socket = fakeOverlaySocket();
+    overlay.attach(socket.socket);
+
+    const { session, client } = build(overlay, collectSink());
+    session.start();
+
+    client.sayProvisionally('ભક્તિ', 0);
+    client.sayProvisionally('ભક્તિ એ', 0);
+    expect(socket.sent).toEqual([]);
+
+    client.say('ભક્તિ એ માર્ગ છે.', 0);
+    const shown = socket.sent.filter((m) => (m as { type: string }).type === 'show');
+    expect(shown).toHaveLength(1);
+
+    await session.stop();
+  });
+
+  it('never asks Soniox for provisional tokens at all', () => {
+    // Belt and braces: the builder discards them, but not requesting them means
+    // a future change cannot route them somewhere by accident.
+    const overlay = new BrowserAdapter('captions');
+    const { session } = build(overlay, collectSink());
+    expect(session).toBeDefined();
+
+    const client = new SonioxRealtimeClient({
+      apiKey: 'sk-test',
+      model: 'stt-rt-v5',
+      sampleRate: 16000,
+      languageHints: ['gu'],
+      targetLanguage: 'en',
+    });
+    expect(client.buildConfigMessage()['include_nonfinal']).toBe(false);
   });
 });
