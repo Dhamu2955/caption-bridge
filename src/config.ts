@@ -114,12 +114,6 @@ export interface AppConfig {
   };
   live: {
     /**
-     * Our own cut. A caption cannot exist until the sentence it covers has
-     * finished being spoken, so this is the biggest lever on how soon one
-     * appears — and the cost of cutting sooner is splitting sentences.
-     */
-    maxBufferMs: number;
-    /**
      * -1 patient to 1 eager. ABSENT BY DEFAULT and best left that way: unset,
      * Soniox's own judgement decides where a sentence ends. Setting it eager
      * is how captions start arriving three words at a time. Not on the
@@ -199,7 +193,6 @@ const DEFAULTS = {
     googleDocFolderId: '',
     googleDocFlushMs: 5000,
     youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
-    maxBufferMs: 8000,
     /*
       From the American mandirs' bridge, and kept after trying to beat them.
 
@@ -212,8 +205,8 @@ const DEFAULTS = {
         -0.25 / 2500  the wrong word, but prompt at about a second
         -0.50 / 3500  the right word, compounds intact, slowest line 11.0s
         -0.75 / 5000  the right word and much worse everywhere else: clauses
-                      outran maxBufferMs so our own cut split "Pancham
-                      Varasdar" across two captions, and the slowest line was
+                      ran long enough to split "Pancham Varasdar" across two
+                      captions, and the slowest line was
                       ready 17.1s after the speech ended — seventeen seconds
                       of a speaker talking with nothing under them
 
@@ -420,7 +413,6 @@ export function parseConfig(raw: unknown): AppConfig {
         'live.youtubeCaptionsUrlEnv',
         DEFAULTS.live.youtubeCaptionsUrlEnv,
       ),
-      maxBufferMs: num(live['maxBufferMs'], 'live.maxBufferMs', DEFAULTS.live.maxBufferMs),
       // Absent unless the file names it, so the default config message does
       // not carry one at all.
       ...(live['endpointSensitivity'] === undefined

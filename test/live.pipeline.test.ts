@@ -162,7 +162,7 @@ describe('LineBuilder', () => {
   it('needs no endpoint at all — a completed pair goes straight out', () => {
     // maxBufferMs is now only the backstop for speech whose translation never
     // arrives; it is not what makes captions appear.
-    const builder = new LineBuilder({ maxBufferMs: 3000 });
+    const builder = new LineBuilder();
     const lines = builder.push([final('એક', 0, 1000), translated('One.')]);
     expect(lines).toHaveLength(1);
     expect(lines[0]?.translation).toBe('One.');
@@ -373,8 +373,7 @@ describe('English the speaker slips into a Gujarati sentence', () => {
     maxChars: 120,
     maxSegmentMs: 20_000,
     minDisplayMs: 1500,
-    maxBufferMs: 8000,
-  };
+    };
 
   it('goes out on an overflow flush rather than waiting for a translation', () => {
     // Nothing is coming for it, so waiting meant it sat until
@@ -491,8 +490,7 @@ describe('one flush is one caption', () => {
       maxChars: 138,
       maxSegmentMs: 20_000,
       minDisplayMs: 1500,
-      maxBufferMs: 8000,
-    });
+      });
 
     const spoken: SonioxToken[] = [];
     const translated: SonioxToken[] = [];
@@ -511,7 +509,7 @@ describe('one flush is one caption', () => {
   });
 
   it('still pairs the Gujarati with its English', () => {
-    const builder = new LineBuilder({ maxBufferMs: 8000, minDisplayMs: 0 });
+    const builder = new LineBuilder({ minDisplayMs: 0 });
     const lines = builder.push([
       token(' ભક્તિ એ માર્ગ છે.', 0, 2000, 'original'),
       token(' Devotion is the path.', 0, 0, 'translation'),
@@ -539,7 +537,7 @@ describe('the English screen never shows Gujarati', () => {
    * the same words twice, in two languages.
    */
   it('holds an untranslated run at an endpoint rather than showing the source', () => {
-    const builder = new LineBuilder({ maxBufferMs: 8000, minDisplayMs: 0, maxUntranslatedMs: 30_000 });
+    const builder = new LineBuilder({ minDisplayMs: 0, maxUntranslatedMs: 30_000 });
 
     const held = builder.push([spoken(' સિંહાસન ઉપર.', 28_560, 30_060), endpoint(30_060)]);
     expect(held).toEqual([]);
@@ -554,7 +552,7 @@ describe('the English screen never shows Gujarati', () => {
   });
 
   it('still emits what IS translated, keeping only the unpaired tail', () => {
-    const builder = new LineBuilder({ maxBufferMs: 8000, minDisplayMs: 0, maxUntranslatedMs: 30_000 });
+    const builder = new LineBuilder({ minDisplayMs: 0, maxUntranslatedMs: 30_000 });
     const out = builder.push([
       spoken(' ભક્તિ એ માર્ગ છે.', 0, 2000),
       english(' Devotion is the path.'),

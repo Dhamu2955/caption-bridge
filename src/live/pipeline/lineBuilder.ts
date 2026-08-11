@@ -20,9 +20,6 @@ import type { CaptionLine } from '../types.js';
  */
 
 export interface LineBuilderOptions extends BuildOptions {
-  /** Flush without waiting for an endpoint once the buffer spans this long,
-   *  so a speaker who never pauses still produces captions. */
-  maxBufferMs: number;
   /**
    * How long to keep holding speech whose translation has not arrived.
    *
@@ -38,7 +35,6 @@ export const DEFAULT_LINE_OPTIONS: LineBuilderOptions = {
   maxChars: 138,
   maxSegmentMs: 7000,
   minDisplayMs: 1500,
-  maxBufferMs: 8000,
   maxUntranslatedMs: 30_000,
 };
 
@@ -92,12 +88,10 @@ export class LineBuilder {
   /**
    * Overflow flush: emit only speech whose translation has already arrived.
    *
-   * The buffer fills faster than Soniox translates, so a speaker who runs past
-   * `maxBufferMs` without an endpoint used to have their spoken tokens flushed
-   * on their own. `buildSegments` finds no translation to pair them with and
-   * falls back to the original — so the caption went out in Gujarati, and the
-   * English arrived moments later into an emptied buffer and was dropped on the
-   * floor. On a real sermon that was a third of the captions.
+   * `buildSegments` falls back to the original when it finds no translation to
+   * pair with, so flushing spoken tokens on their own puts the caption out in
+   * Gujarati — and the English then arrives into an emptied buffer and is
+   * dropped on the floor. On a real sermon that was a third of the captions.
    *
    * So the trailing untranslated run stays buffered and leaves with its
    * translation next time. Only `maxUntranslatedMs` overrides that, because

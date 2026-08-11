@@ -150,24 +150,14 @@ export const SETTINGS: readonly SettingDescriptor[] = [
   },
 
   {
-    path: 'live.maxBufferMs',
-    label: 'Cut a line after',
-    help:
-      'The biggest lever on how soon a caption appears. A caption cannot exist until ' +
-      'the sentence it covers has finished being spoken, so long sentences are late ones. ' +
-      'Cutting sooner gets captions up faster, at the cost of splitting sentences.',
-    type: 'number',
-    unit: 'ms',
-    group: 'advanced',
-    appliesTo: 'next-session',
-  },
-  {
     path: 'live.maxEndpointDelayMs',
-    label: 'Longest Soniox may wait to end a sentence',
+    label: 'How long to wait before captioning',
     help:
-      'A backstop for a speaker who never pauses, not a target. Left at 2000 Soniox decides ' +
-      'where sentences end; lowering it forces a cut mid-thought and captions start arriving ' +
-      'a few words at a time.',
+      'The only wait there is. Soniox holds a run of speech until it decides the clause has ' +
+      'ended, then translates it and it goes straight to the screen — so this is how far ' +
+      'behind the speaker the captions sit. Lower it for shorter captions sooner, including ' +
+      'mid-sentence; raise it for longer, later ones. 2000 is what a working prototype uses ' +
+      'on air. Below about 1000 it cuts mid-thought often enough to read as fragments.',
     type: 'number',
     unit: 'ms',
     group: 'advanced',

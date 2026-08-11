@@ -192,7 +192,6 @@ export class LiveSession {
       maxChars: options.config.ingest.maxChars,
       maxSegmentMs: options.config.ingest.maxSegmentMs,
       minDisplayMs: options.config.ingest.minDisplayMs,
-      maxBufferMs: options.config.live.maxBufferMs,
     });
 
     const clientOptions = {

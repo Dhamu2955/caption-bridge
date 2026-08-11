@@ -610,9 +610,32 @@ replaced by the other. This is not roll-up: both lines are complete, neither is
 ever edited, and nothing changes under the reader — a new line arrives, the old
 one moves up. `?history=0` on the overlay URL goes back to one at a time.
 
-If you would still rather have longer captions, `live.maxEndpointDelayMs` makes
-Soniox group longer clauses before finalising and costs exactly that much more
-lag. With the previous line held on screen you should not need it.
+### The one place to tune it
+
+**Settings → This service → "How long to wait before captioning"**
+(`live.maxEndpointDelayMs`, 2000). It is the only wait in the pipeline. Soniox
+holds a run of speech until it decides the clause has ended, translates it, and
+the caption goes straight to the screen — so this number *is* how far behind the
+speaker the captions sit.
+
+| Set it to | You get |
+|---|---|
+| 800–1000 | Captions mid-sentence, a second sooner. Fragments, often mid-thought |
+| **2000** | What the working prototype runs on air. Clause-sized, ~1–2s behind |
+| 3000–4000 | Fuller sentences, that much further behind |
+
+There is no client-side buffer any more. Anything Soniox has translated is on
+screen within a frame of arriving, so nothing else can be shortened.
+
+**To go finer than this you would need provisional tokens**, and those are
+revised as the speaker continues — the text would re-order itself on screen.
+That is the one thing this pipeline will not do; see
+[INVARIANT 4](SPEC.md).
+
+`live.endpointSensitivity` is a second, finer control on the same decision:
+−1 patient to 1 eager, absent by default, and `config.json`-only because eager
+values are the fastest way to fragment a service. Add it by hand if you want to
+experiment.
 
 **One flush is one caption.** However long the run, a flush produces exactly
 one line — the same thing the prototype does when it posts an event's whole
