@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import type { AppConfig } from '../config.js';
-import { resolveApiKey, resolveYoutubeCredentials } from '../config.js';
+import { resolveApiKey, resolveGoogleDocsCredentials, resolveYoutubeCredentials } from '../config.js';
 import { resolveDatabaseUrl } from '../db/client.js';
 import type { PrismaProvider } from '../db/provider.js';
 import { listAudioDevices } from './devices.js';
@@ -25,7 +25,8 @@ export type CheckId =
   | 'devices'
   | 'database'
   | 'dbSchema'
-  | 'youtube';
+  | 'youtube'
+  | 'googleDocs';
 
 export type CheckState = 'ok' | 'missing' | 'error' | 'unknown';
 
@@ -67,6 +68,7 @@ const TTL: Record<CheckId, number> = {
   config: 0,
   apiKey: 0,
   youtube: 0,
+  googleDocs: 0,
   ffmpeg: 60_000,
   devices: 5_000,
   database: 10_000,
@@ -96,6 +98,7 @@ export class PreflightChecks {
       await this.cached('ffmpeg', () => this.ffmpegCheck()),
       await this.cached('database', () => this.databaseCheck(config, env)),
       this.youtubeCheck(config, env),
+      this.googleDocsCheck(config, env),
     ];
 
     // Devices depend on ffmpeg. Reporting "no sound inputs found" when the real
@@ -271,6 +274,36 @@ export class PreflightChecks {
       blocks: ['ingest', 'archive', 'publish', 'search'],
       checkedAt: Date.now(),
     };
+  }
+
+  /**
+   * Presence only, never a network call, and it blocks nothing: a service must
+   * start whether or not anybody has set the doc up.
+   */
+  private googleDocsCheck(config: AppConfig, env: NodeJS.ProcessEnv): Check {
+    const base = { id: 'googleDocs' as const, label: 'Google Doc', blocks: [], checkedAt: Date.now() };
+    if (!config.live.googleDoc) {
+      return { ...base, state: 'ok', detail: 'off' };
+    }
+    try {
+      const credentials = resolveGoogleDocsCredentials(config, env, { requireRefreshToken: false });
+      if (!credentials.refreshToken) {
+        return {
+          ...base,
+          state: 'missing',
+          detail: 'signed up but not yet authorised',
+          fix: 'Run `npx tsx src/cli.ts doc --auth` to mint a refresh token',
+        };
+      }
+      return { ...base, state: 'ok' };
+    } catch (err) {
+      return {
+        ...base,
+        state: 'missing',
+        detail: (err as Error).message,
+        fix: 'Add the Google pair on Settings → Keys and passwords, or turn the doc off',
+      };
+    }
   }
 
   private youtubeCheck(config: AppConfig, env: NodeJS.ProcessEnv): Check {

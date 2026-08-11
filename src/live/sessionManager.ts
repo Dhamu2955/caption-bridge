@@ -3,6 +3,7 @@ import { resolveApiKey } from '../config.js';
 import type { CaptureFormat } from './capture.js';
 import { LiveSession, type SessionSink, type SessionStatus } from './session.js';
 import type { BrowserAdapter } from './adapters/browser.js';
+import type { LiveSessionOptions } from './session.js';
 import type { CheckId } from './preflight.js';
 import { info } from '../util/log.js';
 
@@ -46,6 +47,12 @@ export interface LiveSessionManagerOptions {
    * page reaches the next session with nothing restarted.
    */
   getYoutubeCaptionsUrl?: () => string | undefined;
+  /**
+   * Built per session, by whoever owns the credentials. Read at start time so
+   * a folder id pasted into Settings reaches the next service without a
+   * restart, and returns undefined when Docs is off or not set up.
+   */
+  createDocWriter?: LiveSessionOptions['createDocWriter'];
 }
 
 export interface ManagerStatus extends Partial<SessionStatus> {
@@ -120,6 +127,7 @@ export class LiveSessionManager {
       overlay: this.options.overlay,
       sink: this.sink,
       youtubeCaptionsUrl: merged.youtubeCaptionsUrl ?? this.options.getYoutubeCaptionsUrl?.(),
+      ...(this.options.createDocWriter ? { createDocWriter: this.options.createDocWriter } : {}),
       captionInput: merged.captionInput,
       recordPath: merged.recordPath,
       verbose: merged.verbose ?? false,

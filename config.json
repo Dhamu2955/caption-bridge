@@ -49,6 +49,8 @@
   },
   "live": {
     "liveSrt": true,
+    "googleDoc": false,
+    "googleDocFolderId": "",
     "endpointSensitivity": 0.6,
     "maxEndpointDelayMs": 800,
     "maxBufferMs": 2000

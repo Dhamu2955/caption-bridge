@@ -6,6 +6,7 @@ import { SonioxRealtimeClient } from './soniox/client.js';
 import { buildContext } from '../soniox/context.js';
 import { LineBuilder } from './pipeline/lineBuilder.js';
 import { LiveSrtWriter } from './liveSrt.js';
+import { LiveDocWriter } from './liveDoc.js';
 import { StubAdapter } from './adapters/stub.js';
 import { VmixAdapter } from './adapters/vmix.js';
 import { YoutubeLiveAdapter, checkIngestionUrl } from './adapters/youtubeLive.js';
@@ -47,6 +48,14 @@ export interface LiveSessionOptions {
   captionInput?: string | undefined;
   recordPath?: string | undefined;
   verbose?: boolean;
+  /**
+   * Built by the caller, which owns the credentials. Returning undefined means
+   * no doc this service — a missing credential must never stop a start.
+   */
+  createDocWriter?: (options: {
+    title: string;
+    sessionEpoch: number;
+  }) => LiveDocWriter | undefined;
   /** Injected in tests so no ffmpeg or websocket is needed. */
   createCapture?: (options: {
     device: string;
@@ -90,6 +99,13 @@ export interface SessionStatus {
    * error — they simply stop, and on a page full of green nothing says why.
    */
   silentForMs: number | null;
+  /**
+   * The Google Doc, when one is being written.
+   *
+   * Surfaced rather than logged because the failure worth engineering against
+   * is finding out on Monday that it stopped at 10:14.
+   */
+  doc?: { state: string; url: string | undefined; pending: number } | undefined;
 }
 
 /** What the operator should do about `silentForMs`, if anything. */
@@ -131,6 +147,7 @@ export class LiveSession {
   private youtube: YoutubeLiveAdapter | undefined;
   private vmix: VmixAdapter | undefined;
   private readonly srt: LiveSrtWriter | undefined;
+  private readonly doc: LiveDocWriter | undefined;
   private capturing = false;
   private startedAt: number | undefined;
   private state: SessionState = 'idle';
@@ -161,6 +178,13 @@ export class LiveSession {
         LiveSrtWriter.pathFor(options.config.paths.recordings, new Date(this.epoch)),
       );
       info(`writing subtitles to ${this.srt.path}`);
+    }
+
+    if (options.createDocWriter) {
+      this.doc = options.createDocWriter({
+        title: LiveDocWriter.titleFor(new Date(this.epoch)),
+        sessionEpoch: this.epoch,
+      });
     }
 
     this.builder = new LineBuilder({
@@ -280,6 +304,7 @@ export class LiveSession {
     void this.youtube?.show(line);
     void this.vmix?.show(line);
     this.srt?.add(line);
+    this.doc?.add(line);
     this.options.sink.notify({ type: 'line', line });
   }
 
@@ -317,6 +342,9 @@ export class LiveSession {
         sessionEpoch: this.sessionEpoch,
       startedAt: this.startedAt,
       silentForMs: this.silentForMs,
+      ...(this.doc
+        ? { doc: { state: this.doc.state, url: this.doc.url, pending: this.doc.pending } }
+        : {}),
     };
   }
 
@@ -381,6 +409,7 @@ export class LiveSession {
     // Blanked rather than left frozen on the last line of a finished service,
     // and so a page connecting between sessions is not replayed the previous
     // one's words.
+    await this.doc?.close();
     this.options.overlay.clear();
     this.vmix?.clear();
   }

@@ -2,6 +2,7 @@ import { Router, type RequestHandler } from 'express';
 
 import type { AppConfig, LoadedConfig } from '../config.js';
 import { resolveDatabaseUrl } from '../db/client.js';
+import { resolveGoogleDocsCredentials } from '../config.js';
 import { PrismaProvider } from '../db/provider.js';
 import { createArchiveRouter } from '../web/archive.js';
 import { createGlossaryRouter } from '../web/glossary.js';
@@ -14,6 +15,9 @@ import { listAudioDevices } from '../live/devices.js';
 import { capabilitiesFrom, PreflightChecks } from '../live/preflight.js';
 import { QueueCounters } from '../live/counters.js';
 import { probeInput } from '../live/probe.js';
+import { GoogleAuth } from '../google/oauth.js';
+import { GoogleDocsClient } from '../google/docs.js';
+import { LiveDocWriter } from '../live/liveDoc.js';
 import { BrowserAdapter } from '../live/adapters/browser.js';
 import { BridgeServer } from '../live/server.js';
 import { LiveSessionManager, NotConfiguredError } from '../live/sessionManager.js';
@@ -84,6 +88,38 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     // Read at start time, so a URL pasted into Settings is picked up by the
     // next session without restarting anything.
     getYoutubeCaptionsUrl: () => secrets.get('live.youtubeCaptionsUrlEnv'),
+
+    /**
+     * A doc per service, built here because this is where the credentials
+     * live. Also read at start time: turning it on, or pasting a folder id,
+     * takes effect on the next Start rather than needing a restart.
+     *
+     * Returns undefined when it is off or not set up, and says so once — a
+     * missing credential must never stop a service starting.
+     */
+    createDocWriter: ({ title, sessionEpoch }) => {
+      const config = getConfig();
+      if (!config.live.googleDoc) return undefined;
+
+      let credentials;
+      try {
+        credentials = resolveGoogleDocsCredentials(config);
+      } catch (err) {
+        warn(`no Google Doc this service: ${(err as Error).message}`);
+        return undefined;
+      }
+
+      const client = new GoogleDocsClient({
+        auth: new GoogleAuth({ ...credentials, reauthCommand: 'doc --auth' }),
+      });
+      return new LiveDocWriter({
+        client,
+        title,
+        sessionEpoch,
+        folderId: config.live.googleDocFolderId || undefined,
+        flushIntervalMs: config.live.googleDocFlushMs,
+      });
+    },
   });
 
   const counters = new QueueCounters();

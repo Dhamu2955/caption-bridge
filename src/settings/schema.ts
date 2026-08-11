@@ -90,7 +90,7 @@ export interface SecretDescriptor {
   configPath: string;
   label: string;
   help: string;
-  group: 'soniox' | 'database' | 'youtube';
+  group: 'soniox' | 'database' | 'youtube' | 'google';
   /** What stops working without it. */
   blocks: Capability[];
   optional?: boolean;
@@ -182,6 +182,29 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     type: 'number',
     unit: 'ms',
     group: 'advanced',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.googleDoc',
+    label: 'Write the service to a Google Doc',
+    help:
+      'A new doc each time you press Start, filled in as the service runs: the Gujarati and ' +
+      'the English line by line, for somebody to read afterwards and write a summary from. ' +
+      'Needs the Google credential — run `npx tsx src/cli.ts doc --auth` once. If it is not ' +
+      'set up, or Google stops answering, the service carries on and the Captions tab says so.',
+    type: 'boolean',
+    on: 'Write a doc as it goes',
+    group: 'service',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.googleDocFolderId',
+    label: 'Drive folder for those docs',
+    help:
+      'Open the folder in Drive and copy the last part of the address — ' +
+      'drive.google.com/drive/folders/THIS_BIT. Leave it empty to put them in My Drive.',
+    type: 'string',
+    group: 'service',
     appliesTo: 'next-session',
   },
   {
@@ -288,6 +311,32 @@ export const SECRETS: readonly SecretDescriptor[] = [
       'the "POST to URL" method in YouTube\'s stream settings and it hands you this URL. ' +
       'It carries a cid identifying the stream, so treat it like a password.',
     group: 'youtube',
+    blocks: [],
+    optional: true,
+  },
+  {
+    configPath: 'googleDocs.clientIdEnv',
+    label: 'Google Docs client id',
+    help:
+      'For writing the service to a Google Doc. Can be the same OAuth client as YouTube ' +
+      'below — but the refresh token cannot be, because the scopes differ.',
+    group: 'google',
+    blocks: [],
+    optional: true,
+  },
+  {
+    configPath: 'googleDocs.clientSecretEnv',
+    label: 'Google Docs client secret',
+    help: 'The other half of the pair above.',
+    group: 'google',
+    blocks: [],
+    optional: true,
+  },
+  {
+    configPath: 'googleDocs.refreshTokenEnv',
+    label: 'Google Docs refresh token',
+    help: 'Minted once by `npx tsx src/cli.ts doc --auth`. Never the YouTube one.',
+    group: 'google',
     blocks: [],
     optional: true,
   },

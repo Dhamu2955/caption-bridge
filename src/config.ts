@@ -66,6 +66,23 @@ export interface YoutubeConfig {
   authPort: number;
 }
 
+/**
+ * A credential of its own, never YouTube's.
+ *
+ * The client id and secret may legitimately be the same strings pasted twice —
+ * one Cloud project, one desktop OAuth client — but the refresh tokens carry
+ * different scopes and must not be shared. Falling back to YouTube's would make
+ * "which consent did I actually grant?" unanswerable, and a Docs failure could
+ * then invalidate the credential that publishes captions.
+ */
+export interface GoogleDocsConfig {
+  clientIdEnv: string;
+  clientSecretEnv: string;
+  refreshTokenEnv: string;
+  /** Distinct from youtube.authPort so both redirect URIs can be registered. */
+  authPort: number;
+}
+
 export interface SearchConfig {
   /** Multilingual so a Gujarati query can reach English text (§3). Changing
    *  this invalidates every stored vector — re-index after. */
@@ -81,6 +98,7 @@ export interface AppConfig {
   soniox: SonioxConfig;
   ingest: IngestConfig;
   youtube: YoutubeConfig;
+  googleDocs: GoogleDocsConfig;
   search: SearchConfig;
   paths: { recordings: string };
   database: { urlEnv: string };
@@ -111,6 +129,12 @@ export interface AppConfig {
     youtubeCaptionsUrlEnv: string;
     /** Write an .srt into `paths.recordings` while a service runs. */
     liveSrt: boolean;
+    /** Write each finalised line to a new Google Doc as the service runs. */
+    googleDoc: boolean;
+    /** Drive folder the doc is created in. Empty means My Drive root. */
+    googleDocFolderId: string;
+    /** How often buffered lines are sent. Config-only; not worth a form row. */
+    googleDocFlushMs: number;
   };
 }
 
@@ -143,6 +167,12 @@ const DEFAULTS = {
     dailyQuotaUnits: 10_000,
     authPort: 8719,
   },
+  googleDocs: {
+    clientIdEnv: 'GOOGLE_DOCS_CLIENT_ID',
+    clientSecretEnv: 'GOOGLE_DOCS_CLIENT_SECRET',
+    refreshTokenEnv: 'GOOGLE_DOCS_REFRESH_TOKEN',
+    authPort: 8720,
+  },
   search: {
     model: 'Xenova/multilingual-e5-small',
     dimensions: 384,
@@ -156,6 +186,9 @@ const DEFAULTS = {
   live: {
     // Measured, not guessed: across all 594 cues of a real 69-minute sermon, the
     liveSrt: true,
+    googleDoc: false,
+    googleDocFolderId: '',
+    googleDocFlushMs: 5000,
     youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
     maxBufferMs: 8000,
     /*
@@ -226,6 +259,13 @@ function oneOf<T extends string>(
   return value as T;
 }
 
+/** Like `str`, but an empty string is a legitimate answer — "no folder". */
+function text(value: unknown, path: string, fallback: string): string {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string') throw new ConfigError(`${path} must be a string`);
+  return value.trim();
+}
+
 function bool(value: unknown, path: string, fallback: boolean): boolean {
   if (value === undefined) return fallback;
   if (typeof value !== 'boolean') throw new ConfigError(`${path} must be true or false`);
@@ -279,6 +319,7 @@ export function parseConfig(raw: unknown): AppConfig {
   const database = isRecord(raw['database']) ? raw['database'] : {};
   const server = isRecord(raw['server']) ? raw['server'] : {};
   const live = isRecord(raw['live']) ? raw['live'] : {};
+  const docs = isRecord(raw['googleDocs']) ? raw['googleDocs'] : {};
 
   const config: AppConfig = {
     soniox: {
@@ -317,6 +358,20 @@ export function parseConfig(raw: unknown): AppConfig {
       dailyQuotaUnits: num(youtube['dailyQuotaUnits'], 'youtube.dailyQuotaUnits', DEFAULTS.youtube.dailyQuotaUnits),
       authPort: num(youtube['authPort'], 'youtube.authPort', DEFAULTS.youtube.authPort),
     },
+    googleDocs: {
+      clientIdEnv: str(docs['clientIdEnv'], 'googleDocs.clientIdEnv', DEFAULTS.googleDocs.clientIdEnv),
+      clientSecretEnv: str(
+        docs['clientSecretEnv'],
+        'googleDocs.clientSecretEnv',
+        DEFAULTS.googleDocs.clientSecretEnv,
+      ),
+      refreshTokenEnv: str(
+        docs['refreshTokenEnv'],
+        'googleDocs.refreshTokenEnv',
+        DEFAULTS.googleDocs.refreshTokenEnv,
+      ),
+      authPort: num(docs['authPort'], 'googleDocs.authPort', DEFAULTS.googleDocs.authPort),
+    },
     search: {
       model: str(searchRaw['model'], 'search.model', DEFAULTS.search.model),
       dimensions: num(searchRaw['dimensions'], 'search.dimensions', DEFAULTS.search.dimensions),
@@ -341,6 +396,17 @@ export function parseConfig(raw: unknown): AppConfig {
     },
     live: {
       liveSrt: bool(live['liveSrt'], 'live.liveSrt', DEFAULTS.live.liveSrt),
+      googleDoc: bool(live['googleDoc'], 'live.googleDoc', DEFAULTS.live.googleDoc),
+      googleDocFolderId: text(
+        live['googleDocFolderId'],
+        'live.googleDocFolderId',
+        DEFAULTS.live.googleDocFolderId,
+      ),
+      googleDocFlushMs: num(
+        live['googleDocFlushMs'],
+        'live.googleDocFlushMs',
+        DEFAULTS.live.googleDocFlushMs,
+      ),
       youtubeCaptionsUrlEnv: str(
         live['youtubeCaptionsUrlEnv'],
         'live.youtubeCaptionsUrlEnv',
@@ -451,6 +517,42 @@ export function loadConfig(path = 'config.json'): AppConfig {
     throw new ConfigError(`${full} is not valid JSON: ${(err as Error).message}`);
   }
   return parseConfig(raw);
+}
+
+export interface GoogleDocsCredentials {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}
+
+/**
+ * The Docs credential. Deliberately no fallback to the YouTube one — see
+ * `GoogleDocsConfig`.
+ */
+export function resolveGoogleDocsCredentials(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+  options: { requireRefreshToken?: boolean } = {},
+): GoogleDocsCredentials {
+  const read = (name: string, what: string): string => {
+    const value = env[name]?.trim();
+    if (!value) {
+      throw new ConfigError(
+        `${what} is not set. Put ${name} in .env — never in config.json. ` +
+          `Run \`npx tsx src/cli.ts doc --auth\` to mint the refresh token.`,
+      );
+    }
+    return value;
+  };
+
+  const clientId = read(config.googleDocs.clientIdEnv, 'the Google Docs client id');
+  const clientSecret = read(config.googleDocs.clientSecretEnv, 'the Google Docs client secret');
+  const refreshToken =
+    options.requireRefreshToken === false
+      ? (env[config.googleDocs.refreshTokenEnv]?.trim() ?? '')
+      : read(config.googleDocs.refreshTokenEnv, 'the Google Docs refresh token');
+
+  return { clientId, clientSecret, refreshToken };
 }
 
 export interface YoutubeCredentials {
