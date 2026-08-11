@@ -70,7 +70,6 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
       if (action === 'stop') session.pauseCapture();
       else session.resumeCapture(device);
     },
-    onCommand: (command) => session.command(command),
   });
 
   const session: LiveSession = new LiveSession({
@@ -80,7 +79,9 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
     format: args.format,
     outputs: names,
     overlays,
-    sink: server,
+    // The CLI path has no counters to feed; the queue's own logging is what
+    // an operator watching a terminal has.
+    sink: { notify: () => {} },
     youtubeCaptionsUrl: args.youtubeCaptionsUrl,
     streamOffsetMs: args.streamOffsetMs,
     captionInput: args.captionInput,

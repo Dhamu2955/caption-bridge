@@ -5,7 +5,6 @@ import { AudioCapture } from '../src/live/capture.js';
 import { LiveSession, type SessionSink } from '../src/live/session.js';
 import { OverlayRegistry } from '../src/live/overlays.js';
 import { SonioxRealtimeClient } from '../src/live/soniox/client.js';
-import type { OperatorView } from '../src/live/server.js';
 import type { QueueEvent } from '../src/live/types.js';
 import type { SonioxToken } from '../src/soniox/types.js';
 
@@ -67,15 +66,9 @@ class FakeClient extends SonioxRealtimeClient {
   }
 }
 
-function collectSink(): SessionSink & { views: OperatorView[]; events: QueueEvent[] } {
-  const views: OperatorView[] = [];
+function collectSink(): SessionSink & { events: QueueEvent[] } {
   const events: QueueEvent[] = [];
-  return {
-    views,
-    events,
-    publish: (view) => views.push(view),
-    notify: (event) => events.push(event),
-  };
+  return { events, notify: (event) => events.push(event) };
 }
 
 /** Stands in for a vMix Browser input that is already on screen. */
@@ -221,16 +214,6 @@ describe('pause is not stop', () => {
     expect(client.closes).toBe(1);
   });
 
-  it('empties the reviewer view on stop rather than leaving stale cards', async () => {
-    const overlays = new OverlayRegistry(['venue', 'stream']);
-    const sink = collectSink();
-    const { session } = build(overlays, sink);
-    session.start();
-
-    await session.stop();
-
-    expect(sink.views.at(-1)?.pending).toEqual([]);
-  });
 });
 
 describe('OverlayRegistry', () => {

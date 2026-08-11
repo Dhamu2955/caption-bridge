@@ -8,13 +8,11 @@ import { LineBuilder } from './pipeline/lineBuilder.js';
 import { CaptionQueue } from './pipeline/queue.js';
 import { RawTranslationStream } from './pipeline/rawStream.js';
 import { LiveSrtWriter } from './liveSrt.js';
-import type { BrowserAdapter } from './adapters/browser.js';
 import { StubAdapter } from './adapters/stub.js';
 import { VmixAdapter } from './adapters/vmix.js';
 import { YoutubeLiveAdapter, checkIngestionUrl } from './adapters/youtubeLive.js';
 import { outputConfigs, type OutputName } from './outputs.js';
 import type { OverlayRegistry } from './overlays.js';
-import type { OperatorCommand, OperatorView } from './server.js';
 import type { CaptionLine, QueueEvent } from './types.js';
 import { info, warn } from '../util/log.js';
 
@@ -30,9 +28,8 @@ import { info, warn } from '../util/log.js';
  * NOT live here is the overlay adapters: see `OverlayRegistry` for why.
  */
 
-/** Where the reviewer's view goes. `BridgeServer` satisfies this already. */
+/** Where queue activity goes, for the counters on the Captions tab. */
 export interface SessionSink {
-  publish(view: OperatorView): void;
   notify(event: QueueEvent): void;
 }
 
@@ -132,13 +129,7 @@ export class LiveSession {
   /** Delays snapshotted at construction — a settings edit mid-service must not
    *  re-time lines that were already scheduled against the old ones. */
   private readonly configs: ReturnType<typeof outputConfigs>;
-  /** Outputs a reviewer decision applies to. Includes the YouTube caption
-   *  output when there is one: it carries the stream's schedule under its own
-   *  name, so leaving it out silently let dropped lines go to air. */
-  private readonly reviewedOutputs: string[] = ['stream'];
-
-  private readonly awaitingReview: CaptionLine[] = [];
-  private readonly edited = new Set<string>();
+  /** Drives checkFeed — the "is the cable still live" alarm. */
   private viewTimer: ReturnType<typeof setInterval> | undefined;
   private lastSpeechAt: number | undefined;
   private lastSilenceWarnAt = 0;
@@ -192,7 +183,6 @@ export class LiveSession {
         onError: (err) => warn(`youtube captions: ${err.message}`),
       });
       this.queue.addOutput({ ...this.configs.stream, name: 'youtube' }, this.youtube);
-      this.reviewedOutputs.push('youtube');
       info('posting closed captions to YouTube');
     }
 
@@ -264,9 +254,7 @@ export class LiveSession {
 
       for (const line of this.builder.push(tokens)) {
         this.queue.add(line);
-        this.awaitingReview.push(line);
       }
-      this.publishView();
     });
     this.client.on('gap', (durationMs) => {
       this.queue.gap(durationMs);
@@ -410,10 +398,7 @@ export class LiveSession {
     this.state = 'running';
     this.startedAt = Date.now();
     this.queue.start(100);
-    this.viewTimer = setInterval(() => {
-      this.publishView();
-      this.checkFeed();
-    }, 250);
+    this.viewTimer = setInterval(() => this.checkFeed(), 250);
     this.client.recordEvent({
       session: {
         sessionEpoch: this.sessionEpoch,
@@ -451,40 +436,6 @@ export class LiveSession {
     this.capture.setDevice(device, channel);
   }
 
-  /** Advisory: the queue decides whether a decision still applies. */
-  command(command: OperatorCommand): void {
-    this.client.recordEvent({ operator: command });
-    switch (command.type) {
-      case 'drop':
-        // Only the reviewed path is subject to review; the venue screen has
-        // already shown it by now.
-        if (command.lineId) this.queue.drop(command.lineId, 'reviewer', this.reviewedOutputs);
-        break;
-      case 'edit':
-        // Same scope as drop, and the same advisory contract: if the line has
-        // already gone out the queue rejects it rather than chasing it.
-        if (command.lineId && command.text !== undefined) {
-          this.queue.editLine(command.lineId, command.text, 'reviewer', this.reviewedOutputs);
-          this.edited.add(command.lineId);
-          this.publishView();
-        }
-        break;
-      case 'hold':
-        this.queue.hold();
-        break;
-      case 'resume':
-        this.queue.resume();
-        break;
-      case 'captions-off':
-        void this.queue.clearAll();
-        this.queue.hold();
-        break;
-      case 'captions-on':
-        this.queue.resume();
-        break;
-    }
-  }
-
   /** Idempotent, and must never throw — it runs on the shutdown path. */
   async stop(): Promise<void> {
     if (this.state === 'stopped') return;
@@ -504,48 +455,5 @@ export class LiveSession {
     await this.queue.clearAll();
     await this.queue.close();
 
-    this.awaitingReview.length = 0;
-    this.edited.clear();
-    this.options.sink.publish({ pending: [], windowMs: this.options.config.live.delayReviewMs });
-  }
-
-  private publishView(): void {
-    const now = Date.now();
-    // Drop anything already past its air time out of the reviewer's view.
-    while (this.awaitingReview.length > 0) {
-      const head = this.awaitingReview[0]!;
-      if (this.sessionEpoch + head.audioStartMs + this.configs.stream.delayMs > now) break;
-      this.awaitingReview.shift();
-    }
-
-    this.options.sink.publish({
-      // Every line still in the window, not just the head: at three minutes
-      // there are tens in flight and the reviewer has to see which is closest
-      // to expiring.
-      pending: this.awaitingReview.map((line) => ({
-        ...line,
-        deadlineAt: this.sessionEpoch + line.audioStartMs + this.configs.stream.delayMs,
-        // The bar drains from the moment the line reached the reviewer feed
-        // (assembly delay), not from when it was spoken.
-        visibleFrom: this.sessionEpoch + line.audioStartMs + this.options.config.live.delayAssemblyMs,
-        edited: this.edited.has(line.id),
-      })),
-      windowMs: this.options.config.live.delayReviewMs,
-      sessionEpoch: this.sessionEpoch,
-      // How far the picture must sit behind the capture point for a caption to
-      // land on the words it describes. The page cannot guess this — it is the
-      // delay the queue schedules against.
-      assemblyMs: this.options.config.live.delayAssemblyMs,
-      // The reviewer is the one person watching for ninety minutes, so the
-      // quiet failure belongs on their screen too — not only on the setup page
-      // nobody has open during a service.
-      silentForMs: this.status.silentForMs,
-      // Carries the session epoch so each run has its own URL. Without it the
-      // browser reuses the 404 it cached while no session was running, and the
-      // player stays dead through every later start.
-      ...(this.options.format === 'file'
-        ? { media: { url: `/api/media?session=${this.sessionEpoch}`, kind: 'file' as const } }
-        : {}),
-    });
   }
 }

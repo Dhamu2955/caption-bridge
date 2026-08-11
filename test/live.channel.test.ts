@@ -27,7 +27,7 @@ function managerWith(captures: SpyCapture[]) {
     overlays,
     defaults: { outputs: ['venue'] },
   });
-  manager.attachSink({ publish: () => {}, notify: () => {} });
+  manager.attachSink({ notify: () => {} });
   return { manager, overlays, captures };
 }
 

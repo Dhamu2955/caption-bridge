@@ -8,8 +8,7 @@
 <link rel="stylesheet" href="/theme.css">
 <style>
   /*
-    The setup and running surface. Same tokens as the reviewer — they are the
-    same product and often open side by side.
+    The setup and running surface.
 
     One tab per job, and nothing that is merely a view:
 
@@ -411,7 +410,6 @@
 <nav class="bar" role="tablist" aria-label="Sections">
   <span class="brand">Caption bridge</span>
   <button class="tab" role="tab" data-tab="live" aria-selected="true">Captions</button>
-  <button class="tab" role="tab" data-tab="review" aria-selected="false">Reviewer</button>
   <button class="tab" role="tab" data-tab="glossary" aria-selected="false">Glossary</button>
   <button class="tab" role="tab" data-tab="sermons" aria-selected="false">Sermons</button>
   <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
@@ -562,19 +560,6 @@
     <p class="hint" id="live-stats-note">Nothing has gone out yet.</p>
   </div>
 </main>
-
-<!-- ---- reviewer ------------------------------------------------------- -->
-<div data-panel="review" hidden>
-  <!--
-    The reviewer page itself, not a copy of it. It is the surface a tablet opens
-    directly and the one the contract tests cover; running it here as well means
-    the vMix operator can review without a second implementation drifting from
-    the first.
-  -->
-  <!-- Without allow, the framed page cannot play sound at all and the Sound on
-       button would do nothing here while working at /operator directly. -->
-  <iframe class="frame" id="review-frame" title="Reviewer" allow="autoplay"></iframe>
-</div>
 
 <!-- ---- glossary ------------------------------------------------------- -->
 <!--
@@ -731,12 +716,6 @@
       tab.setAttribute('aria-selected', String(tab.getAttribute('data-tab') === name));
     });
     Object.keys(panels).forEach(function (key) { panels[key].hidden = key !== name; });
-    // The reviewer is only loaded when asked for — an idle iframe holding a
-    // websocket open would count as an operator that is not there.
-    if (name === 'review') {
-      var frame = el('review-frame');
-      if (!frame.getAttribute('src')) frame.setAttribute('src', '/operator' + qs);
-    }
     if (name === 'settings') loadSettings();
     if (name === 'sermons') loadServices();
     if (name === 'glossary') loadGlossary();

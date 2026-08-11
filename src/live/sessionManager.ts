@@ -4,7 +4,6 @@ import type { CaptureFormat } from './capture.js';
 import { LiveSession, type SessionSink, type SessionStatus } from './session.js';
 import type { OutputName } from './outputs.js';
 import type { OverlayRegistry } from './overlays.js';
-import type { OperatorCommand } from './server.js';
 import type { CheckId } from './preflight.js';
 import { info } from '../util/log.js';
 
@@ -194,8 +193,4 @@ export class LiveSessionManager {
     });
   }
 
-  /** Advisory, and harmless when nothing is running. */
-  command(command: OperatorCommand): void {
-    this.session?.command(command);
-  }
 }
