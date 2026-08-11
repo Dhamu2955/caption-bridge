@@ -6,6 +6,8 @@ import { SonioxRealtimeClient } from './soniox/client.js';
 import { buildContext } from '../soniox/context.js';
 import { LineBuilder } from './pipeline/lineBuilder.js';
 import { CaptionQueue } from './pipeline/queue.js';
+import { RawTranslationStream } from './pipeline/rawStream.js';
+import { LiveSrtWriter } from './liveSrt.js';
 import type { BrowserAdapter } from './adapters/browser.js';
 import { StubAdapter } from './adapters/stub.js';
 import { VmixAdapter } from './adapters/vmix.js';
@@ -144,6 +146,9 @@ export class LiveSession {
   private lastCaptureError: string | null = null;
   private audioStarted = false;
   private youtube: YoutubeLiveAdapter | undefined;
+  /** Continuous passthrough, when live.rawPassthrough is on. */
+  private readonly raw: RawTranslationStream | undefined;
+  private readonly srt: LiveSrtWriter | undefined;
   private capturing = false;
   private startedAt: number | undefined;
   private state: SessionState = 'idle';
@@ -183,6 +188,7 @@ export class LiveSession {
         ingestionUrl: options.youtubeCaptionsUrl,
         sessionEpoch: this.sessionEpoch,
         streamOffsetMs: options.streamOffsetMs ?? 0,
+        timestampMode: options.config.live.captionTimestampMode,
         onError: (err) => warn(`youtube captions: ${err.message}`),
       });
       this.queue.addOutput({ ...this.configs.stream, name: 'youtube' }, this.youtube);
@@ -196,10 +202,23 @@ export class LiveSession {
       info(`driving vMix GT title ${options.captionInput}`);
     }
 
+    if (options.config.live.liveSrt) {
+      this.srt = new LiveSrtWriter(
+        LiveSrtWriter.pathFor(options.config.paths.recordings, new Date(this.epoch)),
+      );
+      info(`writing subtitles to ${this.srt.path}`);
+    }
+
     this.queue.on((event) => {
       options.sink.notify(event);
       if (event.type === 'skipped') {
         warn(`skipped on ${event.output}: ${event.lateByMs}ms late`);
+      }
+      // One output only, or every line would be written once per screen. The
+      // venue feed is the unreviewed one that always exists; taking `stream`
+      // would mean no subtitles at all when nothing is being broadcast.
+      if (event.type === 'released' && event.output === 'venue') {
+        this.srt?.add(event.line);
       }
     });
 
@@ -216,17 +235,33 @@ export class LiveSession {
       model: 'stt-rt-v5',
       sampleRate: 16000,
       languageHints: options.config.soniox.sourceLanguages,
+      languageHintsStrict: options.config.soniox.languageHintsStrict,
       targetLanguage: options.config.soniox.targetLanguage,
       context: buildContext(options.config),
       endpointSensitivity: options.config.live.endpointSensitivity,
       maxEndpointDelayMs: options.config.live.maxEndpointDelayMs,
+      // Only the raw overlay consumes these; the line builder drops them.
+      includeNonFinal: options.config.live.rawPassthrough,
       recordPath: options.recordPath ? resolve(options.recordPath) : undefined,
     } as const;
     this.client = options.createClient
       ? options.createClient(clientOptions)
       : new SonioxRealtimeClient(clientOptions);
 
+    if (options.config.live.rawPassthrough) {
+      this.raw = new RawTranslationStream();
+      info('raw passthrough on — /overlay?output=raw shows words as they are translated');
+    }
+
     this.client.on('tokens', (tokens) => {
+      // First, and outside everything else: the whole point is that no part of
+      // the pipeline stands between Soniox and the screen. Straight to its own
+      // overlay, never through the queue, never near a pop-on output.
+      if (this.raw) {
+        const adapter = options.overlays.get('raw');
+        if (adapter) adapter.raw(this.raw.push(tokens));
+      }
+
       for (const line of this.builder.push(tokens)) {
         this.queue.add(line);
         this.awaitingReview.push(line);

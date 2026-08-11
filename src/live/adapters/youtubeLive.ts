@@ -28,9 +28,51 @@ export interface YoutubeLiveAdapterOptions {
   sessionEpoch: number;
   /** Delay between this machine's encoder and YouTube receiving the video. */
   streamOffsetMs?: number;
+  /**
+   * Which clock the caption's timestamp comes from.
+   *
+   * `speech` (the default, and what this always did) stamps the instant the
+   * words were spoken, plus `streamOffsetMs`. Correct when the video is delayed
+   * to match the pipeline, and it has to be: a caption posted fifteen seconds
+   * after the words, carrying the words' own timestamp, lands at a point
+   * YouTube streamed past long ago.
+   *
+   * `now` stamps the moment of the POST. It only makes sense with the delays
+   * turned down — but then it is self-correcting, because the caption is placed
+   * wherever the stream has actually got to, and there is no offset to
+   * calibrate and no video delay to match. This is what a working prototype of
+   * this same job does, over twelve thousand accepted POSTs, with no timing
+   * configuration at all.
+   */
+  timestampMode?: 'speech' | 'now';
+  /** Injected in tests so retries do not sleep. */
+  sleep?: (ms: number) => Promise<void>;
+  /** The wall clock, injected so `now` mode is testable without real time. */
+  now?: () => number;
   fetchImpl?: typeof fetch;
   onError?: (error: Error) => void;
 }
+
+/**
+ * YouTube's own retry policy: randomised backoff with the ceiling doubling.
+ * Four attempts, the first immediate.
+ *
+ * There was none of this before — one POST, and a transient failure took that
+ * caption off the broadcast silently. A working prototype of this job logged
+ * 275 failures against 12,473 accepted posts over a few services, so it is not
+ * a rare path.
+ */
+const RETRY_CEILINGS_MS = [0, 100, 200, 400] as const;
+
+/**
+ * Positioning, appended to the timestamp line.
+ *
+ * Both this and a bare timestamp are accepted — the prototype's early runs used
+ * a bare one and they succeeded too — but this is the variant with ten thousand
+ * accepted posts behind it, and the wire format is the one part of this file
+ * that cannot be checked from the code.
+ */
+const CUE_REGION = 'region:reg1#cue1';
 
 /** `2026-08-02T18:30:00.000` — UTC, no zone suffix, which is what the endpoint wants. */
 export function formatCaptionTimestamp(at: number): string {
@@ -89,6 +131,9 @@ export class YoutubeLiveAdapter implements OutputAdapter {
   private readonly ingestionUrl: string;
   private sessionEpoch: number;
   private readonly streamOffsetMs: number;
+  private readonly timestampMode: 'speech' | 'now';
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly now: () => number;
   private readonly fetchImpl: typeof fetch;
   private readonly onError: ((error: Error) => void) | undefined;
   private sequence = 0;
@@ -101,6 +146,9 @@ export class YoutubeLiveAdapter implements OutputAdapter {
     this.sessionEpoch = options.sessionEpoch;
 
     this.streamOffsetMs = options.streamOffsetMs ?? 0;
+    this.timestampMode = options.timestampMode ?? 'speech';
+    this.sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.now = options.now ?? (() => Date.now());
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.onError = options.onError;
   }
@@ -111,7 +159,8 @@ export class YoutubeLiveAdapter implements OutputAdapter {
   }
 
   /** Exposed so a test can pin the arithmetic without going through fetch. */
-  timestampFor(line: CaptionLine): string {
+  timestampFor(line: CaptionLine, now: number = this.now()): string {
+    if (this.timestampMode === 'now') return formatCaptionTimestamp(now);
     return formatCaptionTimestamp(this.sessionEpoch + line.audioStartMs + this.streamOffsetMs);
   }
 
@@ -121,29 +170,45 @@ export class YoutubeLiveAdapter implements OutputAdapter {
   }
 
   show(line: CaptionLine): Promise<void> {
-    // English only: the endpoint carries one track, and the Gujarati speakers
-    // in the audience are listening rather than reading.
-    const body = `${this.timestampFor(line)}\n${line.translation}\n`;
-
     this.queue = this.queue.then(async () => {
       // The sequence number is only spent by a POST YouTube actually accepted.
       // Incrementing before the request meant a failed one burned a number and
       // left a gap in the series the endpoint is counting on.
       const sequence = this.sequence + 1;
-      try {
-        const response = await this.fetchImpl(this.url(sequence), {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-          body,
-        });
-        if (!response.ok) {
-          throw new Error(`YouTube caption POST failed: ${response.status} ${response.statusText}`);
+      let lastError: Error | undefined;
+
+      for (let attempt = 0; attempt < RETRY_CEILINGS_MS.length; attempt++) {
+        const ceiling = RETRY_CEILINGS_MS[attempt]!;
+        if (ceiling > 0) await this.sleep(Math.random() * ceiling);
+
+        // Re-stamped per attempt, not once before the loop. In `now` mode a
+        // retry that carried the first attempt's timestamp would place the
+        // caption where the stream was before the backoff, which is the one
+        // thing this mode exists to get right.
+        // English only: the endpoint carries one track, and the Gujarati
+        // speakers in the audience are listening rather than reading.
+        const body = `${this.timestampFor(line)} ${CUE_REGION}\n${line.translation}\n`;
+
+        try {
+          const response = await this.fetchImpl(this.url(sequence), {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+            body,
+          });
+          if (!response.ok) {
+            throw new Error(
+              `YouTube caption POST failed: ${response.status} ${response.statusText}`,
+            );
+          }
+          this.sequence = sequence;
+          return;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
         }
-        this.sequence = sequence;
-      } catch (err) {
-        // A caption that does not land must never take the broadcast with it.
-        this.onError?.(err instanceof Error ? err : new Error(String(err)));
       }
+
+      // A caption that does not land must never take the broadcast with it.
+      if (lastError) this.onError?.(lastError);
     });
     return this.queue;
   }

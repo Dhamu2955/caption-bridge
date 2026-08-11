@@ -26,6 +26,9 @@ export class BrowserAdapter implements OutputAdapter {
   /** Replayed to a page that connects mid-service, so a projector rebooting
    *  does not sit blank until the next line. */
   private last: CaptionLine | undefined;
+  /** Latest passthrough text, replayed like `last` so a projector that reboots
+   *  mid-service does not sit blank until the speaker's next word. */
+  private lastRaw: string | undefined;
 
   constructor(name: string) {
     this.name = name;
@@ -34,6 +37,7 @@ export class BrowserAdapter implements OutputAdapter {
   attach(socket: OverlaySocket): () => void {
     this.sockets.add(socket);
     if (this.last) this.sendTo(socket, { type: 'show', line: this.last });
+    if (this.lastRaw) this.sendTo(socket, { type: 'raw', text: this.lastRaw });
     return () => this.sockets.delete(socket);
   }
 
@@ -65,8 +69,21 @@ export class BrowserAdapter implements OutputAdapter {
     this.broadcast({ type: 'show', line });
   }
 
+  /**
+   * Continuous passthrough text, replacing whatever is on screen.
+   *
+   * Deliberately not `show`: there is no line, no id and nothing to review, and
+   * calling it a caption would let it reach code that assumes lines are
+   * immutable. See pipeline/rawStream.ts.
+   */
+  raw(text: string): void {
+    this.lastRaw = text;
+    this.broadcast({ type: 'raw', text });
+  }
+
   clear(): void {
     this.last = undefined;
+    this.lastRaw = undefined;
     this.broadcast({ type: 'clear' });
   }
 }

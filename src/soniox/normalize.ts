@@ -111,6 +111,67 @@ const ROMANISATION: readonly Rule[] = [
   [/\bvritti\b/g, 'vrutti'],
 ];
 
+/**
+ * Names the sampradaya spells its own way, from the American mandirs' bridge
+ * and from a working prototype of this same job (soniox_en).
+ *
+ * Every one of these was in the prototype's fix table and not in ours, which
+ * is as good a definition of "hit on air" as the rest of this file has.
+ */
+const SPELLING: readonly Rule[] = [
+  // Split by the recogniser and rejoined wrong. Longest first.
+  [/\bSwami\s+Narayan\b/gi, 'Swaminarayan'],
+  [/\bSwamishri\b/g, 'Swamishree'],
+  [/\bBapashri\b/g, 'Bapashree'],
+  [/\bShriji\b/g, 'Shreeji'],
+  [/\bPremmurti\b/gi, 'Prem Murti'],
+  // Sanskrit j- where the community writes g-.
+  [/\bJnanmurti\b/gi, 'Gnan Murti'],
+  [/\bGnanmurti\b/gi, 'Gnan Murti'],
+  [/\bJnan\b/gi, 'Gnan'],
+  [/\bYajna\b/gi, 'Yagna'],
+  [/\bGaddi\b/g, 'Gadi'],
+  [/\bgaddi\b/g, 'gadi'],
+  // A different tradition entirely, and the one substitution that would
+  // genuinely offend. The prototype guards it; so should we.
+  [/\bSai\s+Bapa\b/gi, 'Swamibapa'],
+  [/\bSwaminarayan\s+God\b/gi, 'Swaminarayan Bhagwan'],
+];
+
+/**
+ * British spelling, because asking for it does not work.
+ *
+ * The context block says "use British English" in as many words, and the
+ * prototype's note is that Soniox treats the prompt as vocabulary bias rather
+ * than a style guide — spelling rules slip through it. Measured there over a
+ * real service, so this is a second pass rather than a prompt tweak.
+ *
+ * The suffix swap covers the -ise/-yse family. The handful of words that are
+ * -ize in British English too are listed rather than trying to enumerate every
+ * correct -ise word.
+ */
+const IZE_EXCEPTIONS = new Set([
+  'size', 'sizes', 'sized', 'sizing',
+  'capsize', 'capsizes', 'capsized', 'capsizing',
+  'downsize', 'downsizes', 'downsized', 'downsizing',
+  'resize', 'resizes', 'resized', 'resizing',
+  'prize', 'prizes', 'prized', 'prizing',
+  'seize', 'seizes', 'seized', 'seizing',
+]);
+
+const IZE_SUFFIX =
+  /\b(\w+?)(ization|izations|izer|izers|izing|ized|izes|ize|yzing|yzed|yzes|yze)\b/gi;
+
+function briticise(text: string): string {
+  return text.replace(IZE_SUFFIX, (whole, stem: string, suffix: string) => {
+    if (IZE_EXCEPTIONS.has(whole.toLowerCase())) return whole;
+    return (
+      stem +
+      suffix.replace('iz', 'is').replace('IZ', 'IS').replace('yz', 'ys').replace('YZ', 'YS')
+    );
+  });
+}
+
 const ALL: readonly (readonly Rule[])[] = [
   JAY,
   TOKEN_GLUE,
@@ -118,6 +179,7 @@ const ALL: readonly (readonly Rule[])[] = [
   LINEAGE,
   BEREAVEMENT,
   ROMANISATION,
+  SPELLING,
 ];
 
 /**
@@ -130,5 +192,7 @@ export function normalizeTranslation(text: string): string {
   for (const group of ALL) {
     for (const [pattern, replacement] of group) out = out.replace(pattern, replacement);
   }
-  return out;
+  // Last: the name rules above may introduce words the suffix swap should see,
+  // and it must never run on a proper noun it has just fixed.
+  return briticise(out);
 }

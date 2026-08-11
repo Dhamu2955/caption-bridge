@@ -20,6 +20,8 @@ export interface RealtimeConfig {
   model: string;
   sampleRate: number;
   languageHints: string[];
+  /** Restrict to those hints rather than treating them as suggestions. */
+  languageHintsStrict?: boolean;
   targetLanguage: string;
   enableSpeakerDiarization?: boolean;
   /**
@@ -32,6 +34,16 @@ export interface RealtimeConfig {
   endpointSensitivity?: number;
   /** Ceiling on that wait, for a speaker who does not pause. */
   maxEndpointDelayMs?: number;
+  /**
+   * Ask for provisional tokens as well as final ones.
+   *
+   * INVARIANT 4 keeps these off every audience-facing pop-on output, and the
+   * line builder discards them regardless of this flag — they cannot reach
+   * `venue`, `stream` or the YouTube captions by any route. The only consumer
+   * is the `raw` passthrough overlay, which is opt-in and exists to render
+   * exactly this. Defaults to INCLUDE_NON_FINAL, which is false.
+   */
+  includeNonFinal?: boolean;
   /** JSONL of every raw response — §4 wants a record of what went to air. */
   recordPath?: string | undefined;
   url?: string;
@@ -75,7 +87,8 @@ export class SonioxRealtimeClient extends EventEmitter<SonioxRealtimeEvents> {
     }
   }
 
-  /** The exact first frame. `include_nonfinal` is hardcoded false (INVARIANT 4). */
+  /** The exact first frame. `include_nonfinal` is false unless the raw
+   *  passthrough overlay asked for it (INVARIANT 4). */
   buildConfigMessage(): Record<string, unknown> {
     return {
       api_key: this.config.apiKey,
@@ -84,6 +97,7 @@ export class SonioxRealtimeClient extends EventEmitter<SonioxRealtimeEvents> {
       sample_rate: this.config.sampleRate,
       num_channels: 1,
       language_hints: this.config.languageHints,
+      ...(this.config.languageHintsStrict ? { language_hints_strict: true } : {}),
       enable_language_identification: true,
       enable_speaker_diarization: this.config.enableSpeakerDiarization ?? true,
       // Real-time HAS endpoint detection, unlike the async API. This is what
@@ -98,7 +112,7 @@ export class SonioxRealtimeClient extends EventEmitter<SonioxRealtimeEvents> {
       ...(this.config.maxEndpointDelayMs !== undefined
         ? { max_endpoint_delay_ms: this.config.maxEndpointDelayMs }
         : {}),
-      include_nonfinal: INCLUDE_NON_FINAL,
+      include_nonfinal: this.config.includeNonFinal ?? INCLUDE_NON_FINAL,
       translation: {
         type: 'one_way',
         target_language: this.config.targetLanguage,

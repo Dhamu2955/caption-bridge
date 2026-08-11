@@ -39,9 +39,18 @@ export interface OutputConfig {
 }
 
 /**
- * INVARIANT 4 rule 1: non-final tokens never reach an audience-facing surface.
- * There is deliberately no flag to turn this off — a config option would be an
- * invitation to set it wrong on the night.
+ * INVARIANT 4 rule 1: non-final tokens never reach a pop-on output.
+ *
+ * This is still the default for every session and the line builder discards
+ * non-final tokens whatever it is set to, so `venue`, `stream`, `overflow`, the
+ * reviewer and the YouTube captions cannot show one by any route.
+ *
+ * It said "there is deliberately no flag to turn this off, a config option
+ * would be an invitation to set it wrong on the night", and that reasoning
+ * still holds for those outputs. What changed is that there is now a surface
+ * whose entire purpose is rendering provisional text — the `raw` passthrough
+ * overlay — so the flag exists for that one consumer rather than as a global
+ * switch. Turning it on adds an output; it does not alter any existing one.
  */
 export const INCLUDE_NON_FINAL = false as const;
 

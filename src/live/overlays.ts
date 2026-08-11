@@ -21,7 +21,15 @@ import type { OutputName } from './outputs.js';
  */
 
 /** Every output an overlay page may ask for when the bridge is serving. */
-export const OVERLAY_NAMES: readonly OutputName[] = ['venue', 'stream', 'reviewer', 'overflow'];
+export const OVERLAY_NAMES: readonly OutputName[] = [
+  'venue',
+  'stream',
+  'reviewer',
+  'overflow',
+  // Continuous passthrough, off unless live.rawPassthrough is on. Listed
+  // always so the URL exists and can be pointed at before a rehearsal.
+  'raw',
+];
 
 export class OverlayRegistry {
   /** The identity passed to `BridgeServerOptions.outputs`. Never replaced. */

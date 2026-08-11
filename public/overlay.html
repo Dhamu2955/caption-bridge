@@ -98,6 +98,12 @@
     #gu { font-size: 5.2vw; }
     #en { font-size: 5.6vw; }
   }
+
+  /* The passthrough feed reads as running text rather than a caption block:
+     it is continuous, it is long, and centring it makes every revision jump
+     the whole paragraph sideways. */
+  body[data-output="raw"] #block { text-align: left; }
+  body[data-output="raw"] #en { font-size: 4.2vh; line-height: 1.35; }
 </style>
 </head>
 <body>
@@ -124,6 +130,7 @@
   var enEl = document.getElementById('en');
 
   if (showBoth) block.classList.add('show-both');
+  document.body.setAttribute('data-output', output);
 
   // A displayed line is immutable (INVARIANT 4 rule 2). There is deliberately
   // no update path here: show() replaces the whole block or does nothing.
@@ -134,6 +141,24 @@
     block.classList.remove('is-shown');
     // Force reflow so the fade replays for a genuinely new line.
     void block.offsetWidth;
+    block.classList.add('is-shown');
+  }
+
+  /**
+   * Continuous passthrough (?output=raw). Replaces the text in place as Soniox
+   * revises it, which is exactly what show() refuses to do.
+   *
+   * Kept as a separate function rather than folded into show() on purpose: the
+   * immutability rule above is the one this page exists to enforce, and a
+   * single render path that sometimes mutates would erode it. A `raw` message
+   * only ever arrives on the raw output, which nothing else is pointed at.
+   */
+  function raw(text) {
+    if (typeof text !== 'string') return;
+    guEl.textContent = '';
+    enEl.textContent = text;
+    // No fade and no reflow: the text is changing continuously, and replaying
+    // an animation on every revision would strobe.
     block.classList.add('is-shown');
   }
 
@@ -159,6 +184,7 @@
       var message;
       try { message = JSON.parse(event.data); } catch (err) { return; }
       if (message.type === 'show') show(message.line);
+      else if (message.type === 'raw') raw(message.text);
       else if (message.type === 'clear') clear();
     };
 

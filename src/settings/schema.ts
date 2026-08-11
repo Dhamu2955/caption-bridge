@@ -74,7 +74,9 @@ export interface SettingDescriptor {
   path: string;
   label: string;
   help: string;
-  type: 'string' | 'number' | 'boolean' | 'string[]' | 'termPairs';
+  type: 'string' | 'number' | 'boolean' | 'string[]' | 'termPairs' | 'choice';
+  /** `choice` only: the allowed values, in the order they should be offered. */
+  choices?: readonly { value: string; label: string }[];
   group: SettingGroup;
   appliesTo: AppliesTo;
   unit?: string;
@@ -208,6 +210,18 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     appliesTo: 'next-session',
   },
   {
+    path: 'live.minDisplayMs',
+    label: 'Shortest a caption stays up (live)',
+    help:
+      'Anything briefer is merged into its neighbour rather than flashed, and the queue ' +
+      'leaves at least this long between two lines. Lower it to let short chunks stand on ' +
+      'their own; below about 700ms they are hard to read at the back of a hall.',
+    type: 'number',
+    unit: 'ms',
+    group: 'service',
+    appliesTo: 'next-session',
+  },
+  {
     path: 'live.skipLateLines',
     label: 'Drop captions that miss their moment',
     help:
@@ -218,6 +232,51 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'on is for a service.',
     type: 'boolean',
     on: 'Drop them — right for a service',
+    group: 'service',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.rawPassthrough',
+    label: 'Continuous feed on the raw screen',
+    help:
+      'The fastest this can go: English pushed to /overlay?output=raw the instant Soniox ' +
+      'translates it, with no line building, no queue and no delay. It rewrites itself as ' +
+      'the speaker talks — Gujarati puts the verb last, so a half-finished clause is often ' +
+      're-ordered rather than corrected, and that is what this looks like on screen. It ' +
+      'ADDS a screen: the venue, the stream, the reviewer and the YouTube captions carry on ' +
+      'exactly as before. Rehearse it beside them before pointing a projector at it.',
+    type: 'boolean',
+    on: 'Run the continuous feed as well',
+    group: 'service',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.liveSrt',
+    label: 'Save subtitles from the live service',
+    help:
+      'Writes an .srt into the recordings folder as the service runs, holding exactly what ' +
+      'went out. Put it on the recording afterwards instead of transcribing the video a ' +
+      'second time and paying for the same words twice. Timestamps run from when capture ' +
+      'started, so they line up with a recording that started with it.',
+    type: 'boolean',
+    on: 'Write an .srt as it goes',
+    group: 'service',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.captionTimestampMode',
+    label: 'How YouTube captions are timed',
+    help:
+      'Where each caption is placed on the stream. "When the words were spoken" needs the ' +
+      'video delayed to match the pipeline and the offset below calibrated. "When it is ' +
+      'sent" places it wherever the stream has got to, which needs no offset and no video ' +
+      'delay at all — but only makes sense with the delays turned down, or captions land ' +
+      'as far behind as the pipeline is.',
+    type: 'choice',
+    choices: [
+      { value: 'speech', label: 'When the words were spoken (needs the offset below)' },
+      { value: 'now', label: 'When it is sent — no offset, no video delay' },
+    ],
     group: 'service',
     appliesTo: 'next-session',
   },
@@ -233,6 +292,19 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     appliesTo: 'next-session',
   },
 
+  {
+    path: 'soniox.languageHintsStrict',
+    label: 'Only listen for the languages named',
+    help:
+      'Off, the languages are hints and Soniox may recognise others. On, it is restricted ' +
+      'to them, which Soniox says gives the best results — but this bridge names two ' +
+      'because sermons switch between Gujarati and English mid-sentence. Worth testing ' +
+      'against your own speaker before a service.',
+    type: 'boolean',
+    on: 'Restrict to those languages',
+    group: 'advanced',
+    appliesTo: 'next-session',
+  },
   {
     path: 'soniox.contextTerms',
     label: 'Names and terms',

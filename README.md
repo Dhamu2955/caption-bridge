@@ -618,6 +618,152 @@ The venue screens are unaffected — they stay `delayAssemblyMs` behind the
 speaker (15 seconds by default), because a congregation in the room cannot
 watch captions three minutes late.
 
+### How soon a caption can appear
+
+Two presets on **Settings → This service** move the six settings that decide
+latency together, because changing one without the others is how a screen ends
+up blank. They fill the form — including the fields under *Subtitle shape and
+timing* — and you press Save.
+
+| | Accurate | As fast as it goes | Chunks, as they are said |
+|---|---|---|---|
+| `delayAssemblyMs` | 15000 | 2000 | 1000 |
+| `maxBufferMs` | 8000 | 4000 | 2000 |
+| `minDisplayMs` | 1500 | 1200 | 800 |
+| `endpointSensitivity` | −0.25 | 0.3 | 0.6 |
+| `maxEndpointDelayMs` | 2500 | 1200 | 800 |
+| `skipLateLines` | on | **off** | **off** |
+
+That last row is the one that matters and the one you would not think to
+change. At a 2s assembly delay almost every line is already past its moment by
+the time Soniox has translated it, so leaving skipping on discards the lot —
+fast plus skipping is a blank screen, and the two settings live in different
+sections of the form.
+
+**Where the time actually goes.** `delayAssemblyMs` is not the pipeline
+thinking, it is the queue holding. A line is scheduled for `audioStart +
+delay`, so a caption that was ready in three seconds still waits until fifteen.
+That wait is pure and entirely recoverable — dropping the delay releases each
+line the moment it exists. What remains is Soniox: measured across a real
+sermon, the median caption is ready 7s after its first word and 90% within 12s.
+Cutting sentences sooner (`maxBufferMs`) is the only lever on that, because a
+caption cannot exist until the sentence it covers has been spoken.
+
+**Why lowering `maxBufferMs` on its own does nothing.** It looks like the knob
+that cuts a line every N seconds, and it is — but the builder holds speech until
+its *translation* has arrived, so it cannot cut smaller than Soniox translates.
+Measured: a 2s buffer against 4s translation runs still produces 4s chunks. The
+lever that actually shortens a chunk is `maxEndpointDelayMs`, which is what
+makes Soniox finalise and translate a short run in the first place. Drop that
+too and the same 2s buffer produces 2s chunks. `minDisplayMs` is the third:
+above it, short chunks are merged straight back together.
+
+That is what **Chunks, as they are said** moves — all three, plus the assembly
+delay — so text keeps arriving while someone is still talking rather than
+waiting for them to finish a sentence.
+
+**What no setting can do.** Word-by-word captions, the way an auto-captioned
+English stream reads, are not available at any speed — and the reason is
+grammar, not software. Gujarati is verb-final and English is not, so until the
+verb arrives at the end of a clause the English genuinely cannot be known. Show
+partial results and the text does not refine itself, it restructures: a mandir
+that tried it watched sentences rewrite themselves mid-air, and it was worse
+than no captions. This pipeline is pop-on everywhere, by
+[INVARIANT 4](SPEC.md), and the presets change how long a *finished* line
+waits — never whether an unfinished one is shown.
+
+**What fast costs.** Sentences get cut mid-thought more often. Pushing Soniox
+to commit sooner makes it mishear more — the documented failure is a compound
+split at the wrong point, where *આ દર્શન-શ્રવણ* ("this seeing-and-hearing")
+becomes *આદર્શ* ("ideal"). And with skipping off nothing catches up, so a slow
+patch leaves the captions further behind for the rest of the service.
+
+### Timing YouTube captions
+
+Two modes, on **Settings → This service → How YouTube captions are timed**.
+They correspond to two different shapes of pipeline and picking the wrong one
+puts every caption out by the length of the delay.
+
+| | When the words were spoken (`speech`) | When it is sent (`now`) |
+|---|---|---|
+| Stamp | `sessionEpoch + audioStartMs + streamOffsetMs` | the moment of the POST |
+| Needs the video delayed | **yes**, by at least `delayAssemblyMs + delayReviewMs` | no |
+| Needs `streamOffsetMs` calibrated | **yes**, on a private test stream | no |
+| Right when | you run a review window and delay the stream to match | you run the delays at or near zero |
+
+`speech` is the original and stays the default: it is the only correct answer
+when a caption is posted minutes after the words, because the caption has to
+name the moment it belongs to. The cost is that two things have to be set up
+and kept in step — a video delay of at least `A + B`, and an offset equal to
+the whole speech-to-YouTube latency.
+
+`now` removes both. The caption is placed wherever the stream has actually got
+to, so it is self-correcting: no offset, no video delay, nothing to calibrate
+before a festival. It is only correct with the delays turned down — post a
+caption fifteen seconds late and stamp it "now" and it lands fifteen seconds
+past its words. Pair it with **As fast as it goes** or **Chunks, as they are
+said**.
+
+This is the one thing a working prototype of the same job does differently, and
+it is why that prototype needs no timing configuration at all — over twelve
+thousand accepted posts with neither setting.
+
+Two other things came from reading it: caption POSTs now **retry** on YouTube's
+own randomised backoff (four attempts) instead of dropping the caption on the
+first blip, and the body carries YouTube's `region:reg1#cue1` cue positioning,
+which is the variant with ten thousand accepted posts behind it.
+
+### Subtitles from a live service
+
+On by default (`live.liveSrt`). A live service writes an `.srt` into the
+recordings folder as it runs, holding exactly what went out. Put that on the
+recording afterwards rather than ingesting the video and paying Soniox a second
+time for words it has already transcribed. Timestamps run from when capture
+started, so they line up with a recording that started with it.
+
+### The continuous feed
+
+The fastest thing here, and the only one that is not pop-on. Turn on
+**Continuous feed on the raw screen** (Settings → This service,
+`live.rawPassthrough`) and point a browser at:
+
+```
+/overlay?output=raw&token=…
+```
+
+English is pushed to that page the instant Soniox translates it — no line
+building, no queue, no delay, no review. Soniox streams translation "chunk by
+chunk, without waiting for the full sentence", and this renders exactly that.
+
+**It rewrites itself, and that is what it is.** Provisional text is revised as
+more of the clause arrives, and because Gujarati puts the verb last the revision
+is usually a re-ordering rather than a corrected word:
+
+```
+Today we
+Today we remember
+Today we remember the saints
+Today we remember the saints who came before us
+```
+
+That is the effect INVARIANT 4 was written to prevent, so it lives on a screen
+of its own. **Rehearse it beside the venue overlay before pointing a projector
+at it** — the two look very different in a hall, and the difference does not
+come across in a terminal.
+
+Three things it deliberately does not touch:
+
+- **Every other output is unchanged.** Venue, stream, overflow, the reviewer
+  and the YouTube captions stay pop-on whether this is on or off. The line
+  builder drops non-final tokens regardless of the setting.
+- **YouTube captions cannot use it.** Translated tokens carry no timestamps, so
+  there is nothing to anchor a caption to on the stream's timeline.
+- **The reviewer cannot use it.** Text is on screen before anyone could read
+  it, so there is nothing to hold, correct or drop.
+
+The Gujarati source never appears on it — only the English, plus any English
+the speaker used directly.
+
 ### Showing every line, however late
 
 A line that becomes ready more than `live.lateSkipMs` (2s) after its moment is
@@ -884,7 +1030,7 @@ public/
   capture-worklet.js     browser audio capture, on the audio thread
 prisma/schema.prisma     database schema
 docs/                    architecture and vMix routing
-test/                    446 tests
+test/                    488 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else
@@ -955,6 +1101,17 @@ point of §4 is that no correction ever needs backfilling, which a non-null
 column achieves — but stamping `local` on 594 machine-generated lines would
 claim a person wrote them. `editedAt IS NULL` is the precise test for "never
 touched by a human".
+
+**There is now one roll-up surface, against INVARIANT 4.** The invariant says
+`includeNonFinal: false` on *every* output, and it was written after a mandir
+shipped partial rendering and found the rewriting worse than no captions. That
+reasoning is intact and still governs `venue`, `stream`, `overflow`, the
+reviewer and the YouTube captions — the line builder discards non-final tokens
+whatever the config says, so none of them can show one by any route. What is
+new is `/overlay?output=raw`, an opt-in screen whose entire purpose is
+rendering provisional text as fast as it arrives. It is an addition, not a
+change: turning it on alters nothing about the outputs above. See [The
+continuous feed](#the-continuous-feed).
 
 **Subtitle boundaries don't use endpoint detection (§4).** That feature only
 exists in Soniox's real-time API; an async transcript is a flat stream with no

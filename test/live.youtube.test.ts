@@ -56,7 +56,12 @@ describe('YouTube live captions', () => {
 
     await adapter.show(line('a', 0, 'Devotion is the path.'));
 
-    expect(posts[0]?.body).toBe('2026-08-02T18:30:00.000\nDevotion is the path.\n');
+    // The region marker is YouTube's cue positioning. Both this and a bare
+    // timestamp are accepted; this is the variant with ten thousand accepted
+    // posts behind it from a working prototype of the same job.
+    expect(posts[0]?.body).toBe(
+      '2026-08-02T18:30:00.000 region:reg1#cue1\nDevotion is the path.\n',
+    );
   });
 
   it('timestamps against audio position, not arrival (INVARIANT 9)', () => {
@@ -78,6 +83,22 @@ describe('YouTube live captions', () => {
     // Spoken at 0s, but the encoder holds the video three minutes, so the
     // words reach YouTube's timeline three minutes in.
     expect(adapter.timestampFor(line('a', 0))).toBe('2026-08-02T18:33:00.000');
+  });
+
+  it('stamps with the send time in "now" mode, so nothing needs calibrating', async () => {
+    // The single change that makes a zero-delay path work: the caption is
+    // placed wherever the stream has actually got to, rather than where the
+    // words were spoken, so there is no offset and no video delay to match.
+    const adapter = new YoutubeLiveAdapter({
+      ingestionUrl: 'http://upload.test/cc?cid=abc',
+      sessionEpoch: EPOCH,
+      timestampMode: 'now',
+      streamOffsetMs: 180_000,
+      now: () => EPOCH + 42_000,
+    });
+
+    // Spoken at 90s and the offset is three minutes; neither is consulted.
+    expect(adapter.timestampFor(line('a', 90_000))).toBe('2026-08-02T18:30:42.000');
   });
 
   it('numbers posts from one, in order', async () => {
@@ -115,23 +136,95 @@ describe('YouTube live captions', () => {
       ingestionUrl: 'http://upload.test/cc?cid=abc',
       sessionEpoch: EPOCH,
       fetchImpl,
+      sleep: async () => {},
       onError: () => {},
     });
 
     await adapter.show(line('a', 0));
     await adapter.show(line('b', 3000));
 
+    // First attempt failed, the retry reused the same number, and only the
+    // line after it moved on.
     expect(posts[0]?.url).toContain('&seq=1');
     expect(posts[1]?.url).toContain('&seq=1');
+    expect(posts[2]?.url).toContain('&seq=2');
   });
 
-  it('reports a failed post without throwing into the scheduler', async () => {
+  it('retries a transient failure rather than losing the caption', async () => {
+    // YouTube's own policy, and not a rare path: a working prototype of this
+    // job logged 275 failures against 12,473 accepted posts. Before this, one
+    // blip took that caption off the broadcast with nothing said.
     const errors: Error[] = [];
-    const { fetchImpl } = harness([new Error('ECONNRESET')]);
+    const { posts, fetchImpl } = harness([new Error('ECONNRESET')]);
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
       sessionEpoch: EPOCH,
       fetchImpl,
+      sleep: async () => {},
+      onError: (err) => errors.push(err),
+    });
+
+    await adapter.show(line('a', 0, 'Devotion is the path.'));
+
+    expect(posts).toHaveLength(2);
+    expect(errors).toEqual([]);
+  });
+
+  it('gives up after four attempts and says so once', async () => {
+    const errors: Error[] = [];
+    const { posts, fetchImpl } = harness([
+      new Error('ECONNRESET'),
+      new Error('ECONNRESET'),
+      new Error('ECONNRESET'),
+      new Error('ECONNRESET'),
+    ]);
+    const adapter = new YoutubeLiveAdapter({
+      ingestionUrl: 'http://upload.test/cc?cid=abc',
+      sessionEpoch: EPOCH,
+      fetchImpl,
+      sleep: async () => {},
+      onError: (err) => errors.push(err),
+    });
+
+    await adapter.show(line('a', 0));
+    expect(posts).toHaveLength(4);
+    expect(errors).toHaveLength(1);
+  });
+
+  it('re-stamps each retry, so a backoff does not misplace a "now" caption', async () => {
+    // The whole point of `now` mode is that the stamp says where the stream
+    // has got to. Carrying the first attempt's stamp through a 400ms backoff
+    // would place it before the words it belongs to.
+    const { posts, fetchImpl } = harness([new Error('ECONNRESET')]);
+    let clock = EPOCH;
+    const adapter = new YoutubeLiveAdapter({
+      ingestionUrl: 'http://upload.test/cc?cid=abc',
+      sessionEpoch: EPOCH,
+      timestampMode: 'now',
+      fetchImpl,
+      sleep: async () => { clock += 400; },
+      now: () => clock,
+      onError: () => {},
+    });
+
+    await adapter.show(line('a', 0));
+    expect(posts[0]?.body).toContain('18:30:00.000');
+    expect(posts[1]?.body).toContain('18:30:00.400');
+  });
+
+  it('reports a failed post without throwing into the scheduler', async () => {
+    const errors: Error[] = [];
+    const { fetchImpl } = harness([
+      new Error('ECONNRESET'),
+      new Error('ECONNRESET'),
+      new Error('ECONNRESET'),
+      new Error('ECONNRESET'),
+    ]);
+    const adapter = new YoutubeLiveAdapter({
+      ingestionUrl: 'http://upload.test/cc?cid=abc',
+      sessionEpoch: EPOCH,
+      fetchImpl,
+      sleep: async () => {},
       onError: (err) => errors.push(err),
     });
 
@@ -142,11 +235,17 @@ describe('YouTube live captions', () => {
 
   it('reports a non-2xx response too', async () => {
     const errors: Error[] = [];
-    const { fetchImpl } = harness([new Response('nope', { status: 403 })]);
+    const { fetchImpl } = harness([
+      new Response('nope', { status: 403 }),
+      new Response('nope', { status: 403 }),
+      new Response('nope', { status: 403 }),
+      new Response('nope', { status: 403 }),
+    ]);
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
       sessionEpoch: EPOCH,
       fetchImpl,
+      sleep: async () => {},
       onError: (err) => errors.push(err),
     });
 

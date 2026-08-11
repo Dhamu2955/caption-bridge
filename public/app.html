@@ -1477,6 +1477,40 @@
     host.appendChild(row);
   }
 
+  /**
+   * Fill the form from a preset.
+   *
+   * `inputs` only holds the fields of the pane being rendered, so a preset
+   * naming a setting from another section — which every one of them does —
+   * would silently miss it. The leftovers are carried in `pendingPreset` and
+   * applied to each pane as it is built, and to the patch on save.
+   */
+  var pendingPreset = {};
+
+  /** Every pane's fields, so a preset reaches the ones not on screen. */
+  function resetPresetState() {
+    pendingPreset = {};
+    allSettingInputs = [];
+  }
+
+  function applyPreset(preset, inputs) {
+    pendingPreset = Object.assign({}, pendingPreset, preset.values);
+    fillFromPending(inputs);
+    // Panes already built but not currently on screen.
+    allSettingInputs.forEach(fillFromPending);
+  }
+
+  function fillFromPending(inputs) {
+    inputs.forEach(function (entry) {
+      if (!Object.prototype.hasOwnProperty.call(pendingPreset, entry.setting.path)) return;
+      var value = pendingPreset[entry.setting.path];
+      if (entry.setting.type === 'boolean') entry.input.checked = value === true;
+      else entry.input.value = String(value);
+    });
+  }
+
+  var allSettingInputs = [];
+
   function valueToInput(setting, value) {
     if (setting.type === 'string[]') return (value || []).join('\n');
     if (setting.type === 'termPairs') {
@@ -1486,6 +1520,7 @@
   }
 
   function inputToValue(setting, raw) {
+    if (setting.type === 'choice') return raw;
     if (setting.type === 'number') {
       var n = Number(raw);
       if (raw.trim() === '' || Number.isNaN(n)) throw new Error(setting.label + ' must be a number');
@@ -1522,6 +1557,10 @@
   function renderSettings(body) {
     var groupHost = el('settings-groups');
     groupHost.innerHTML = '';
+    // The old panes are gone; anything a preset filled into them went with
+    // them, and carrying the pending values past a reload would re-apply a
+    // preset the operator may have decided against.
+    resetPresetState();
 
     var groups = {};
     body.settings.forEach(function (setting) {
@@ -1582,6 +1621,41 @@
       }
 
       var inputs = [];
+
+      // Latency presets. They fill the fields rather than saving, so the
+      // operator sees every value that would change — including the ones two
+      // sections down that make the difference between fast and blank.
+      if (info.id === 'service' && (body.latencyPresets || []).length) {
+        var presetRow = document.createElement('div');
+        presetRow.className = 'row';
+        body.latencyPresets.forEach(function (preset) {
+          var button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'slim';
+          button.textContent = preset.label;
+          button.addEventListener('click', function () {
+            applyPreset(preset, inputs);
+            notice(
+              el('settings-notice'),
+              'warn',
+              preset.label + ' — ' + preset.cost + ' Nothing is saved until you press Save.',
+            );
+          });
+          presetRow.appendChild(button);
+        });
+        host.appendChild(presetRow);
+
+        var presetHelp = document.createElement('p');
+        presetHelp.className = 'hint';
+        text(
+          presetHelp,
+          'How soon a caption appears, as one decision instead of six. These move settings ' +
+          'on this section and on "Subtitle shape and timing" together, because changing one ' +
+          'without the others is how a screen ends up blank.'
+        );
+        host.appendChild(presetHelp);
+      }
+
       groups[info.id].forEach(function (setting) {
         var field = document.createElement('div');
         field.className = 'field';
@@ -1598,8 +1672,18 @@
         field.appendChild(label);
 
         var multiline = setting.type === 'string[]' || setting.type === 'termPairs';
-        var input = document.createElement(multiline ? 'textarea' : 'input');
-        if (!multiline) {
+        var input = setting.type === 'choice'
+          ? document.createElement('select')
+          : document.createElement(multiline ? 'textarea' : 'input');
+        if (setting.type === 'choice') {
+          (setting.choices || []).forEach(function (choice) {
+            var option = document.createElement('option');
+            option.value = choice.value;
+            option.textContent = choice.label;
+            input.appendChild(option);
+          });
+        }
+        if (!multiline && setting.type !== 'choice') {
           input.type = setting.type === 'boolean'
             ? 'checkbox'
             : setting.type === 'number' ? 'number' : 'text';
@@ -1631,13 +1715,21 @@
         host.appendChild(field);
       });
 
+      allSettingInputs.push(inputs);
+      fillFromPending(inputs);
+
       var row = document.createElement('div');
       row.className = 'row';
       var save = document.createElement('button');
       save.className = 'slim primary';
       save.textContent = 'Save';
       save.addEventListener('click', function () {
-        var patch = {};
+        // A preset changes settings on more than one section, and Save only
+        // ever reads the section it is on — so the preset's own values go in
+        // first and this pane's fields overwrite them. Without this, pressing
+        // Save here would apply half a preset and leave the rest showing
+        // values that were never written.
+        var patch = Object.assign({}, pendingPreset);
         try {
           inputs.forEach(function (entry) {
             patch[entry.setting.path] = entry.setting.type === 'boolean'

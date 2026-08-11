@@ -15,6 +15,7 @@ import { OverlayRegistry, OVERLAY_NAMES } from '../live/overlays.js';
 import { capabilitiesFrom, PreflightChecks } from '../live/preflight.js';
 import { QueueCounters } from '../live/counters.js';
 import { probeInput } from '../live/probe.js';
+import { LATENCY_PRESETS } from '../live/presets.js';
 import { BridgeServer } from '../live/server.js';
 import { LiveSessionManager, NotConfiguredError } from '../live/sessionManager.js';
 import { listAllServices } from './edit.js';
@@ -322,6 +323,9 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     res.json({
       settings: SETTINGS,
       groups: SETTING_GROUPS,
+      // Offered by the page as a way to fill the form, never applied here: the
+      // operator sees every value it would change and presses Save themselves.
+      latencyPresets: LATENCY_PRESETS,
       values: Object.fromEntries(
         SETTINGS.map((setting) => [setting.path, readAt(store.current, setting.path)]),
       ),

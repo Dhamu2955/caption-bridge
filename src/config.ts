@@ -22,6 +22,14 @@ export interface SonioxConfig {
   /** Source→target pairs so the same term translates consistently every week. */
   translationTerms: TranslationTerm[];
   /**
+   * Restrict recognition to `sourceLanguages` rather than treating them as
+   * hints. Soniox's own guidance is that results are best with a single
+   * language named, and a working prototype of this job sets it — but this
+   * bridge names two (gu and en) because sermons code-switch, so it is off by
+   * default and worth testing against your own speaker.
+   */
+  languageHintsStrict: boolean;
+  /**
    * Use the built-in Swaminarayan glossary and register instructions from
    * `soniox/vocabulary.ts`. The two lists above are added on top of it and win
    * on conflict. Off means local terms alone.
@@ -108,6 +116,29 @@ export interface AppConfig {
      * looks like a bug.
      */
     skipLateLines: boolean;
+    /**
+     * Continuous passthrough on the `raw` overlay: translation tokens pushed to
+     * screen as Soniox emits them, with no line building, no queue and no delay.
+     *
+     * It is the fastest this can go and it rewrites itself as it goes — see
+     * pipeline/rawStream.ts and INVARIANT 4. It adds an output rather than
+     * changing one: venue, stream, the reviewer and the YouTube captions are
+     * bit-for-bit unaffected whether this is on or off.
+     */
+    rawPassthrough: boolean;
+    /**
+     * Which clock a YouTube caption's timestamp comes from — see
+     * adapters/youtubeLive.ts. `speech` needs the video delayed to match the
+     * pipeline and `streamOffsetMs` calibrated; `now` needs neither, and needs
+     * the delays turned down instead.
+     */
+    captionTimestampMode: 'speech' | 'now';
+    /**
+     * Write an .srt into `paths.recordings` while a live service runs, so the
+     * words that went out can be put on the recording afterwards without
+     * transcribing it a second time.
+     */
+    liveSrt: boolean;
     /** Names the variable holding YouTube's caption ingestion URL. The URL
      *  embeds a `cid` that identifies the stream, so it is a credential and
      *  lives in .env with the rest — never in this committed file. */
@@ -152,6 +183,7 @@ const DEFAULTS = {
     contextTerms: [] as string[],
     translationTerms: [] as TranslationTerm[],
     builtInGlossary: true,
+    languageHintsStrict: false,
   },
   ingest: {
     pauseMs: 1200,
@@ -196,6 +228,9 @@ const DEFAULTS = {
     minDisplayMs: 1500,
     lateSkipMs: 2000,
     skipLateLines: true,
+    rawPassthrough: false,
+    captionTimestampMode: 'speech' as const,
+    liveSrt: true,
     youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
     streamOffsetMs: 0,
     maxBufferMs: 8000,
@@ -255,6 +290,20 @@ function num(value: unknown, path: string, fallback: number): number {
     throw new ConfigError(`${path} must be a non-negative number`);
   }
   return value;
+}
+
+/** A string from a fixed set — anything else is a typo worth naming. */
+function oneOf<T extends string>(
+  value: unknown,
+  path: string,
+  fallback: T,
+  allowed: readonly T[],
+): T {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    throw new ConfigError(`${path} must be one of: ${allowed.join(', ')}`);
+  }
+  return value as T;
 }
 
 function bool(value: unknown, path: string, fallback: boolean): boolean {
@@ -320,6 +369,11 @@ export function parseConfig(raw: unknown): AppConfig {
       targetLanguage: str(soniox['targetLanguage'], 'soniox.targetLanguage', DEFAULTS.soniox.targetLanguage),
       contextTerms: strArray(soniox['contextTerms'], 'soniox.contextTerms', DEFAULTS.soniox.contextTerms),
       translationTerms: translationTerms(soniox['translationTerms'], 'soniox.translationTerms'),
+      languageHintsStrict: bool(
+        soniox['languageHintsStrict'],
+        'soniox.languageHintsStrict',
+        DEFAULTS.soniox.languageHintsStrict,
+      ),
       builtInGlossary: bool(
         soniox['builtInGlossary'],
         'soniox.builtInGlossary',
@@ -372,6 +426,14 @@ export function parseConfig(raw: unknown): AppConfig {
       minDisplayMs: num(live['minDisplayMs'], 'live.minDisplayMs', DEFAULTS.live.minDisplayMs),
       lateSkipMs: num(live['lateSkipMs'], 'live.lateSkipMs', DEFAULTS.live.lateSkipMs),
       skipLateLines: bool(live['skipLateLines'], 'live.skipLateLines', DEFAULTS.live.skipLateLines),
+      rawPassthrough: bool(live['rawPassthrough'], 'live.rawPassthrough', DEFAULTS.live.rawPassthrough),
+      liveSrt: bool(live['liveSrt'], 'live.liveSrt', DEFAULTS.live.liveSrt),
+      captionTimestampMode: oneOf(
+        live['captionTimestampMode'],
+        'live.captionTimestampMode',
+        DEFAULTS.live.captionTimestampMode,
+        ['speech', 'now'] as const,
+      ),
       youtubeCaptionsUrlEnv: str(
         live['youtubeCaptionsUrlEnv'],
         'live.youtubeCaptionsUrlEnv',

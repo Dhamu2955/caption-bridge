@@ -17,7 +17,7 @@ import type { OutputConfig } from './types.js';
  * here because it is not configurable.
  */
 
-export type OutputName = 'stream' | 'reviewer' | 'venue' | 'overflow' | 'stub';
+export type OutputName = 'stream' | 'reviewer' | 'venue' | 'overflow' | 'raw' | 'stub';
 
 export function outputConfigs(config: AppConfig): Record<OutputName, OutputConfig> {
   const { delayAssemblyMs, delayReviewMs, minDisplayMs, lateSkipMs, skipLateLines } = config.live;
@@ -31,6 +31,9 @@ export function outputConfigs(config: AppConfig): Record<OutputName, OutputConfi
     reviewer: { name: 'reviewer', delayMs: delayAssemblyMs, reviewed: false, ...base },
     venue: { name: 'venue', delayMs: delayAssemblyMs, reviewed: false, ...base },
     overflow: { name: 'overflow', delayMs: delayAssemblyMs, reviewed: false, ...base },
+    // Never scheduled through the queue — it is fed straight from the token
+    // stream. Present so the name resolves and an overlay can be opened on it.
+    raw: { name: 'raw', delayMs: 0, reviewed: false, ...base },
     stub: { name: 'stub', delayMs: 0, reviewed: false, ...base },
   };
 }
