@@ -41,6 +41,21 @@ export interface CaptureOptions {
   chunkBytes?: number;
   /** `file` format only: start again at the end, for a long rehearsal. */
   loop?: boolean;
+  /**
+   * Which input channel carries the speaker, 1-based. Undefined mixes them all.
+   *
+   * Mixing is right for a virtual cable, which is mono or a stereo pair of the
+   * same thing, and quietly wrong for anything with real inputs. A capture card
+   * or an interface presents every input as a channel of one device: an
+   * UltraStudio offers sixteen, a 2i2 offers two, and only one of them has a
+   * microphone on it. Averaging that one with fifteen silent channels does not
+   * fail — it attenuates the speaker by 24 dB and produces a feed that looks
+   * connected, meters near zero and transcribes as silence.
+   *
+   * This is what the browser's own picker gives you for free by naming the
+   * inputs separately, and what device capture had no way to express.
+   */
+  channel?: number | undefined;
 }
 
 export interface CaptureEvents {
@@ -78,31 +93,31 @@ export function avfoundationInput(device: string): string {
   return device.includes(':') ? device : `:${device}`;
 }
 
-export function buildCaptureArgs(options: CaptureOptions): string[] {
-  const format = options.format ?? defaultFormat();
-  const sampleRate = options.sampleRate ?? 16000;
+/**
+ * Take one channel instead of averaging them.
+ *
+ * `pan` indexes the input's channels directly (`c0`, `c1`, …), which is what
+ * makes it work on a sixteen-channel card ffmpeg has no layout name for. An
+ * index past the end is an error from ffmpeg rather than silence, which is the
+ * right way round: "channel 4 of a 2-channel device" should say so.
+ */
+export function channelFilter(channel: number | undefined): string | undefined {
+  if (channel === undefined) return undefined;
+  if (!Number.isInteger(channel) || channel < 1) {
+    throw new Error(`channel must be a whole number from 1 up, got ${channel}`);
+  }
+  return `pan=mono|c0=c${channel - 1}`;
+}
 
-  const output = [
-    '-ac', '1',
-    '-ar', String(sampleRate),
-    '-acodec', 'pcm_s16le',
-    '-f', 's16le',
-    '-',
-  ];
+/** The input half of the command line, shared with the probe. */
+export function buildInputArgs(options: Pick<CaptureOptions, 'device' | 'format' | 'loop'>): string[] {
+  const format = options.format ?? defaultFormat();
 
   if (format === 'file') {
     // -re paces the read at the recording's own speed. Without it ffmpeg reads
     // as fast as the disk allows and a 69-minute sermon arrives in seconds,
     // which tells you nothing about a pipeline whose whole job is timing.
-    return [
-      '-nostdin',
-      '-hide_banner',
-      '-loglevel', 'error',
-      ...(options.loop ? ['-stream_loop', '-1'] : []),
-      '-re',
-      '-i', options.device,
-      ...output,
-    ];
+    return [...(options.loop ? ['-stream_loop', '-1'] : []), '-re', '-i', options.device];
   }
 
   const input =
@@ -112,12 +127,27 @@ export function buildCaptureArgs(options: CaptureOptions): string[] {
         ? avfoundationInput(options.device)
         : options.device;
 
+  return ['-f', format, '-i', input];
+}
+
+export function buildCaptureArgs(options: CaptureOptions): string[] {
+  const sampleRate = options.sampleRate ?? 16000;
+  const pan = channelFilter(options.channel);
+
+  const output = [
+    ...(pan ? ['-af', pan] : []),
+    '-ac', '1',
+    '-ar', String(sampleRate),
+    '-acodec', 'pcm_s16le',
+    '-f', 's16le',
+    '-',
+  ];
+
   return [
     '-nostdin',
     '-hide_banner',
     '-loglevel', 'error',
-    '-f', format,
-    '-i', input,
+    ...buildInputArgs(options),
     ...output,
   ];
 }
@@ -145,12 +175,16 @@ export class AudioCapture extends EventEmitter<CaptureEvents> {
   }
 
   /** Point at a different input. Takes effect on the next `start()`. */
-  setDevice(device: string): void {
-    this.options = { ...this.options, device };
+  setDevice(device: string, channel?: number | undefined): void {
+    this.options = { ...this.options, device, channel };
   }
 
   get device(): string {
     return this.options.device;
+  }
+
+  get channel(): number | undefined {
+    return this.options.channel;
   }
 
   /**

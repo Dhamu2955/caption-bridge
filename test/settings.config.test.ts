@@ -163,6 +163,15 @@ describe('settings schema', () => {
     }
   });
 
+  it('exposes every setting the config actually reads', () => {
+    // A setting that exists in config.json but not here is one nobody can
+    // change from the app, which is where this machine is set up from.
+    const paths = SETTINGS.map((setting) => setting.path);
+    for (const path of ['server.host', 'server.port', 'server.shareTokenOnLan']) {
+      expect(paths, path).toContain(path);
+    }
+  });
+
   it('spots things that belong in .env', () => {
     expect(looksLikeSecret('sk-abcdefghijklmnopqrstuvwxyz')).toBe(true);
     expect(looksLikeSecret('postgresql://user:pass@localhost:5433/db')).toBe(true);

@@ -181,6 +181,32 @@
 
   .status-line { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
 
+  /* One row per channel of the device under test. Read side by side, the
+     answer is usually obvious at a glance: one row long, the rest empty. */
+  .channels { margin-top: var(--s3); }
+  .channel-row {
+    display: flex; align-items: center; gap: var(--s3);
+    padding: 5px 0;
+  }
+  .channel-row .who {
+    flex: 0 0 5.5rem;
+    font-family: var(--mono); font-size: 0.76rem; color: var(--ink-soft);
+  }
+  .channel-row .bar {
+    flex: 1 1 auto; height: 8px; border-radius: 4px;
+    background: var(--rule-soft); overflow: hidden;
+  }
+  .channel-row .bar span {
+    display: block; height: 100%; border-radius: 4px; background: var(--rule);
+  }
+  .channel-row[data-live="yes"] .bar span { background: var(--live); }
+  .channel-row[data-live="yes"] .who { color: var(--ink); }
+  .channel-row .db {
+    flex: 0 0 4.5rem; text-align: right;
+    font-family: var(--mono); font-size: 0.74rem; color: var(--ink-faint);
+  }
+  .channel-row[data-live="yes"] .db { color: var(--live); }
+
   .url {
     display: block; padding: 8px var(--s3); margin-top: var(--s1);
     border-radius: var(--radius-sm); background: var(--sunk);
@@ -434,6 +460,20 @@
       its own — not the main mix. Anything else feeds the music and the
       congregation into the translation as well.
     </p>
+
+    <!-- An interface or a capture card presents every one of its inputs as a
+         channel of a single device. Mixing them all together is right for a
+         virtual cable and quietly wrong here: it averages the speaker with
+         however many silent channels sit beside them. Test says which is
+         which; this says which one to take. -->
+    <span class="label" style="margin-top:var(--s4)">Which input on that device</span>
+    <select id="channel">
+      <option value="">All of them, mixed together</option>
+    </select>
+    <div class="row">
+      <button id="test-input">Test this input</button>
+    </div>
+    <div id="input-test"></div>
     </div>
 
     <div id="browser-row" hidden>
@@ -444,6 +484,12 @@
         no ffmpeg and no device names typed exactly right. It captures from
         <strong>whichever machine has this page open</strong>, and the page must
         stay open for the whole service.
+      </p>
+      <p class="hint">
+        So this cannot be driven from somewhere else: open it on a laptop and it
+        captures that laptop, not the mixer plugged into the bridge. To run a
+        service from another machine, use <strong>an audio device on this
+        machine</strong> above and pick the input there.
       </p>
     </div>
 
@@ -461,6 +507,7 @@
       <span class="dot" id="live-dot"></span>
       <span id="live-state">Not running</span>
     </div>
+    <div id="capture-error" hidden></div>
     <span class="label">Sound coming in</span>
     <div class="meter"><div class="meter-fill" id="meter"></div></div>
     <!-- The quiet failure: a pulled cable, a muted bus, a virtual cable
@@ -784,6 +831,12 @@
     el('meter').style.width = Math.min(100, Math.round(level * 320)) + '%';
     renderFeed(status.session && status.session.silentForMs);
 
+    // Capture's own complaints used to reach the server's terminal and nowhere
+    // else — the one screen nobody is watching when the session is being driven
+    // from a tablet in another room. A device that refused to open looked
+    // exactly like a speaker who had not started talking yet.
+    renderCaptureError(status.session && status.session.captureError);
+
     el('start').disabled = running;
     el('stop').disabled = !running;
 
@@ -880,6 +933,17 @@
 
       host.appendChild(wrap);
     });
+  }
+
+  function renderCaptureError(message) {
+    var host = el('capture-error');
+    host.innerHTML = '';
+    host.hidden = !message;
+    if (!message) return;
+    var note = document.createElement('div');
+    note.className = 'notice bad';
+    text(note, 'The sound input failed: ' + message);
+    host.appendChild(note);
   }
 
   function poll() {
@@ -980,6 +1044,148 @@
       }
     }).catch(function () {});
   }
+
+  /* ---- which input on the device, and what is on each one --------------- */
+
+  /**
+   * The failure this pair of controls exists for.
+   *
+   * An interface or a capture card is one device with several inputs, and the
+   * bridge used to mix every one of them into the feed. On a card with sixteen
+   * channels and the sermon on the first, that is the speaker averaged with
+   * fifteen silences — 24 dB down, a meter that barely moves, and a
+   * transcription of nothing. Nothing errors, so nothing says so. The browser
+   * path never had the problem because its picker names the inputs separately,
+   * which is exactly what this adds to device capture.
+   */
+  function fillChannels(count, live) {
+    var select = el('channel');
+    var chosen = select.value;
+    select.innerHTML = '';
+
+    var all = document.createElement('option');
+    all.value = '';
+    all.textContent = count > 1
+      ? 'All ' + count + ' mixed together — only right for a virtual cable'
+      : 'All of them, mixed together';
+    select.appendChild(all);
+
+    for (var i = 1; i <= count; i++) {
+      var option = document.createElement('option');
+      option.value = String(i);
+      option.textContent = 'Input ' + i
+        + (live && live.indexOf(i) !== -1 ? ' — sound on this one' : '');
+      select.appendChild(option);
+    }
+    select.value = chosen;
+    // A channel that no longer exists would otherwise sit selected and fail at
+    // start time with "Invalid channel index".
+    if (select.value !== chosen) select.value = '';
+  }
+
+  function channelValue() {
+    var raw = el('channel').value;
+    return raw === '' ? undefined : Number(raw);
+  }
+
+  function renderProbe(probe) {
+    var host = el('input-test');
+    host.innerHTML = '';
+
+    var summary = document.createElement('div');
+    if (probe.silent) {
+      summary.className = 'notice bad';
+      text(summary,
+        probe.channels + (probe.channels === 1 ? ' input' : ' inputs')
+        + ', and every one of them was completely silent for '
+        + probe.seconds + ' seconds. The device opens but nothing is reaching it — '
+        + 'check the cable, and that the source is actually playing.');
+    } else if (probe.live.length === probe.channels) {
+      summary.className = 'notice good';
+      text(summary, 'Sound on every input. Mixing them together is fine.');
+    } else {
+      summary.className = 'notice warn';
+      var names = probe.live.map(function (c) { return 'input ' + c; }).join(' and ');
+      text(summary,
+        'Sound on ' + names + ' only, out of ' + probe.channels + '. '
+        + 'Choose it above — mixing all ' + probe.channels + ' together drops the speaker '
+        + Math.round(20 * Math.log10(probe.channels)) + ' dB and can look like silence.');
+    }
+    host.appendChild(summary);
+
+    var list = document.createElement('div');
+    list.className = 'channels';
+    probe.levels.forEach(function (level) {
+      var row = document.createElement('div');
+      row.className = 'channel-row';
+      row.setAttribute('data-live', probe.live.indexOf(level.channel) !== -1 ? 'yes' : 'no');
+
+      var who = document.createElement('span');
+      who.className = 'who';
+      text(who, 'Input ' + level.channel);
+      row.appendChild(who);
+
+      var bar = document.createElement('span');
+      bar.className = 'bar';
+      var fill = document.createElement('span');
+      // dBFS from −60 up, which is where a noise floor stops and a signal
+      // starts. Linear RMS would leave every real level pinned at the far left.
+      var pct = level.peakDb === null ? 0 : Math.max(0, Math.min(100, (level.peakDb + 60) / 60 * 100));
+      fill.style.width = pct + '%';
+      bar.appendChild(fill);
+      row.appendChild(bar);
+
+      var db = document.createElement('span');
+      db.className = 'db';
+      text(db, level.peakDb === null ? 'silent' : level.peakDb + ' dB');
+      row.appendChild(db);
+
+      list.appendChild(row);
+    });
+    host.appendChild(list);
+
+    fillChannels(probe.channels, probe.live);
+    // One live channel and nothing chosen yet: choose it. This is the whole
+    // fix, and making somebody find it in a dropdown after being told which one
+    // it is would be a step with no purpose.
+    if (probe.live.length === 1 && el('channel').value === '') {
+      el('channel').value = String(probe.live[0]);
+    }
+  }
+
+  function testInput() {
+    var device = el('device').value;
+    var button = el('test-input');
+    if (!device) return;
+
+    button.disabled = true;
+    text(button, 'Listening…');
+    el('input-test').innerHTML = '';
+
+    api('/api/input-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device: device, seconds: 4 }),
+    }).then(renderProbe).catch(function (err) {
+      var host = el('input-test');
+      host.innerHTML = '';
+      var note = document.createElement('div');
+      note.className = 'notice bad';
+      text(note, err.message);
+      host.appendChild(note);
+    }).then(function () {
+      button.disabled = false;
+      text(button, 'Test this input');
+    });
+  }
+
+  el('test-input').addEventListener('click', testInput);
+  // A different device has a different number of inputs, and carrying the old
+  // choice across would take channel 9 of a two-channel interface.
+  el('device').addEventListener('change', function () {
+    fillChannels(0, []);
+    el('input-test').innerHTML = '';
+  });
 
   function source() { return el('source').value; }
 
@@ -1130,6 +1336,8 @@
       body.format = 'browser';
     } else {
       body.device = el('device').value;
+      var channel = channelValue();
+      if (channel) body.channel = channel;
     }
     return body;
   }

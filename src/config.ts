@@ -76,7 +76,16 @@ export interface AppConfig {
   search: SearchConfig;
   paths: { media: string; recordings: string };
   database: { urlEnv: string };
-  server: { host: string; port: number };
+  server: {
+    host: string;
+    port: number;
+    /**
+     * Hand the URL token to any browser already on this network, so the
+     * homepage can be reached by typing the short address alone. Turn it off
+     * on a network you do not control; every link then needs its token typed.
+     */
+    shareTokenOnLan: boolean;
+  };
   live: {
     delayAssemblyMs: number;
     delayReviewMs: number;
@@ -153,7 +162,7 @@ const DEFAULTS = {
   },
   paths: { media: './media', recordings: './recordings' },
   database: { urlEnv: 'DATABASE_URL' },
-  server: { host: '127.0.0.1', port: 3000 },
+  server: { host: '0.0.0.0', port: 3000, shareTokenOnLan: true },
   live: {
     // Measured, not guessed: across all 594 cues of a real 69-minute sermon, the
     // median caption was ready 7s after its first word, 90% within 12s and the
@@ -333,6 +342,11 @@ export function parseConfig(raw: unknown): AppConfig {
     server: {
       host: str(server['host'], 'server.host', DEFAULTS.server.host),
       port: num(server['port'], 'server.port', DEFAULTS.server.port),
+      shareTokenOnLan: bool(
+        server['shareTokenOnLan'],
+        'server.shareTokenOnLan',
+        DEFAULTS.server.shareTokenOnLan,
+      ),
     },
     live: {
       delayAssemblyMs: num(live['delayAssemblyMs'], 'live.delayAssemblyMs', DEFAULTS.live.delayAssemblyMs),

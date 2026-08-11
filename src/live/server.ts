@@ -8,6 +8,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { CaptionLine, QueueEvent } from './types.js';
 import type { AudioDevice } from './devices.js';
 import type { BrowserAdapter } from './adapters/browser.js';
+import { displayHost, isLoopback } from '../util/addresses.js';
 import { info, warn } from '../util/log.js';
 
 /**
@@ -135,10 +136,16 @@ export interface BridgeServerOptions {
   onSession?: (
     action: 'start' | 'stop' | 'end',
     device?: string,
-    options?: { format?: string },
+    options?: { format?: string; channel?: number },
   ) => Promise<void> | void;
   /** Reported on the control page so the operator can see what is running. */
-  sessionStatus?: () => { running: boolean; device?: string | undefined; level?: number };
+  sessionStatus?: () => {
+    running: boolean;
+    device?: string | undefined;
+    level?: number;
+    channel?: number | undefined;
+    captureError?: string | null;
+  };
   /**
    * Mounted ahead of the static pages, so `serve` can add its own routes
    * without this class having to know what they are.
@@ -173,7 +180,10 @@ export class BridgeServer {
     for (const router of this.options.routers ?? []) app.use(router);
 
     app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
-    app.get('/', (_req, res) => res.redirect('/operator'));
+    // The front door, served at `/` rather than redirected to, so the address
+    // somebody types on a tablet is the address that stays in the bar and gets
+    // bookmarked — token and all.
+    app.get('/', (_req, res) => res.sendFile(join(PUBLIC_DIR, 'home.html')));
     app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
     /**
@@ -211,7 +221,12 @@ export class BridgeServer {
 
     app.post('/api/session', guard, (req, res) => {
       void (async () => {
-        const body = req.body as { action?: unknown; device?: unknown; format?: unknown };
+        const body = req.body as {
+          action?: unknown;
+          device?: unknown;
+          format?: unknown;
+          channel?: unknown;
+        };
         const action = body?.action;
         if (action !== 'start' && action !== 'stop' && action !== 'end') {
           res.status(400).json({ error: 'action must be start, stop or end' });
@@ -219,8 +234,21 @@ export class BridgeServer {
         }
         const device = typeof body.device === 'string' ? body.device : undefined;
         const format = typeof body.format === 'string' ? body.format : undefined;
+
+        // Absent and "mix everything" are the same thing, and both have to
+        // survive the round trip — sending 0 or null must not be read as
+        // channel 1, which would silently take the wrong input.
+        let channel: number | undefined;
+        if (body.channel !== undefined && body.channel !== null && body.channel !== '') {
+          channel = Number(body.channel);
+          if (!Number.isInteger(channel) || channel < 1) {
+            res.status(400).json({ error: 'channel must be a whole number from 1 up' });
+            return;
+          }
+        }
+
         try {
-          await this.options.onSession?.(action, device, format ? { format } : undefined);
+          await this.options.onSession?.(action, device, { ...(format ? { format } : {}), ...(channel ? { channel } : {}) });
           res.json(this.options.sessionStatus?.() ?? { running: action === 'start' });
         } catch (err) {
           res.status(500).json({ error: (err as Error).message });
@@ -246,13 +274,15 @@ export class BridgeServer {
       server.listen(this.options.port, this.options.host, () => resolvePromise());
     });
 
-    const base = `http://${this.options.host}:${this.options.port}`;
+    // Never print the bind address: 0.0.0.0 means "every interface", and it is
+    // not a host anybody can dial.
+    const base = `http://${displayHost(this.options.host)}:${this.options.port}`;
     const suffix = this.options.token ? `?token=${this.options.token}` : '';
 
     // §9: the reviewer surface carries broadcast content ahead of air. Reaching
     // it from a tablet means binding to the LAN, which is fine — routing it in
     // from outside is not.
-    if (this.options.host !== '127.0.0.1' && this.options.host !== 'localhost') {
+    if (!isLoopback(this.options.host)) {
       warn(`serving on ${this.options.host} — LAN only, never port-forward this`);
       if (!this.options.token) {
         warn('no token set while bound off-loopback — anyone on the network can drive captions');

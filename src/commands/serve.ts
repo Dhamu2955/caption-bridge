@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto';
-
 import { Router, type RequestHandler } from 'express';
 
 import type { AppConfig, LoadedConfig } from '../config.js';
@@ -16,17 +14,25 @@ import { listAudioDevices } from '../live/devices.js';
 import { OverlayRegistry, OVERLAY_NAMES } from '../live/overlays.js';
 import { capabilitiesFrom, PreflightChecks } from '../live/preflight.js';
 import { QueueCounters } from '../live/counters.js';
+import { probeInput } from '../live/probe.js';
 import { BridgeServer } from '../live/server.js';
 import { LiveSessionManager, NotConfiguredError } from '../live/sessionManager.js';
+import { listAllServices } from './edit.js';
+import { resolveToken } from '../web/token.js';
+import { isLoopback, isPrivateAddress, lanAddresses, reachableHosts } from '../util/addresses.js';
+import { openInBrowser } from '../util/open.js';
 import { info, warn } from '../util/log.js';
 
 export interface ServeArgs {
   format?: CaptureFormat | undefined;
   token?: string | undefined;
-  /** Opened once the server is listening. */
+  /** Open the homepage in a browser once the server is listening. */
   open?: boolean;
   verbose?: boolean;
 }
+
+/** Kept short: the homepage is a signpost, not the Sermons tab. */
+const HOME_SERVICES = 8;
 
 /**
  * The long-running server behind `npm run dev`.
@@ -42,8 +48,11 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
   const store = new ConfigStore(loaded.path);
   const getConfig = () => store.current;
 
-  const token = args.token ?? randomBytes(8).toString('hex');
+  // Stable between restarts, so the tablet's bookmark and the vMix Browser
+  // input survive one. See web/token.ts.
+  const { token, created: tokenCreated } = await resolveToken(args.token);
   const overlays = new OverlayRegistry(OVERLAY_NAMES);
+  const startedAt = Date.now();
 
   const database = new PrismaProvider(() =>
     resolveDatabaseUrl(getConfig().database.urlEnv),
@@ -117,6 +126,92 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     })();
   });
 
+  /**
+   * Hands the token to a browser that is already inside the network.
+   *
+   * This is what makes the homepage worth having. Without it the front door is
+   * locked by the very thing it exists to hand out: to read the tokenised
+   * links you would first have to type a tokenised link, sixteen hex
+   * characters of it, off a terminal in another room.
+   *
+   * So the only address anyone has to remember is the short one —
+   * `http://192.168.1.42:3000` — and every link on the page beyond it is
+   * complete and one click away.
+   *
+   * Ungated except by the network itself, which is a deliberate trade and the
+   * same one the overlay makes (§9): being on the mandir LAN is the
+   * credential. The socket address is what decides it, never a header — but a
+   * router that forwards this port would hand the token to the internet, which
+   * is why the README says not to and why `server.shareTokenOnLan` exists to
+   * turn this off.
+   */
+  api.get('/api/token', (req, res) => {
+    if (!getConfig().server.shareTokenOnLan) {
+      res.status(404).json({ error: 'the homepage is not handing out the token on this machine' });
+      return;
+    }
+    if (!isPrivateAddress(req.socket.remoteAddress ?? undefined)) {
+      res.status(403).json({ error: 'not on this network' });
+      return;
+    }
+    res.json({ token });
+  });
+
+  /**
+   * Everything the homepage shows, in one request.
+   *
+   * Deliberately not four calls to the four endpoints that already exist: this
+   * page is left open on a spare screen and polls forever, and one round trip
+   * that degrades in parts beats four that fail independently. Every section
+   * of it can come back empty — a machine with no database still gets a
+   * homepage with working links on it.
+   */
+  api.get('/api/home', guard, (_req, res) => {
+    void (async () => {
+      store.reloadIfChanged();
+      const config = getConfig();
+      const checks = await preflight.all();
+
+      const addresses = lanAddresses();
+      const hosts = reachableHosts(config.server.host, addresses);
+
+      let services: unknown = null;
+      let servicesError: string | null = null;
+      let archive: { services: number; cues: number } | null = null;
+      try {
+        const prisma = await database.get();
+        const all = await listAllServices(prisma);
+        services = all.slice(0, HOME_SERVICES);
+        archive = { services: all.length, cues: await prisma.segment.count() };
+      } catch (err) {
+        servicesError = (err as Error).message;
+      }
+
+      res.json({
+        server: {
+          host: config.server.host,
+          port: config.server.port,
+          loopbackOnly: isLoopback(config.server.host),
+          shareTokenOnLan: config.server.shareTokenOnLan,
+          urls: hosts.map((host) => ({
+            url: `http://${host}:${config.server.port}/`,
+            kind: isLoopback(host) ? 'loopback' : 'lan',
+          })),
+        },
+        startedAt,
+        session: manager.status,
+        live: counters.snapshot,
+        overlays: overlays.connections(),
+        operators: server.operatorCount,
+        checks,
+        capabilities: capabilitiesFrom(checks),
+        archive,
+        services,
+        servicesError,
+      });
+    })();
+  });
+
   api.get('/api/stats', guard, (_req, res) => {
     void (async () => {
       const session = manager.status;
@@ -154,6 +249,45 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
       }
 
       res.json({ live, archive, archiveError });
+    })();
+  });
+
+  /**
+   * Listen to an input for a few seconds and report every channel separately.
+   *
+   * The one question device capture could never answer: the sound is arriving
+   * at this machine, the device is in the list, it opens without complaint —
+   * and nothing is transcribed. Per-channel levels turn that into a fact.
+   * Sixteen channels with signal on the first is a capture card carrying the
+   * sermon on input 1; sixteen channels of digital silence is a cable.
+   *
+   * Runs its own short ffmpeg, so it can be used while nothing is live and
+   * cannot disturb a session that is.
+   */
+  api.post('/api/input-test', guard, (req, res) => {
+    void (async () => {
+      const body = req.body as { device?: unknown; format?: unknown; seconds?: unknown };
+      const device = typeof body?.device === 'string' ? body.device.trim() : '';
+      if (device === '') {
+        res.status(400).json({ error: 'choose a sound input to test first' });
+        return;
+      }
+
+      const seconds = Number(body?.seconds ?? 4);
+      try {
+        const probe = await probeInput({
+          device,
+          format: (typeof body?.format === 'string' ? body.format : args.format) as
+            | CaptureFormat
+            | undefined,
+          seconds: Number.isFinite(seconds) ? Math.min(Math.max(seconds, 1), 10) : 4,
+        });
+        res.json(probe);
+      } catch (err) {
+        // 422, not 500: the device was understood and could not be listened to,
+        // and the message is the whole point of the endpoint.
+        res.status(422).json({ error: (err as Error).message });
+      }
     })();
   });
 
@@ -307,6 +441,8 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
         running: status.running,
         device: status.device,
         level: status.level ?? 0,
+        channel: status.channel,
+        captureError: status.captureError ?? null,
       };
     },
     onSession: async (action, device, options) => {
@@ -317,6 +453,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
         if (action === 'start' && manager.status.state === 'idle') counters.reset();
         await manager.handle(action, device, {
           format: options?.format as CaptureFormat | undefined,
+          channel: options?.channel,
         });
       } catch (err) {
         // A start that cannot happen yet is a message for the operator, not a
@@ -340,11 +477,46 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
 
   await server.start();
 
-  const base = `http://${getConfig().server.host}:${getConfig().server.port}`;
+  // The homepage last and loudest: it is the only address anyone needs, and the
+  // lines the server prints above it are the ones somebody occasionally wants
+  // to paste into vMix directly.
+  const port = getConfig().server.port;
+  const hosts = reachableHosts(getConfig().server.host);
+  const share = getConfig().server.shareTokenOnLan;
+  // Short when the bridge hands the token out, because then this is an address
+  // to be read off a screen and typed on another machine — and sixteen hex
+  // characters is exactly what nobody should have to type.
+  const urls = hosts.map((host) => `http://${host}:${port}/${share ? '' : `?token=${token}`}`);
+
   info('');
-  info(`setup     ${base}/app?token=${token}`);
+  info('open this, from here or from any machine on the network:');
   info('');
+  for (const url of urls) info(`  ${url}`);
+  info('');
+  if (share) {
+    info('no token needed on this network — the homepage hands out the rest of the links');
+  }
+  if (isLoopback(getConfig().server.host)) {
+    warn('listening on loopback only — set server.host to 0.0.0.0 to reach it from another PC');
+  }
+  if (tokenCreated) {
+    info('the URL token was saved to .env, so copied links keep working after a restart');
+  }
   info('Nothing needs to be configured to open it. Press Ctrl+C to stop.');
+  info('Closing the page does not stop anything — only Ctrl+C here does.');
+
+  // Loopback for the browser on this machine, when there is one: the LAN
+  // address is the one to share, but it is also the one DHCP can change under
+  // you, and the local page should never be the thing that fails.
+  const localUrl =
+    urls.find((url) => url.includes('127.0.0.1')) ??
+    urls[0] ??
+    `http://127.0.0.1:${port}/`;
+
+  // The browser is detached and unref'd (see util/open.ts): it is a convenience
+  // launched by this process, never something this process waits on or dies
+  // with. Quitting it mid-service must not cost a single caption.
+  if (args.open !== false && localUrl) openInBrowser(localUrl);
 
   await new Promise<void>((resolvePromise) => {
     const shutdown = async () => {
@@ -361,10 +533,6 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     process.once('SIGINT', () => void shutdown());
     process.once('SIGTERM', () => void shutdown());
   });
-}
-
-function isLoopback(host: string): boolean {
-  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
 }
 
 /** Read a dotted settings path out of the parsed config. */
