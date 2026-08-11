@@ -413,3 +413,57 @@ describe('English the speaker slips into a Gujarati sentence', () => {
   });
 });
 
+
+describe('the Soniox config message matches the working prototype', () => {
+  /**
+   * `../soniox_en` has run this job on air for weeks. Where our wire message
+   * differed from its, ours was wrong — most of all in sending
+   * `endpoint_sensitivity`, which overrides Soniox's judgement about where a
+   * sentence ends and, pushed eager, delivers captions three words at a time.
+   */
+  const client = () =>
+    new SonioxRealtimeClient({
+      apiKey: 'sk-test',
+      model: 'stt-rt-v5',
+      sampleRate: 16000,
+      languageHints: ['gu', 'en'],
+      languageHintsStrict: true,
+      targetLanguage: 'en',
+      maxEndpointDelayMs: 2000,
+    });
+
+  it('does not send endpoint_sensitivity unless asked to', () => {
+    expect(client().buildConfigMessage()).not.toHaveProperty('endpoint_sensitivity');
+  });
+
+  it('sends it when the config names one, so the escape hatch still works', () => {
+    const tuned = new SonioxRealtimeClient({
+      apiKey: 'sk-test',
+      model: 'stt-rt-v5',
+      sampleRate: 16000,
+      languageHints: ['gu'],
+      targetLanguage: 'en',
+      endpointSensitivity: -0.5,
+    });
+    expect(tuned.buildConfigMessage()['endpoint_sensitivity']).toBe(-0.5);
+  });
+
+  it('does not send diarization or language identification', () => {
+    // The prototype sends neither. Diarization matters twice over: it also
+    // makes buildSegments split a sentence wherever the speaker id flickers.
+    const message = client().buildConfigMessage();
+    expect(message).not.toHaveProperty('enable_speaker_diarization');
+    expect(message).not.toHaveProperty('enable_language_identification');
+  });
+
+  it('restricts to the languages named, as the prototype does', () => {
+    expect(client().buildConfigMessage()['language_hints_strict']).toBe(true);
+  });
+
+  it('still refuses provisional tokens — the one deliberate difference', () => {
+    // The prototype leaves this unset and receives them for its console view.
+    // We never render provisional text, so not receiving it is strictly safer
+    // and cannot affect where sentences end.
+    expect(client().buildConfigMessage()['include_nonfinal']).toBe(false);
+  });
+});

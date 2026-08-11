@@ -119,9 +119,18 @@ export interface AppConfig {
      * appears — and the cost of cutting sooner is splitting sentences.
      */
     maxBufferMs: number;
-    /** -1 patient to 1 eager; how readily Soniox calls a clause finished. */
-    endpointSensitivity: number;
-    /** Ceiling on that wait, for a speaker who does not pause. */
+    /**
+     * -1 patient to 1 eager. ABSENT BY DEFAULT and best left that way: unset,
+     * Soniox's own judgement decides where a sentence ends. Setting it eager
+     * is how captions start arriving three words at a time. Not on the
+     * settings form — add it to config.json by hand to experiment.
+     */
+    endpointSensitivity?: number;
+    /**
+     * Ceiling on how long Soniox may wait to call a clause finished — a
+     * backstop for a speaker who never pauses, NOT a target. Low values force
+     * an endpoint mid-thought.
+     */
     maxEndpointDelayMs: number;
     /** Names the variable holding YouTube's caption ingestion URL. The URL
      *  embeds a `cid` that identifies the stream, so it is a credential and
@@ -148,7 +157,7 @@ const DEFAULTS = {
     contextTerms: [] as string[],
     translationTerms: [] as TranslationTerm[],
     builtInGlossary: true,
-    languageHintsStrict: false,
+    languageHintsStrict: true,
   },
   ingest: {
     pauseMs: 1200,
@@ -218,8 +227,7 @@ const DEFAULTS = {
       and the ceiling is simply how long a speaker stands there with nothing
       under them.
     */
-    endpointSensitivity: -0.25,
-    maxEndpointDelayMs: 2500,
+    maxEndpointDelayMs: 2000,
   },
 } satisfies AppConfig;
 
@@ -413,13 +421,19 @@ export function parseConfig(raw: unknown): AppConfig {
         DEFAULTS.live.youtubeCaptionsUrlEnv,
       ),
       maxBufferMs: num(live['maxBufferMs'], 'live.maxBufferMs', DEFAULTS.live.maxBufferMs),
-      endpointSensitivity: signed(
-        live['endpointSensitivity'],
-        'live.endpointSensitivity',
-        DEFAULTS.live.endpointSensitivity,
-        -1,
-        1,
-      ),
+      // Absent unless the file names it, so the default config message does
+      // not carry one at all.
+      ...(live['endpointSensitivity'] === undefined
+        ? {}
+        : {
+            endpointSensitivity: signed(
+              live['endpointSensitivity'],
+              'live.endpointSensitivity',
+              0,
+              -1,
+              1,
+            ),
+          }),
       maxEndpointDelayMs: num(
         live['maxEndpointDelayMs'],
         'live.maxEndpointDelayMs',

@@ -10,7 +10,7 @@
     "targetLanguage": "en",
     "contextTerms": [],
     "translationTerms": [],
-    "languageHintsStrict": false
+    "languageHintsStrict": true
   },
   "ingest": {
     "pauseMs": 4000,
@@ -51,8 +51,7 @@
     "liveSrt": true,
     "googleDoc": false,
     "googleDocFolderId": "",
-    "endpointSensitivity": -0.25,
-    "maxEndpointDelayMs": 2500,
+    "maxEndpointDelayMs": 2000,
     "maxBufferMs": 8000
   }
 }

@@ -518,6 +518,73 @@ Browser input at.
 **`/overlay`** — the caption block that goes on screen. Transparent background
 so vMix can key it. English only by default; add `?lines=both` for bilingual.
 
+### Subtitles from a live service
+
+On by default (`live.liveSrt`). A live service writes an `.srt` into the
+recordings folder as it runs, holding exactly what went out — so the recording
+can be captioned afterwards without transcribing the same words a second time.
+Timestamps run from when capture started.
+
+### The service, in a Google Doc
+
+Off by default (`live.googleDoc`). Turned on, every finalised line is written to
+a **new Google Doc each time you press Start**, as the service runs:
+
+```
+11:42:34  (0:12:34)
+આ દર્શન-શ્રવણનો મહિમા છે.
+This is the glory of seeing and hearing.
+
+11:42:41  (0:12:41)
+ભક્તિ એ માર્ગ છે.
+Devotion is the path.
+```
+
+Both timestamps, because they answer different questions: the clock places a
+passage against the service somebody sat through, the offset finds it in the
+recording — the same number the `.srt` uses. The link appears on the Captions
+tab as soon as the doc exists, which is before anyone has spoken.
+
+**Setting it up.** Enable the **Google Drive API** on a Cloud project, then:
+
+```sh
+npx tsx src/cli.ts doc --auth
+```
+
+Paste the printed `GOOGLE_DOCS_REFRESH_TOKEN` into `.env` with the client id and
+secret beside it, and set **Drive folder for those docs** in Settings — the last
+part of the folder's address in Drive. Leave it empty for My Drive.
+
+**A separate credential from YouTube's, deliberately.** The client id and secret
+may be the same strings pasted twice; the refresh token cannot be, because the
+scopes differ.
+
+**It cannot take a service down.** Lines are batched every five seconds, so an
+idle stretch costs nothing. A hiccup retries with the words still buffered. A
+permanent failure stops the doc for the rest of the service and says so on the
+Captions tab — the captions, the screen and the `.srt` carry on.
+
+### How long a sentence takes to appear
+
+A caption cannot exist until the sentence it covers has finished being spoken
+and Soniox has translated it. There is no queue and no delay between a line
+existing and it being on screen, so that is the whole of the latency.
+
+**Soniox decides where a sentence ends, and it should be left to.** Two settings
+can interfere, and both default to what the working prototype uses:
+
+| | Default | |
+|---|---|---|
+| `live.maxEndpointDelayMs` | 2000 | A **ceiling** on how long Soniox may wait before calling a clause finished — a backstop for a speaker who never pauses. Not a target. Lower it and you force a cut mid-thought |
+| `live.endpointSensitivity` | **not set** | −1 patient to 1 eager. Absent from `config.json` and from the settings form on purpose. Setting it overrides Soniox's own judgement, and eager values are how captions start arriving three words at a time |
+
+If sentences are forming too fast, check those two first — in that order. The
+symptom of both is the same: fragments where clauses should be.
+
+`live.maxBufferMs` (8000) is our own backstop, not a chunker: it forces a flush
+if Soniox has not called an endpoint in eight seconds. With the ceiling above at
+two seconds it should never fire.
+
 ---
 
 ## Configuration

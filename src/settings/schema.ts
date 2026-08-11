@@ -162,23 +162,12 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     appliesTo: 'next-session',
   },
   {
-    path: 'live.endpointSensitivity',
-    label: 'How soon Soniox calls a sentence finished',
-    help:
-      '-1 waits longest, 1 commits soonest, 0 is the default. Waiting longer gives it ' +
-      'the rest of the sentence before it decides what the words were — worth it when a ' +
-      'phrase is being misheard as a similar-sounding one, at the cost of captions ' +
-      'appearing later.',
-    type: 'number',
-    group: 'advanced',
-    appliesTo: 'next-session',
-  },
-  {
     path: 'live.maxEndpointDelayMs',
-    label: 'Longest it may wait to decide',
+    label: 'Longest Soniox may wait to end a sentence',
     help:
-      'The ceiling on the setting above, so a speaker who never pauses cannot hold a ' +
-      'sentence open indefinitely.',
+      'A backstop for a speaker who never pauses, not a target. Left at 2000 Soniox decides ' +
+      'where sentences end; lowering it forces a cut mid-thought and captions start arriving ' +
+      'a few words at a time.',
     type: 'number',
     unit: 'ms',
     group: 'advanced',
@@ -225,10 +214,9 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     path: 'soniox.languageHintsStrict',
     label: 'Only listen for the languages named',
     help:
-      'Off, the languages are hints and Soniox may recognise others. On, it is restricted ' +
-      'to them, which Soniox says gives the best results — but this bridge names two ' +
-      'because sermons switch between Gujarati and English mid-sentence. Worth testing ' +
-      'against your own speaker before a service.',
+      'On, recognition is restricted to the languages named, which Soniox says gives the ' +
+      'best results and is what the working prototype does. Off, they are only hints and it ' +
+      'may recognise others.',
     type: 'boolean',
     on: 'Restrict to those languages',
     group: 'advanced',

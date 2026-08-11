@@ -23,14 +23,17 @@ export interface RealtimeConfig {
   /** Restrict to those hints rather than treating them as suggestions. */
   languageHintsStrict?: boolean;
   targetLanguage: string;
-  enableSpeakerDiarization?: boolean;
   /**
    * Glossary and register instructions. Sent at connect and only at connect —
    * Soniox has no mid-session context API — so a term added while a service is
    * running takes effect on the next start.
    */
   context?: SonioxContext | undefined;
-  /** -1 patient to 1 eager; how readily Soniox calls a clause finished. */
+  /**
+   * -1 patient to 1 eager. Absent by default, and worth leaving that way:
+   * unset, Soniox decides where a sentence ends, which is what the working
+   * prototype relies on.
+   */
   endpointSensitivity?: number;
   /** Ceiling on that wait, for a speaker who does not pause. */
   maxEndpointDelayMs?: number;
@@ -98,19 +101,21 @@ export class SonioxRealtimeClient extends EventEmitter<SonioxRealtimeEvents> {
       num_channels: 1,
       language_hints: this.config.languageHints,
       ...(this.config.languageHintsStrict ? { language_hints_strict: true } : {}),
-      enable_language_identification: true,
-      enable_speaker_diarization: this.config.enableSpeakerDiarization ?? true,
       // Real-time HAS endpoint detection, unlike the async API. This is what
       // tells the line builder a clause is complete.
       enable_endpoint_detection: true,
-      // Left unset, Soniox waits as long as it likes to call a clause finished,
-      // and nothing can be translated until it does. These two decide the half
-      // of caption latency that is not ours.
-      ...(this.config.endpointSensitivity !== undefined
-        ? { endpoint_sensitivity: this.config.endpointSensitivity }
-        : {}),
+      // A ceiling on how long Soniox may wait to call a clause finished, and
+      // NOT a target. Left alone, its own judgement decides where a sentence
+      // ends, which is the thing being asked for.
+      //
+      // `endpoint_sensitivity` is deliberately absent unless somebody sets it.
+      // Sending a value overrides that judgement, and pushing it eager is how
+      // captions end up arriving three words at a time.
       ...(this.config.maxEndpointDelayMs !== undefined
         ? { max_endpoint_delay_ms: this.config.maxEndpointDelayMs }
+        : {}),
+      ...(this.config.endpointSensitivity !== undefined
+        ? { endpoint_sensitivity: this.config.endpointSensitivity }
         : {}),
       include_nonfinal: this.config.includeNonFinal ?? INCLUDE_NON_FINAL,
       translation: {
