@@ -29,7 +29,7 @@ export interface LiveArgs {
  * The live bridge. Capture → Soniox → lines → queue → outputs, with the
  * reviewer page attached as an advisory observer.
  *
- * Runs until interrupted. INVARIANT 10: nothing here waits on the reviewer.
+ * Runs until interrupted. nothing here waits on anything.
  *
  * The machinery lives in `LiveSession`, which the `serve` command starts and
  * stops from a browser. This command is the one-shot form: start immediately,

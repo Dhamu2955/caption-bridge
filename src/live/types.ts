@@ -11,31 +11,11 @@ export interface CaptionLine {
   readonly id: string;
   readonly original: string;
   readonly translation: string;
-  /** Milliseconds from the session epoch, taken from the SPOKEN tokens.
-   *  INVARIANT 9 schedules against this, never against arrival time. */
+  /** Milliseconds from the session epoch, taken from the SPOKEN tokens —
+   *  never from when they arrived. The .srt and the Google Doc both use it. */
   readonly audioStartMs: number;
   readonly audioEndMs: number;
   readonly speaker: string | undefined;
-}
-
-export interface OutputConfig {
-  readonly name: string;
-  /** INVARIANT 7 — delay is per output. The reviewed path is delayA + delayB. */
-  readonly delayMs: number;
-  /** Whether an operator sits between assembly and air for this output. */
-  readonly reviewed: boolean;
-  /** INVARIANT 4 — no cue shorter than this; later lines queue rather than
-   *  cutting this one short. */
-  readonly minDisplayMs: number;
-  /** Past this much lateness a line is skipped: a desynced caption is worse
-   *  than no caption. */
-  readonly lateSkipMs: number;
-  /**
-   * Whether `lateSkipMs` is enforced. False shows every line however late,
-   * each still waiting its `minDisplayMs` turn behind the one before it, so
-   * the feed falls further behind rather than dropping anything.
-   */
-  readonly skipLate: boolean;
 }
 
 /**

@@ -53,10 +53,13 @@ describe('LineBuilder', () => {
     expect(lines).toEqual([]);
   });
 
-  it('exposes non-final text as preview only, never as a line', () => {
+  it('drops non-final text entirely — it is never buffered or returned', () => {
+    // The innermost of the four things keeping revisable text off a screen.
+    // There is deliberately no way to read it back out of the builder.
     const builder = new LineBuilder();
-    builder.push([{ text: 'half a thought', start_ms: 0, end_ms: 400, is_final: false }]);
-    expect(builder.previewText()).toBe('half a thought');
+    expect(
+      builder.push([{ text: 'half a thought', start_ms: 0, end_ms: 400, is_final: false }]),
+    ).toEqual([]);
     expect(builder.flush()).toEqual([]);
   });
 

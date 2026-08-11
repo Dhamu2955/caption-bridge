@@ -9,8 +9,7 @@ import type { CaptionLine, OutputAdapter } from '../types.js';
  * timestamp saying where in the stream's timeline the text belongs.
  *
  * Why this output is worth having: closed captions are never burned into
- * pixels, so the whole two-composite arrangement INVARIANT 8 describes is
- * unnecessary here. A reviewer's drop simply means the POST never happens.
+ * pixels, so nothing has to be composited twice and nothing has to be un-burnt.
  *
  * THE TIMESTAMP IS THE PART TO GET RIGHT, and it is the instant of the POST —
  * not the instant the words were spoken. Those were the same thing only while

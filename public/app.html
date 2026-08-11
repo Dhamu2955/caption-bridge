@@ -823,11 +823,10 @@
     el('start').disabled = running;
     el('stop').disabled = !running;
 
-    var counts = status.overlays || {};
-    var connected = Object.keys(counts).filter(function (k) { return counts[k] > 0; });
+    var connected = (status.overlay && status.overlay.connections) || 0;
     text(
       el('dash-overlays'),
-      connected.length === 0
+      connected === 0
         ? 'No screens connected.'
         : connected.map(function (k) { return counts[k] + ' on ' + k; }).join(', ') + '.'
     );
@@ -878,44 +877,32 @@
           : 'No speech for ' + seconds + 's. Check the cable and the mixer — nothing is being captioned.');
   }
 
-  // Four near-identical URLs differing by one word told nobody which to point
-  // vMix at. The name is the only part that matters, so it leads.
-  var OVERLAY_PURPOSE = {
-    venue: 'The screen in the hall. Appears as soon as the line is translated.',
-    overflow: 'The screen in the overflow room. Same words, same moment as the hall.',
-    reviewer: 'A monitor beside the reviewer, showing what the hall is seeing.',
-    stream: 'Burned into the broadcast picture. The only one that waits for the reviewer, so it runs further behind.'
-  };
-
-  function renderOverlayUrls(status) {
+  function renderOverlayUrls() {
     var host = el('overlay-urls');
     if (host.childElementCount > 0) return;
-    Object.keys(status.overlays || {}).forEach(function (name) {
-      var wrap = document.createElement('div');
-      wrap.className = 'screen';
 
-      var head = document.createElement('p');
-      head.className = 'screen-name';
-      text(head, name);
-      wrap.appendChild(head);
+    var wrap = document.createElement('div');
+    wrap.className = 'screen';
 
-      if (OVERLAY_PURPOSE[name]) {
-        var why = document.createElement('p');
-        why.className = 'screen-why';
-        text(why, OVERLAY_PURPOSE[name]);
-        wrap.appendChild(why);
-      }
+    var head = document.createElement('p');
+    head.className = 'screen-name';
+    text(head, 'The caption screen');
+    wrap.appendChild(head);
 
-      var a = document.createElement('a');
-      a.className = 'url';
-      a.href = '/overlay' + qs + (token ? '&' : '?') + 'output=' + name;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      text(a, location.origin + a.getAttribute('href'));
-      wrap.appendChild(a);
+    var why = document.createElement('p');
+    why.className = 'screen-why';
+    text(why, 'Open this as a vMix Browser input, or in a browser on the projector machine.');
+    wrap.appendChild(why);
 
-      host.appendChild(wrap);
-    });
+    var a = document.createElement('a');
+    a.className = 'url';
+    a.href = '/overlay' + qs;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    text(a, location.origin + a.getAttribute('href'));
+    wrap.appendChild(a);
+
+    host.appendChild(wrap);
   }
 
   function renderCaptureError(message) {
@@ -934,7 +921,7 @@
       lastStatus = status;
       renderChecks(status);
       renderSession(status);
-      renderOverlayUrls(status);
+      renderOverlayUrls();
     }).catch(function (err) {
       el('setup').setAttribute('data-clear', 'false');
       text(el('setup-summary'), 'Cannot reach the bridge — ' + err.message);
@@ -971,18 +958,12 @@
     api('/api/stats').then(function (body) {
       var live = body.live;
       tiles(el('live-stats'), [
-        { name: 'Gone out', value: live.released },
-        { name: 'Dropped', value: live.dropped },
-        { name: 'Corrected', value: live.edited },
-        // Skips mean a caption missed its moment — worth colouring.
-        { name: 'Missed', value: live.skipped, warn: live.skipped > 0 },
+        { name: 'Gone out', value: live.lines },
         { name: 'Audio gaps', value: live.gaps, warn: live.gaps > 0 },
         { name: 'Running', value: duration(live.runningForMs) }
       ]);
 
       var note = [];
-      if (live.released > 0) note.push('Typically ' + live.meanLatenessMs + 'ms past their scheduled instant, at worst ' + live.maxLatenessMs + 'ms.');
-      if (live.rejected > 0) note.push(live.rejected + ' reviewer decisions arrived too late to apply.');
       if (live.gapMs > 0) note.push(duration(live.gapMs) + ' of audio was missing.');
       text(el('live-stats-note'), note.length ? note.join(' ') : 'Nothing has gone out yet.');
 
@@ -1456,40 +1437,6 @@
     host.appendChild(row);
   }
 
-  /**
-   * Fill the form from a preset.
-   *
-   * `inputs` only holds the fields of the pane being rendered, so a preset
-   * naming a setting from another section — which every one of them does —
-   * would silently miss it. The leftovers are carried in `pendingPreset` and
-   * applied to each pane as it is built, and to the patch on save.
-   */
-  var pendingPreset = {};
-
-  /** Every pane's fields, so a preset reaches the ones not on screen. */
-  function resetPresetState() {
-    pendingPreset = {};
-    allSettingInputs = [];
-  }
-
-  function applyPreset(preset, inputs) {
-    pendingPreset = Object.assign({}, pendingPreset, preset.values);
-    fillFromPending(inputs);
-    // Panes already built but not currently on screen.
-    allSettingInputs.forEach(fillFromPending);
-  }
-
-  function fillFromPending(inputs) {
-    inputs.forEach(function (entry) {
-      if (!Object.prototype.hasOwnProperty.call(pendingPreset, entry.setting.path)) return;
-      var value = pendingPreset[entry.setting.path];
-      if (entry.setting.type === 'boolean') entry.input.checked = value === true;
-      else entry.input.value = String(value);
-    });
-  }
-
-  var allSettingInputs = [];
-
   function valueToInput(setting, value) {
     if (setting.type === 'string[]') return (value || []).join('\n');
     if (setting.type === 'termPairs') {
@@ -1536,10 +1483,6 @@
   function renderSettings(body) {
     var groupHost = el('settings-groups');
     groupHost.innerHTML = '';
-    // The old panes are gone; anything a preset filled into them went with
-    // them, and carrying the pending values past a reload would re-apply a
-    // preset the operator may have decided against.
-    resetPresetState();
 
     var groups = {};
     body.settings.forEach(function (setting) {
@@ -1601,40 +1544,6 @@
 
       var inputs = [];
 
-      // Latency presets. They fill the fields rather than saving, so the
-      // operator sees every value that would change — including the ones two
-      // sections down that make the difference between fast and blank.
-      if (info.id === 'service' && (body.latencyPresets || []).length) {
-        var presetRow = document.createElement('div');
-        presetRow.className = 'row';
-        body.latencyPresets.forEach(function (preset) {
-          var button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'slim';
-          button.textContent = preset.label;
-          button.addEventListener('click', function () {
-            applyPreset(preset, inputs);
-            notice(
-              el('settings-notice'),
-              'warn',
-              preset.label + ' — ' + preset.cost + ' Nothing is saved until you press Save.',
-            );
-          });
-          presetRow.appendChild(button);
-        });
-        host.appendChild(presetRow);
-
-        var presetHelp = document.createElement('p');
-        presetHelp.className = 'hint';
-        text(
-          presetHelp,
-          'How soon a caption appears, as one decision instead of six. These move settings ' +
-          'on this section and on "Subtitle shape and timing" together, because changing one ' +
-          'without the others is how a screen ends up blank.'
-        );
-        host.appendChild(presetHelp);
-      }
-
       groups[info.id].forEach(function (setting) {
         var field = document.createElement('div');
         field.className = 'field';
@@ -1694,21 +1603,13 @@
         host.appendChild(field);
       });
 
-      allSettingInputs.push(inputs);
-      fillFromPending(inputs);
-
       var row = document.createElement('div');
       row.className = 'row';
       var save = document.createElement('button');
       save.className = 'slim primary';
       save.textContent = 'Save';
       save.addEventListener('click', function () {
-        // A preset changes settings on more than one section, and Save only
-        // ever reads the section it is on — so the preset's own values go in
-        // first and this pane's fields overwrite them. Without this, pressing
-        // Save here would apply half a preset and leave the rest showing
-        // values that were never written.
-        var patch = Object.assign({}, pendingPreset);
+        var patch = {};
         try {
           inputs.forEach(function (entry) {
             patch[entry.setting.path] = entry.setting.type === 'boolean'

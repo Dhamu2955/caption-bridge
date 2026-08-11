@@ -214,9 +214,9 @@ const DEFAULTS = {
       translation even once the parse was right. A correct parse of a phrase
       whose key word is then dropped is not worth a second of lag on every line.
 
-      Worth revisiting deliberately rather than by feel — both are settings, and
-      the ceiling is delayAssemblyMs: a line that takes longer than the assembly
-      delay to become ready is not a late caption, it is no caption.
+      Worth revisiting deliberately rather than by feel — both are settings,
+      and the ceiling is simply how long a speaker stands there with nothing
+      under them.
     */
     endpointSensitivity: -0.25,
     maxEndpointDelayMs: 2500,

@@ -3,9 +3,10 @@ import type { CaptionLine, OutputAdapter } from '../types.js';
 /**
  * Pushes captions to overlay pages over a WebSocket.
  *
- * One adapter per output name. INVARIANT 7: several overlays can share a
- * single Soniox session, each with its own delay — needing a second session to
- * feed another screen would be a design error.
+ * Several pages can share one session and one adapter — a projector, a monitor
+ * in the overflow room, a vMix Browser input — and each gets the same words at
+ * the same moment. Needing a second Soniox session to feed another screen would
+ * be a design error.
  *
  * DO NOT GIVE THIS CLASS A `close()`. These instances outlive the caption
  * session that feeds them (see `OverlayRegistry`), and `CaptionQueue.close()`

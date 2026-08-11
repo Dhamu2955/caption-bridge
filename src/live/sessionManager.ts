@@ -11,7 +11,7 @@ import { info } from '../util/log.js';
  * Owns the at-most-one caption session, so the server can stay up between them.
  *
  * At most one on purpose: a second Soniox connection would double the bill
- * without feeding a single extra screen. INVARIANT 7 is that outputs are cheap
+ * without feeding a single extra screen. outputs are cheap
  * and sessions are not.
  */
 

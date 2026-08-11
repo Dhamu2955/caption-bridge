@@ -10,8 +10,13 @@ import type { CaptionLine } from '../types.js';
  * rules: §4 says the token parsing is shared with every phase, and a second
  * copy would drift from the one a year of async ingest has tuned.
  *
- * INVARIANT 4 rule 1: only final tokens ever reach a line. Non-final tokens
- * are surfaced separately for operator preview and never enter the buffer.
+ * INVARIANT 4 rule 1: only final tokens ever reach a line. Non-final tokens are
+ * dropped here, on the floor, and this is the innermost of the four mechanisms
+ * that keep revisable text off a screen — see `INCLUDE_NON_FINAL` in types.ts.
+ * There used to be a `previewText()` beside this that returned the provisional
+ * tail for the reviewer's early view; it went with the reviewer, and it is not
+ * worth reinstating for anything. A method handing out text that Soniox will
+ * re-order is one call away from a projector.
  */
 
 export interface LineBuilderOptions extends BuildOptions {
@@ -44,7 +49,6 @@ export class LineBuilder {
   private readonly options: LineBuilderOptions;
   private buffer: SonioxToken[] = [];
   private counter = 0;
-  private preview = '';
 
   constructor(options: Partial<LineBuilderOptions> = {}) {
     this.options = { ...DEFAULT_LINE_OPTIONS, ...options };
@@ -52,26 +56,20 @@ export class LineBuilder {
 
   /**
    * Feed one batch of tokens from the socket.
-   * @returns lines that are complete and ready to schedule.
+   * @returns lines that are complete and ready to go out.
    */
   push(tokens: SonioxToken[]): CaptionLine[] {
     let sawEndpoint = false;
-    const nonFinal: string[] = [];
 
     for (const token of tokens) {
-      if (token.is_final !== true) {
-        // Preview only. Never buffered, never displayed.
-        if (typeof token.text === 'string') nonFinal.push(token.text);
-        continue;
-      }
+      // Provisional. Never buffered, never displayed, never returned.
+      if (token.is_final !== true) continue;
       if (token.text?.trim() === END_TOKEN) {
         sawEndpoint = true;
         continue;
       }
       this.buffer.push(token);
     }
-
-    this.preview = nonFinal.join('').replace(/\s+/g, ' ').trim();
 
     // Soniox delivers a run's translation before the endpoint that closes it,
     // so an endpoint flush always has everything it needs.
@@ -117,12 +115,11 @@ export class LineBuilder {
    * Gujarati sentence gets those words back marked `none`, not `original` —
    * they are already in the target language, so Soniox never emits a
    * translation run for them. Waiting for one meant a code-switched aside sat
-   * in the buffer until `maxUntranslatedMs`, and at 30s against a 15s assembly
-   * delay `lateSkipMs` then dropped it outright. English the speaker actually
-   * used, gone, with nothing to say why.
+   * in the buffer for the full `maxUntranslatedMs` — half a minute of English
+   * the speaker actually used, held back with nothing to say why.
    *
    * So `none` is its own translation and settles immediately. Only `original`
-   * with nothing translated after it holds the queue up.
+   * with nothing translated after it holds the buffer up.
    */
   private lastCompletePairEnd(): number {
     let lastTranslation = -1;
@@ -136,11 +133,6 @@ export class LineBuilder {
       if (this.buffer[i]!.translation_status === 'original') return i;
     }
     return this.buffer.length;
-  }
-
-  /** Rolling non-final text, for the reviewer's early preview only (§4). */
-  previewText(): string {
-    return this.preview;
   }
 
   private bufferSpanMs(): number {

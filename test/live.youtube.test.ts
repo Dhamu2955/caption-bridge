@@ -12,7 +12,7 @@ import {
   parseAvfoundationDevices,
   parseDshowDevices,
 } from '../src/live/devices.js';
-import type { CaptionLine, OutputConfig } from '../src/live/types.js';
+import type { CaptionLine } from '../src/live/types.js';
 
 const EPOCH = Date.UTC(2026, 7, 2, 18, 30, 0);
 
