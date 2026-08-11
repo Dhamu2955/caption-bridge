@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { GoogleDocsClient, GoogleDocsError } from '../src/google/docs.js';
+import { GoogleDocsClient, GoogleDocsError, googleDocsScopes } from '../src/google/docs.js';
 import { GoogleAuth } from '../src/google/oauth.js';
 
 /**
@@ -102,5 +102,25 @@ describe('telling a wall from a hiccup', () => {
   it('raises a GoogleDocsError, not a bare one, so the writer can tell', async () => {
     const { client } = harness([new Response('nope', { status: 403 })]);
     await expect(client.appendText('doc-1', 'x')).rejects.toBeInstanceOf(GoogleDocsError);
+  });
+});
+
+describe('the Drive permission', () => {
+  it('asks only for files this app made, unless told otherwise', () => {
+    expect(googleDocsScopes(false)).toEqual(['https://www.googleapis.com/auth/drive.file']);
+    expect(googleDocsScopes(true)).toEqual(['https://www.googleapis.com/auth/drive']);
+  });
+
+  it('explains a 403 on a folder rather than repeating Google', async () => {
+    // The narrow permission cannot reach a folder the app did not create, and
+    // Google says only "insufficient permissions" — which sends people to the
+    // OAuth screen, where there is nothing to fix.
+    const { client } = harness([new Response('insufficient permissions', { status: 403 })]);
+    await expect(client.createDoc('x', 'folder-9')).rejects.toThrow(/fullDriveAccess/);
+  });
+
+  it('says nothing extra when no folder was asked for', async () => {
+    const { client } = harness([new Response('nope', { status: 403 })]);
+    await expect(client.createDoc('x')).rejects.not.toThrow(/fullDriveAccess/);
   });
 });

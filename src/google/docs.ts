@@ -7,14 +7,26 @@ import { GoogleAuth, googleRequest, type MakeError } from './oauth.js';
  * `documents.create` cannot put one in a folder — it lands in My Drive root and
  * needs a second call to move it), and Docs appends to it.
  *
- * `drive.file` is the narrow scope: it grants access only to files this app
- * created, which is exactly the reach wanted for something running unattended
- * on a machine in a mandir office. If creating into a nominated folder comes
- * back 403 `insufficientFilePermissions`, that is the known edge — re-mint with
- * the full `drive` scope. It is one constant.
+ * Which scope is asked for is a deliberate choice, not a default — see below.
  */
 
-export const GOOGLE_DOCS_SCOPES = ['https://www.googleapis.com/auth/drive.file'] as const;
+/**
+ * The narrow scope: files this app created, and nothing else in your Drive.
+ * Enough to make a doc and write to it, and the right default for something
+ * running unattended on a machine in an office.
+ *
+ * It is NOT enough to create into a folder you picked in Drive — Google grants
+ * `drive.file` per-file, for files the app made or you handed it through a
+ * picker, and there is no picker here. So a nominated folder needs the broad
+ * scope, which is why that is an explicit choice rather than a surprise 403 on
+ * a Sunday.
+ */
+export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+export const DRIVE_FULL_SCOPE = 'https://www.googleapis.com/auth/drive';
+
+export function googleDocsScopes(fullDriveAccess: boolean): string[] {
+  return [fullDriveAccess ? DRIVE_FULL_SCOPE : DRIVE_FILE_SCOPE];
+}
 
 export class GoogleDocsError extends Error {
   readonly status: number | undefined;
@@ -88,11 +100,31 @@ export class GoogleDocsClient {
     };
     if (folderId) body['parents'] = [folderId];
 
-    const response = await this.request(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await this.request(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      // The one failure worth explaining rather than reporting. `drive.file`
+      // cannot reach a folder this app did not create, and the raw message
+      // says only "insufficient permissions", which sends people to the wrong
+      // place entirely.
+      const error = err as GoogleDocsError;
+      if (folderId && (error.status === 403 || error.status === 404)) {
+        throw new GoogleDocsError(
+          `cannot create the doc in folder ${folderId}: ${error.message}. ` +
+            'The narrow Drive permission only covers files this app made. Either clear the ' +
+            'folder id to use My Drive, or set googleDocs.fullDriveAccess to true in ' +
+            'config.json and run `doc --auth` again.',
+          error.status,
+          error.reason,
+        );
+      }
+      throw err;
+    }
     const created = (await response.json()) as { id?: string; webViewLink?: string };
     if (!created.id) throw new GoogleDocsError('Drive created a file with no id');
 

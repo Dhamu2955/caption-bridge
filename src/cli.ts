@@ -18,7 +18,7 @@ import { exportSrt } from './commands/export.js';
 import { createYoutubeClient, publish, publishAll } from './commands/publish.js';
 import { authorise } from './google/auth.js';
 import { YOUTUBE_SCOPE } from './youtube/client.js';
-import { GOOGLE_DOCS_SCOPES } from './google/docs.js';
+import { googleDocsScopes } from './google/docs.js';
 import { editTranslation, listAllServices, showSegments } from './commands/edit.js';
 import { backfill } from './commands/backfill.js';
 import { formatHit, runIndex, runSearch } from './commands/search.js';
@@ -260,7 +260,7 @@ async function runDocAuth(config: AppConfig) {
     clientId: credentials.clientId,
     clientSecret: credentials.clientSecret,
     port: config.googleDocs.authPort,
-    scope: GOOGLE_DOCS_SCOPES.join(' '),
+    scope: googleDocsScopes(config.googleDocs.fullDriveAccess).join(' '),
     onUrl: (url) => {
       info('Open this in a browser and approve access:');
       info('');
@@ -271,6 +271,12 @@ async function runDocAuth(config: AppConfig) {
   process.stdout.write(`${config.googleDocs.refreshTokenEnv}=${refreshToken}\n`);
   info('');
   info('Set the OAuth consent screen to Production, or this token expires in 7 days.');
+  if (!config.googleDocs.fullDriveAccess) {
+    info('');
+    info('This grants access to files this app creates and nothing else. To put the docs');
+    info('in a folder you picked in Drive, set googleDocs.fullDriveAccess in config.json');
+    info('and run this again — that permission cannot be added to a token already minted.');
+  }
 }
 
 async function runPublish(positional: string[], flags: ParsedArgs['flags'], config: AppConfig) {

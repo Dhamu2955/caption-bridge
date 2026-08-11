@@ -545,15 +545,30 @@ passage against the service somebody sat through, the offset finds it in the
 recording — the same number the `.srt` uses. The link appears on the Captions
 tab as soon as the doc exists, which is before anyone has spoken.
 
-**Setting it up.** Enable the **Google Drive API** on a Cloud project, then:
+**Setting it up**, once:
 
-```sh
-npx tsx src/cli.ts doc --auth
-```
+1. [console.cloud.google.com](https://console.cloud.google.com) → a project (the
+   YouTube one is fine) → **APIs & Services → Library** → enable **Google Drive
+   API**.
+2. **Credentials → Create credentials → OAuth client ID → Desktop app.** Copy
+   the id and secret into `.env` as `GOOGLE_DOCS_CLIENT_ID` and
+   `GOOGLE_DOCS_CLIENT_SECRET`.
+3. **OAuth consent screen → Production.** In Testing, Google expires the refresh
+   token after seven days — exactly the length of festival week.
+4. `npx tsx src/cli.ts doc --auth`, approve in the browser, paste the printed
+   `GOOGLE_DOCS_REFRESH_TOKEN` into `.env`.
+5. Settings → **Write the service to a Google Doc**.
 
-Paste the printed `GOOGLE_DOCS_REFRESH_TOKEN` into `.env` with the client id and
-secret beside it, and set **Drive folder for those docs** in Settings — the last
-part of the folder's address in Drive. Leave it empty for My Drive.
+**About the folder.** By default the app asks only for access to files it
+creates itself, and the docs land in My Drive. That is the least permission that
+works, and it is enough — move or share them afterwards like any other file.
+
+Putting them straight into a folder you picked needs access to your whole
+Drive, because Google's narrow permission cannot reach a folder the app did not
+create. If you want that: set `googleDocs.fullDriveAccess` to `true` in
+`config.json`, run `doc --auth` **again** (scopes are fixed when the token is
+minted), then paste the folder's id into Settings — the last part of its address
+in Drive. Get it wrong and the Captions tab tells you which of the two to fix.
 
 **A separate credential from YouTube's, deliberately.** The client id and secret
 may be the same strings pasted twice; the refresh token cannot be, because the

@@ -51,6 +51,6 @@
     "liveSrt": true,
     "googleDoc": false,
     "googleDocFolderId": "",
-    "maxEndpointDelayMs": 2000
+    "maxEndpointDelayMs": 1000
   }
 }

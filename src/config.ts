@@ -81,6 +81,15 @@ export interface GoogleDocsConfig {
   refreshTokenEnv: string;
   /** Distinct from youtube.authPort so both redirect URIs can be registered. */
   authPort: number;
+  /**
+   * Ask for access to the whole Drive rather than only files this app created.
+   *
+   * Needed ONLY to put the docs in a folder you picked yourself: the narrow
+   * permission cannot reach one. Leave it off and the docs land in My Drive,
+   * where the app can always reach its own. Changing it means running
+   * `doc --auth` again — scopes are fixed at consent.
+   */
+  fullDriveAccess: boolean;
 }
 
 export interface SearchConfig {
@@ -175,6 +184,7 @@ const DEFAULTS = {
     clientSecretEnv: 'GOOGLE_DOCS_CLIENT_SECRET',
     refreshTokenEnv: 'GOOGLE_DOCS_REFRESH_TOKEN',
     authPort: 8720,
+    fullDriveAccess: false,
   },
   search: {
     model: 'Xenova/multilingual-e5-small',
@@ -372,6 +382,11 @@ export function parseConfig(raw: unknown): AppConfig {
         DEFAULTS.googleDocs.refreshTokenEnv,
       ),
       authPort: num(docs['authPort'], 'googleDocs.authPort', DEFAULTS.googleDocs.authPort),
+      fullDriveAccess: bool(
+        docs['fullDriveAccess'],
+        'googleDocs.fullDriveAccess',
+        DEFAULTS.googleDocs.fullDriveAccess,
+      ),
     },
     search: {
       model: str(searchRaw['model'], 'search.model', DEFAULTS.search.model),
