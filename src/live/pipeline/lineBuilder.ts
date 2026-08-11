@@ -71,11 +71,25 @@ export class LineBuilder {
       this.buffer.push(token);
     }
 
-    // Soniox delivers a run's translation before the endpoint that closes it,
-    // so an endpoint flush always has everything it needs.
-    if (sawEndpoint) return this.flush();
-
-    if (this.bufferSpanMs() >= this.options.maxBufferMs) return this.flushTranslated();
+    // An endpoint does NOT mean the translation has arrived.
+    //
+    // This used to call `flush()` on the strength of a comment saying Soniox
+    // delivers a run's translation before the endpoint that closes it. Three
+    // recorded services say otherwise: `buildSegments` falls back to the
+    // original when it finds no translation to pair, so the endpoint flush put
+    // raw Gujarati on the English screen — "સિંહાસન ઉપર." went out at 28.5s,
+    // and "On the singasan, it starts" arrived five seconds later as a caption
+    // of its own. The same words, twice, in two languages.
+    //
+    // So an endpoint emits what is translated and keeps the rest, exactly as
+    // the overflow path already did. The held tail leaves with its translation
+    // on the next flush, which is also how those two captions become one. The
+    // prototype gets here from the other direction: it only ever takes tokens
+    // already marked as translation, so untranslated speech simply never
+    // reaches a caption.
+    if (sawEndpoint || this.bufferSpanMs() >= this.options.maxBufferMs) {
+      return this.flushTranslated();
+    }
     return [];
   }
 

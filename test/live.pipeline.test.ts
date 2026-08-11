@@ -519,3 +519,48 @@ describe('one flush is one caption', () => {
     expect(lines[0]!.translation).toBe('Devotion is the path.');
   });
 });
+
+describe('the English screen never shows Gujarati', () => {
+  const spoken = (text: string, s: number, e: number) =>
+    ({ text, start_ms: s, end_ms: e, is_final: true, speaker: '1', translation_status: 'original' }) as SonioxToken;
+  const english = (text: string) =>
+    ({ text, start_ms: 0, end_ms: 0, is_final: true, speaker: '1', translation_status: 'translation' }) as SonioxToken;
+  const endpoint = (at: number) =>
+    ({ text: '<end>', start_ms: at, end_ms: at, is_final: true }) as SonioxToken;
+
+  /**
+   * From three recorded services. An endpoint arrived before Soniox had sent
+   * the translation, `buildSegments` fell back to the original, and the raw
+   * Gujarati went out as a caption — then the English arrived and went out as a
+   * second one. "સિંહાસન ઉપર." at 28.5s, "On the singasan, it starts" at 33.9s:
+   * the same words twice, in two languages.
+   */
+  it('holds an untranslated run at an endpoint rather than showing the source', () => {
+    const builder = new LineBuilder({ maxBufferMs: 8000, minDisplayMs: 0, maxUntranslatedMs: 30_000 });
+
+    const held = builder.push([spoken(' સિંહાસન ઉપર.', 28_560, 30_060), endpoint(30_060)]);
+    expect(held).toEqual([]);
+
+    // The translation lands a few seconds later; both leave together, once.
+    const out = builder.push([english(' On the singasan, it starts, brothers.'), endpoint(35_400)]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.translation).toBe('On the singasan, it starts, brothers.');
+    expect(out[0]!.translation).not.toMatch(/[઀-૿]/);
+    // The Gujarati is still carried, for the .srt and the Google Doc.
+    expect(out[0]!.original).toContain('સિંહાસન');
+  });
+
+  it('still emits what IS translated, keeping only the unpaired tail', () => {
+    const builder = new LineBuilder({ maxBufferMs: 8000, minDisplayMs: 0, maxUntranslatedMs: 30_000 });
+    const out = builder.push([
+      spoken(' ભક્તિ એ માર્ગ છે.', 0, 2000),
+      english(' Devotion is the path.'),
+      spoken(' આજે આપણે વાત કરીશું.', 2100, 4000),
+      endpoint(4000),
+    ]);
+
+    expect(out).toHaveLength(1);
+    expect(out[0]!.translation).toBe('Devotion is the path.');
+    expect(out[0]!.translation).not.toMatch(/[઀-૿]/);
+  });
+});

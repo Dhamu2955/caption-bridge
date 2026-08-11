@@ -585,6 +585,13 @@ symptom of both is the same: fragments where clauses should be.
 if Soniox has not called an endpoint in eight seconds. With the ceiling above at
 two seconds it should never fire.
 
+**An endpoint does not mean the translation has arrived.** Speech whose English
+has not come back yet is held rather than shown — otherwise the segment builder
+falls back to the source and puts raw Gujarati on the English screen, then the
+translation arrives a few seconds later as a second caption. The held words
+leave with their translation on the next flush, which is also how those two
+captions become one.
+
 **One endpoint is one caption.** However long the run, a flush produces exactly
 one line — the same thing the prototype does when it posts an event's whole
 finalised text as a single caption. It used to split a long run into several
