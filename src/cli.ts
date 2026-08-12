@@ -6,6 +6,7 @@ import {
   ConfigError,
   loadConfig,
   loadConfigSafe,
+  resolveGoogleDocsCredentials,
   resolveYoutubeCredentials,
   type AppConfig,
 } from './config.js';
@@ -15,7 +16,9 @@ import type { PrismaClient } from './generated/prisma/client.js';
 import { ingest } from './commands/ingest.js';
 import { exportSrt } from './commands/export.js';
 import { createYoutubeClient, publish, publishAll } from './commands/publish.js';
-import { authorise } from './youtube/auth.js';
+import { authorise } from './google/auth.js';
+import { YOUTUBE_SCOPE } from './youtube/client.js';
+import { googleDocsScopes } from './google/docs.js';
 import { editTranslation, listAllServices, showSegments } from './commands/edit.js';
 import { backfill } from './commands/backfill.js';
 import { formatHit, runIndex, runSearch } from './commands/search.js';
@@ -43,6 +46,7 @@ Usage:
   sermon-captions play   <video|service-id> --input <vmix-guid> [--lines both]
   sermon-captions live   --device "<audio device>" [--outputs venue,stream]
   sermon-captions serve  [--format <dshow|avfoundation|pulse>] [--no-open]
+  sermon-captions doc    --auth
   sermon-captions devices
 
 serve opens the web interface, where everything else can be set up and run.
@@ -89,13 +93,15 @@ play options:
 live options:
   --device <name>     Audio device carrying the SPEAKER'S MIC ONLY, not Master.
   --format <fmt>      dshow (Windows) | avfoundation (macOS). Auto-detected.
-  --outputs <list>    Comma-separated: venue,stream,reviewer,overflow.
   --record <path>     Write every raw response and operator action to JSONL.
   --token <secret>    Overlay/reviewer URL token. Generated if omitted.
   --youtube-captions <url>  YouTube live caption ingestion URL.
-  --stream-offset <ms>      Delay between your encoder and YouTube receiving it.
   --caption-input <guid>    Also drive a vMix GT title.
   --verbose           Log every release.
+
+doc --auth mints the Google Docs credential, which is separate from the
+YouTube one on purpose: the scopes differ, and sharing a token would make
+"which consent did I grant?" unanswerable. Turn the doc on in Settings.
 
 backfill options:
   --limit <n>         Stop after n files. Use it to trial the worst recordings.
@@ -242,6 +248,37 @@ async function runExport(positional: string[], flags: ParsedArgs['flags'], confi
   info(`  ${basename(result.sourceSrt)}`);
 }
 
+/**
+ * Mint the Google Docs refresh token. Deliberately its own command and its own
+ * credential — see `GoogleDocsConfig`.
+ */
+async function runDocAuth(config: AppConfig) {
+  const credentials = resolveGoogleDocsCredentials(config, process.env, {
+    requireRefreshToken: false,
+  });
+  const refreshToken = await authorise({
+    clientId: credentials.clientId,
+    clientSecret: credentials.clientSecret,
+    port: config.googleDocs.authPort,
+    scope: googleDocsScopes(config.googleDocs.fullDriveAccess).join(' '),
+    onUrl: (url) => {
+      info('Open this in a browser and approve access:');
+      info('');
+      process.stdout.write(`${url}\n\n`);
+    },
+  });
+  info('Paste this into .env:');
+  process.stdout.write(`${config.googleDocs.refreshTokenEnv}=${refreshToken}\n`);
+  info('');
+  info('Set the OAuth consent screen to Production, or this token expires in 7 days.');
+  if (!config.googleDocs.fullDriveAccess) {
+    info('');
+    info('This grants access to files this app creates and nothing else. To put the docs');
+    info('in a folder you picked in Drive, set googleDocs.fullDriveAccess in config.json');
+    info('and run this again — that permission cannot be added to a token already minted.');
+  }
+}
+
 async function runPublish(positional: string[], flags: ParsedArgs['flags'], config: AppConfig) {
   if (flags.get('auth') === true) {
     const credentials = resolveYoutubeCredentials(config, process.env, {
@@ -251,6 +288,7 @@ async function runPublish(positional: string[], flags: ParsedArgs['flags'], conf
       clientId: credentials.clientId,
       clientSecret: credentials.clientSecret,
       port: config.youtube.authPort,
+      scope: YOUTUBE_SCOPE,
       onUrl: (url) => {
         info('Open this in a browser and approve access:');
         info('');
@@ -436,14 +474,9 @@ async function runLiveCommand(flags: ParsedArgs['flags'], config: AppConfig) {
     {
       device: requireString(flags, 'device'),
       format: optionalString(flags, 'format') as CaptureFormat | undefined,
-      outputs: optionalString(flags, 'outputs')
-        ?.split(',')
-        .map((name) => name.trim())
-        .filter(Boolean) as Parameters<typeof runLive>[0]['outputs'],
       recordPath: optionalString(flags, 'record'),
       token: optionalString(flags, 'token'),
       youtubeCaptionsUrl: optionalString(flags, 'youtube-captions'),
-      streamOffsetMs: optionalNumber(flags, 'stream-offset'),
       captionInput: optionalString(flags, 'caption-input'),
       verbose: flags.get('verbose') === true,
     },
@@ -515,6 +548,9 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case 'live':
       await runLiveCommand(flags, config);
+      return 0;
+    case 'doc':
+      await runDocAuth(config);
       return 0;
     case 'devices':
       process.stdout.write(`${listDevicesCommand()}\n`);

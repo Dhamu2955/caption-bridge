@@ -14,7 +14,7 @@ import { looksLikeSecret, restartRequiredFor, SETTINGS } from '../src/settings/s
  */
 
 const GOOD = JSON.stringify(
-  { ingest: { pauseMs: 4000, maxLines: 3 }, live: { delayReviewMs: 180000 } },
+  { ingest: { pauseMs: 4000, maxLines: 3 }, live: { maxBufferMs: 8000 } },
   null,
   2,
 );
@@ -63,7 +63,7 @@ describe('ConfigStore', () => {
     const before = await readFile(path, 'utf8');
 
     // config.json is committed; a key in it would be published to the repo.
-    const result = await config.update({ 'paths.media': 'sk-abcdefghijklmnopqrstuvwxyz012345' });
+    const result = await config.update({ 'server.host': 'sk-abcdefghijklmnopqrstuvwxyz012345' });
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('.env');

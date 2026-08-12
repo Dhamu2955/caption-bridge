@@ -23,101 +23,18 @@ import { info, warn } from '../util/log.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(here, '..', '..', 'public');
 
-export type OperatorCommandType =
-  | 'drop'
-  | 'edit'
-  | 'hold'
-  | 'resume'
-  | 'captions-off'
-  | 'captions-on';
-
-export interface OperatorCommand {
-  type: OperatorCommandType;
-  lineId?: string;
-  /** The corrected translation, for `edit`. */
-  text?: string;
-}
-
-const COMMAND_TYPES = new Set<string>([
-  'drop',
-  'edit',
-  'hold',
-  'resume',
-  'captions-off',
-  'captions-on',
-]);
-
-/** Anything that is not a command this bridge knows is ignored, not guessed at. */
-export function parseOperatorCommand(raw: string): OperatorCommand | undefined {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-  if (typeof parsed !== 'object' || parsed === null) return undefined;
-
-  const candidate = parsed as { type?: unknown; lineId?: unknown; text?: unknown };
-  if (typeof candidate.type !== 'string' || !COMMAND_TYPES.has(candidate.type)) return undefined;
-
-  return {
-    type: candidate.type as OperatorCommandType,
-    ...(typeof candidate.lineId === 'string' ? { lineId: candidate.lineId } : {}),
-    ...(typeof candidate.text === 'string' ? { text: candidate.text } : {}),
-  };
-}
-
-export interface PendingLine extends CaptionLine {
-  /** Wall-clock instant this line goes to air. Past it, nothing can change it. */
-  deadlineAt: number;
-  /** When it reached the reviewer feed. The drain bar runs from here to
-   *  deadlineAt — using the review window alone leaves the bar pinned full for
-   *  the first few seconds, because assembly delay is not review time. */
-  visibleFrom: number;
-  /** Whether a correction is already queued against it. */
-  edited: boolean;
-}
-
-/**
- * Everything the reviewer can still act on, soonest deadline first.
- *
- * A list rather than one `current` line: at a three-minute review window there
- * are tens of lines in flight at once, and the reviewer needs to see which one
- * is about to expire.
- */
-export interface OperatorView {
-  pending: PendingLine[];
-  /** Size of the review window, so the page can label it. */
-  windowMs: number;
-  /**
-   * Wall clock for audio position 0, so the page can put a picture where the
-   * words are. Absent when nothing is running.
-   */
-  sessionEpoch?: number;
-  /**
-   * The assembly delay. A player showing the recording has to sit exactly this
-   * far behind the capture point, or it shows speech whose caption has not been
-   * scheduled yet.
-   */
-  assemblyMs?: number;
-  /**
-   * A recording the reviewer can watch alongside the queue, when the session is
-   * being fed from a file rather than a microphone. There is no equivalent for
-   * a live service yet — that needs a video feed off the vMix machine.
-   */
-  media?: { url: string; kind: 'file' } | undefined;
-  /** How long the feed has carried no speech; null while it is carrying some. */
-  silentForMs?: number | null;
-}
-
 export interface BridgeServerOptions {
   host: string;
   port: number;
-  /** Overlay adapters by output name. */
-  outputs: Map<string, BrowserAdapter>;
+  /**
+   * The one caption screen. Owned here rather than by a session, because a
+   * socket is bound to an adapter instance at upgrade time and never re-looked
+   * up — a session that replaced it would leave every vMix Browser input
+   * connected to an orphan, still looking healthy and never showing a word.
+   */
+  overlay: BrowserAdapter;
   /** Shared secret; omit to run without one on a trusted localhost. */
   token?: string | undefined;
-  onCommand?: (command: OperatorCommand) => void;
   /** Audio devices for the control page's dropdown. */
   listDevices?: () => Promise<AudioDevice[]>;
   /**
@@ -155,10 +72,8 @@ export interface BridgeServerOptions {
 
 export class BridgeServer {
   private readonly options: BridgeServerOptions;
-  private readonly operators = new Set<WebSocket>();
   private server: Server | undefined;
   private wss: WebSocketServer | undefined;
-  private view: OperatorView = { pending: [], windowMs: 0 };
 
   constructor(options: BridgeServerOptions) {
     this.options = options;
@@ -289,25 +204,18 @@ export class BridgeServer {
       }
     }
 
-    info(`reviewer  ${base}/operator${suffix}`);
-    info(`control   ${base}/control${suffix}`);
-    for (const name of this.options.outputs.keys()) {
-      info(`overlay   ${base}/overlay${suffix ? `${suffix}&` : '?'}output=${name}`);
-    }
+    info(`overlay   ${base}/overlay${suffix}`);
   }
 
   private accept(ws: WebSocket, url: URL): void {
     const role = url.searchParams.get('role');
 
     if (role === 'overlay') {
-      const name = url.searchParams.get('output') ?? 'venue';
-      const adapter = this.options.outputs.get(name);
-      if (!adapter) {
-        warn(`overlay asked for unknown output "${name}"`);
-        ws.close();
-        return;
-      }
-      const detach = adapter.attach({
+      // `?output=` is ignored rather than rejected. There is one screen now,
+      // but vMix Browser inputs and tablet bookmarks all over the mandir still
+      // carry `output=venue` from when there were four, and a caption path that
+      // breaks on a stale query parameter is not worth the tidiness.
+      const detach = this.options.overlay.attach({
         send: (data) => ws.send(data),
         get open() {
           return ws.readyState === ws.OPEN;
@@ -336,42 +244,7 @@ export class BridgeServer {
       return;
     }
 
-    if (role === 'operator') {
-      this.operators.add(ws);
-      ws.send(JSON.stringify({ type: 'state', ...this.view }));
-      ws.on('message', (raw) => {
-        const command = parseOperatorCommand(raw.toString());
-        if (!command) return;
-        // Advisory only. The scheduler decides whether to honour it.
-        this.options.onCommand?.(command);
-      });
-      ws.on('close', () => this.operators.delete(ws));
-      return;
-    }
-
     ws.close();
-  }
-
-  /** Push the reviewer's view. Called whenever the queue changes. */
-  publish(view: OperatorView): void {
-    this.view = view;
-    const payload = JSON.stringify({ type: 'state', ...view });
-    for (const ws of this.operators) {
-      if (ws.readyState === ws.OPEN) ws.send(payload);
-      else this.operators.delete(ws);
-    }
-  }
-
-  /** Mirror queue activity to the reviewer, for the status line. */
-  notify(event: QueueEvent): void {
-    const payload = JSON.stringify({ type: 'event', event });
-    for (const ws of this.operators) {
-      if (ws.readyState === ws.OPEN) ws.send(payload);
-    }
-  }
-
-  get operatorCount(): number {
-    return this.operators.size;
   }
 
   async stop(): Promise<void> {

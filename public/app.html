@@ -8,8 +8,7 @@
 <link rel="stylesheet" href="/theme.css">
 <style>
   /*
-    The setup and running surface. Same tokens as the reviewer — they are the
-    same product and often open side by side.
+    The setup and running surface.
 
     One tab per job, and nothing that is merely a view:
 
@@ -72,6 +71,10 @@
   input[type="password"], input.mono { font-family: var(--mono); font-size: 0.88rem; }
   textarea { min-height: 76px; resize: vertical; line-height: 1.45; }
   input[type="checkbox"] { width: auto; min-height: 0; }
+  .toggle {
+    display: flex; align-items: center; gap: var(--s2);
+    padding: 7px 0; font-size: 0.95rem; cursor: pointer;
+  }
 
   .hint { margin: var(--s2) 0 0; color: var(--ink-soft); font-size: 0.85rem; line-height: 1.5; }
   .hint strong { color: var(--ink); font-weight: 500; }
@@ -407,7 +410,6 @@
 <nav class="bar" role="tablist" aria-label="Sections">
   <span class="brand">Caption bridge</span>
   <button class="tab" role="tab" data-tab="live" aria-selected="true">Captions</button>
-  <button class="tab" role="tab" data-tab="review" aria-selected="false">Reviewer</button>
   <button class="tab" role="tab" data-tab="glossary" aria-selected="false">Glossary</button>
   <button class="tab" role="tab" data-tab="sermons" aria-selected="false">Sermons</button>
   <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
@@ -558,19 +560,6 @@
     <p class="hint" id="live-stats-note">Nothing has gone out yet.</p>
   </div>
 </main>
-
-<!-- ---- reviewer ------------------------------------------------------- -->
-<div data-panel="review" hidden>
-  <!--
-    The reviewer page itself, not a copy of it. It is the surface a tablet opens
-    directly and the one the contract tests cover; running it here as well means
-    the vMix operator can review without a second implementation drifting from
-    the first.
-  -->
-  <!-- Without allow, the framed page cannot play sound at all and the Sound on
-       button would do nothing here while working at /operator directly. -->
-  <iframe class="frame" id="review-frame" title="Reviewer" allow="autoplay"></iframe>
-</div>
 
 <!-- ---- glossary ------------------------------------------------------- -->
 <!--
@@ -727,12 +716,6 @@
       tab.setAttribute('aria-selected', String(tab.getAttribute('data-tab') === name));
     });
     Object.keys(panels).forEach(function (key) { panels[key].hidden = key !== name; });
-    // The reviewer is only loaded when asked for — an idle iframe holding a
-    // websocket open would count as an operator that is not there.
-    if (name === 'review') {
-      var frame = el('review-frame');
-      if (!frame.getAttribute('src')) frame.setAttribute('src', '/operator' + qs);
-    }
     if (name === 'settings') loadSettings();
     if (name === 'sermons') loadServices();
     if (name === 'glossary') loadGlossary();
@@ -840,11 +823,10 @@
     el('start').disabled = running;
     el('stop').disabled = !running;
 
-    var counts = status.overlays || {};
-    var connected = Object.keys(counts).filter(function (k) { return counts[k] > 0; });
+    var connected = (status.overlay && status.overlay.connections) || 0;
     text(
       el('dash-overlays'),
-      connected.length === 0
+      connected === 0
         ? 'No screens connected.'
         : connected.map(function (k) { return counts[k] + ' on ' + k; }).join(', ') + '.'
     );
@@ -895,44 +877,32 @@
           : 'No speech for ' + seconds + 's. Check the cable and the mixer — nothing is being captioned.');
   }
 
-  // Four near-identical URLs differing by one word told nobody which to point
-  // vMix at. The name is the only part that matters, so it leads.
-  var OVERLAY_PURPOSE = {
-    venue: 'The screen in the hall. Appears as soon as the line is translated.',
-    overflow: 'The screen in the overflow room. Same words, same moment as the hall.',
-    reviewer: 'A monitor beside the reviewer, showing what the hall is seeing.',
-    stream: 'Burned into the broadcast picture. The only one that waits for the reviewer, so it runs further behind.'
-  };
-
-  function renderOverlayUrls(status) {
+  function renderOverlayUrls() {
     var host = el('overlay-urls');
     if (host.childElementCount > 0) return;
-    Object.keys(status.overlays || {}).forEach(function (name) {
-      var wrap = document.createElement('div');
-      wrap.className = 'screen';
 
-      var head = document.createElement('p');
-      head.className = 'screen-name';
-      text(head, name);
-      wrap.appendChild(head);
+    var wrap = document.createElement('div');
+    wrap.className = 'screen';
 
-      if (OVERLAY_PURPOSE[name]) {
-        var why = document.createElement('p');
-        why.className = 'screen-why';
-        text(why, OVERLAY_PURPOSE[name]);
-        wrap.appendChild(why);
-      }
+    var head = document.createElement('p');
+    head.className = 'screen-name';
+    text(head, 'The caption screen');
+    wrap.appendChild(head);
 
-      var a = document.createElement('a');
-      a.className = 'url';
-      a.href = '/overlay' + qs + (token ? '&' : '?') + 'output=' + name;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      text(a, location.origin + a.getAttribute('href'));
-      wrap.appendChild(a);
+    var why = document.createElement('p');
+    why.className = 'screen-why';
+    text(why, 'Open this as a vMix Browser input, or in a browser on the projector machine.');
+    wrap.appendChild(why);
 
-      host.appendChild(wrap);
-    });
+    var a = document.createElement('a');
+    a.className = 'url';
+    a.href = '/overlay' + qs;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    text(a, location.origin + a.getAttribute('href'));
+    wrap.appendChild(a);
+
+    host.appendChild(wrap);
   }
 
   function renderCaptureError(message) {
@@ -951,7 +921,7 @@
       lastStatus = status;
       renderChecks(status);
       renderSession(status);
-      renderOverlayUrls(status);
+      renderOverlayUrls();
     }).catch(function (err) {
       el('setup').setAttribute('data-clear', 'false');
       text(el('setup-summary'), 'Cannot reach the bridge — ' + err.message);
@@ -988,18 +958,12 @@
     api('/api/stats').then(function (body) {
       var live = body.live;
       tiles(el('live-stats'), [
-        { name: 'Gone out', value: live.released },
-        { name: 'Dropped', value: live.dropped },
-        { name: 'Corrected', value: live.edited },
-        // Skips mean a caption missed its moment — worth colouring.
-        { name: 'Missed', value: live.skipped, warn: live.skipped > 0 },
+        { name: 'Gone out', value: live.lines },
         { name: 'Audio gaps', value: live.gaps, warn: live.gaps > 0 },
         { name: 'Running', value: duration(live.runningForMs) }
       ]);
 
       var note = [];
-      if (live.released > 0) note.push('Typically ' + live.meanLatenessMs + 'ms past their scheduled instant, at worst ' + live.maxLatenessMs + 'ms.');
-      if (live.rejected > 0) note.push(live.rejected + ' reviewer decisions arrived too late to apply.');
       if (live.gapMs > 0) note.push(duration(live.gapMs) + ' of audio was missing.');
       text(el('live-stats-note'), note.length ? note.join(' ') : 'Nothing has gone out yet.');
 
@@ -1482,6 +1446,7 @@
   }
 
   function inputToValue(setting, raw) {
+    if (setting.type === 'choice') return raw;
     if (setting.type === 'number') {
       var n = Number(raw);
       if (raw.trim() === '' || Number.isNaN(n)) throw new Error(setting.label + ' must be a number');
@@ -1578,6 +1543,7 @@
       }
 
       var inputs = [];
+
       groups[info.id].forEach(function (setting) {
         var field = document.createElement('div');
         field.className = 'field';
@@ -1594,10 +1560,39 @@
         field.appendChild(label);
 
         var multiline = setting.type === 'string[]' || setting.type === 'termPairs';
-        var input = document.createElement(multiline ? 'textarea' : 'input');
-        if (!multiline) input.type = setting.type === 'number' ? 'number' : 'text';
-        input.value = valueToInput(setting, body.values[setting.path]);
-        field.appendChild(input);
+        var input = setting.type === 'choice'
+          ? document.createElement('select')
+          : document.createElement(multiline ? 'textarea' : 'input');
+        if (setting.type === 'choice') {
+          (setting.choices || []).forEach(function (choice) {
+            var option = document.createElement('option');
+            option.value = choice.value;
+            option.textContent = choice.label;
+            input.appendChild(option);
+          });
+        }
+        if (!multiline && setting.type !== 'choice') {
+          input.type = setting.type === 'boolean'
+            ? 'checkbox'
+            : setting.type === 'number' ? 'number' : 'text';
+        }
+
+        if (setting.type === 'boolean') {
+          // A yes/no rendered as a text box asked people to type the word
+          // "true", and the config writer rejects anything that is not a real
+          // boolean — so the field could be edited and never saved.
+          input.checked = body.values[setting.path] === true;
+          var toggle = document.createElement('label');
+          toggle.className = 'toggle';
+          toggle.appendChild(input);
+          var word = document.createElement('span');
+          text(word, setting.on || 'On');
+          toggle.appendChild(word);
+          field.appendChild(toggle);
+        } else {
+          input.value = valueToInput(setting, body.values[setting.path]);
+          field.appendChild(input);
+        }
         inputs.push({ setting: setting, input: input });
 
         var help = document.createElement('p');
@@ -1617,7 +1612,9 @@
         var patch = {};
         try {
           inputs.forEach(function (entry) {
-            patch[entry.setting.path] = inputToValue(entry.setting, entry.input.value);
+            patch[entry.setting.path] = entry.setting.type === 'boolean'
+              ? entry.input.checked
+              : inputToValue(entry.setting, entry.input.value);
           });
         } catch (err) {
           notice(el('settings-notice'), 'bad', err.message);

@@ -22,6 +22,14 @@ export interface SonioxConfig {
   /** Source→target pairs so the same term translates consistently every week. */
   translationTerms: TranslationTerm[];
   /**
+   * Restrict recognition to `sourceLanguages` rather than treating them as
+   * hints. Soniox's own guidance is that results are best with a single
+   * language named, and a working prototype of this job sets it — but this
+   * bridge names two (gu and en) because sermons code-switch, so it is off by
+   * default and worth testing against your own speaker.
+   */
+  languageHintsStrict: boolean;
+  /**
    * Use the built-in Swaminarayan glossary and register instructions from
    * `soniox/vocabulary.ts`. The two lists above are added on top of it and win
    * on conflict. Off means local terms alone.
@@ -58,6 +66,32 @@ export interface YoutubeConfig {
   authPort: number;
 }
 
+/**
+ * A credential of its own, never YouTube's.
+ *
+ * The client id and secret may legitimately be the same strings pasted twice —
+ * one Cloud project, one desktop OAuth client — but the refresh tokens carry
+ * different scopes and must not be shared. Falling back to YouTube's would make
+ * "which consent did I actually grant?" unanswerable, and a Docs failure could
+ * then invalidate the credential that publishes captions.
+ */
+export interface GoogleDocsConfig {
+  clientIdEnv: string;
+  clientSecretEnv: string;
+  refreshTokenEnv: string;
+  /** Distinct from youtube.authPort so both redirect URIs can be registered. */
+  authPort: number;
+  /**
+   * Ask for access to the whole Drive rather than only files this app created.
+   *
+   * Needed ONLY to put the docs in a folder you picked yourself: the narrow
+   * permission cannot reach one. Leave it off and the docs land in My Drive,
+   * where the app can always reach its own. Changing it means running
+   * `doc --auth` again — scopes are fixed at consent.
+   */
+  fullDriveAccess: boolean;
+}
+
 export interface SearchConfig {
   /** Multilingual so a Gujarati query can reach English text (§3). Changing
    *  this invalidates every stored vector — re-index after. */
@@ -73,8 +107,9 @@ export interface AppConfig {
   soniox: SonioxConfig;
   ingest: IngestConfig;
   youtube: YoutubeConfig;
+  googleDocs: GoogleDocsConfig;
   search: SearchConfig;
-  paths: { media: string; recordings: string };
+  paths: { recordings: string };
   database: { urlEnv: string };
   server: {
     host: string;
@@ -87,41 +122,31 @@ export interface AppConfig {
     shareTokenOnLan: boolean;
   };
   live: {
-    delayAssemblyMs: number;
-    delayReviewMs: number;
-    minDisplayMs: number;
-    lateSkipMs: number;
+    /**
+     * -1 patient to 1 eager. ABSENT BY DEFAULT and best left that way: unset,
+     * Soniox's own judgement decides where a sentence ends. Setting it eager
+     * is how captions start arriving three words at a time. Not on the
+     * settings form — add it to config.json by hand to experiment.
+     */
+    endpointSensitivity?: number;
+    /**
+     * Ceiling on how long Soniox may wait to call a clause finished — a
+     * backstop for a speaker who never pauses, NOT a target. Low values force
+     * an endpoint mid-thought.
+     */
+    maxEndpointDelayMs: number;
     /** Names the variable holding YouTube's caption ingestion URL. The URL
      *  embeds a `cid` that identifies the stream, so it is a credential and
      *  lives in .env with the rest — never in this committed file. */
     youtubeCaptionsUrlEnv: string;
-    /** Delay between this machine's encoder and YouTube receiving the video. */
-    streamOffsetMs: number;
-    /**
-     * How long a speaker may run without a pause before the line is cut.
-     *
-     * The single biggest lever on how soon a caption appears. A caption cannot
-     * exist until the sentence it covers has finished being spoken, so a long
-     * utterance is inherently a late caption — cutting sooner trades whole
-     * sentences for speed.
-     */
-    maxBufferMs: number;
-    /**
-     * How eagerly Soniox closes a clause, -1 (patient) to 1 (eager).
-     *
-     * The other half of how soon a caption appears, and the half that is
-     * Soniox's rather than ours: it decides when a segment is finished, and
-     * nothing can be translated before then. Slightly patient reads better —
-     * it gives the translator enough audio to resolve short words and clause
-     * boundaries rather than committing to a fragment.
-     */
-    endpointSensitivity: number;
-    /**
-     * Hard ceiling on that wait. Without it a speaker who does not pause can
-     * hold a segment open indefinitely, and the caption for it arrives
-     * whenever they finally stop.
-     */
-    maxEndpointDelayMs: number;
+    /** Write an .srt into `paths.recordings` while a service runs. */
+    liveSrt: boolean;
+    /** Write each finalised line to a new Google Doc as the service runs. */
+    googleDoc: boolean;
+    /** Drive folder the doc is created in. Empty means My Drive root. */
+    googleDocFolderId: string;
+    /** How often buffered lines are sent. Config-only; not worth a form row. */
+    googleDocFlushMs: number;
   };
 }
 
@@ -135,6 +160,7 @@ const DEFAULTS = {
     contextTerms: [] as string[],
     translationTerms: [] as TranslationTerm[],
     builtInGlossary: true,
+    languageHintsStrict: true,
   },
   ingest: {
     pauseMs: 1200,
@@ -153,6 +179,13 @@ const DEFAULTS = {
     dailyQuotaUnits: 10_000,
     authPort: 8719,
   },
+  googleDocs: {
+    clientIdEnv: 'GOOGLE_DOCS_CLIENT_ID',
+    clientSecretEnv: 'GOOGLE_DOCS_CLIENT_SECRET',
+    refreshTokenEnv: 'GOOGLE_DOCS_REFRESH_TOKEN',
+    authPort: 8720,
+    fullDriveAccess: false,
+  },
   search: {
     model: 'Xenova/multilingual-e5-small',
     dimensions: 384,
@@ -160,27 +193,16 @@ const DEFAULTS = {
     chunkMaxMs: 180_000,
     chunkOverlapMs: 30_000,
   },
-  paths: { media: './media', recordings: './recordings' },
+  paths: { recordings: './recordings' },
   database: { urlEnv: 'DATABASE_URL' },
   server: { host: '0.0.0.0', port: 3000, shareTokenOnLan: true },
   live: {
     // Measured, not guessed: across all 594 cues of a real 69-minute sermon, the
-    // median caption was ready 7s after its first word, 90% within 12s and the
-    // worst at 21s. At the old 4000 a caption is routinely scheduled for an
-    // instant already past, which `lateSkipMs` then drops — speech on screen
-    // with no words under it. 15s clears nine cues in ten.
-    delayAssemblyMs: 15_000,
-    // Three minutes, not the 25 seconds phase 5 was designed around. At 25s a
-    // reviewer can realistically only drop a line; correcting one needs time to
-    // read the Gujarati, judge the English, and type. Tunable up to 10 minutes
-    // — but a delay this long cannot live in vMix's Video Delay, which is
-    // RAM-resident. See docs/vmix-routing.md.
-    delayReviewMs: 180_000,
-    minDisplayMs: 1500,
-    lateSkipMs: 2000,
+    liveSrt: true,
+    googleDoc: false,
+    googleDocFolderId: '',
+    googleDocFlushMs: 5000,
     youtubeCaptionsUrlEnv: 'YOUTUBE_INGESTION_URL',
-    streamOffsetMs: 0,
-    maxBufferMs: 8000,
     /*
       From the American mandirs' bridge, and kept after trying to beat them.
 
@@ -193,10 +215,10 @@ const DEFAULTS = {
         -0.25 / 2500  the wrong word, but prompt at about a second
         -0.50 / 3500  the right word, compounds intact, slowest line 11.0s
         -0.75 / 5000  the right word and much worse everywhere else: clauses
-                      outran maxBufferMs so our own cut split "Pancham
-                      Varasdar" across two captions, and the slowest line was
-                      ready 17.1s after the speech ended — past
-                      delayAssemblyMs, so lateSkipMs would drop it
+                      ran long enough to split "Pancham Varasdar" across two
+                      captions, and the slowest line was
+                      ready 17.1s after the speech ended — seventeen seconds
+                      of a speaker talking with nothing under them
 
       -0.5 looked like the answer and is not shipped, because watching it run is
       the part a table does not capture: the captions felt sticky, and the
@@ -204,18 +226,13 @@ const DEFAULTS = {
       translation even once the parse was right. A correct parse of a phrase
       whose key word is then dropped is not worth a second of lag on every line.
 
-      Worth revisiting deliberately rather than by feel — both are settings, and
-      the ceiling is delayAssemblyMs: a line that takes longer than the assembly
-      delay to become ready is not a late caption, it is no caption.
+      Worth revisiting deliberately rather than by feel — both are settings,
+      and the ceiling is simply how long a speaker stands there with nothing
+      under them.
     */
-    endpointSensitivity: -0.25,
-    maxEndpointDelayMs: 2500,
+    maxEndpointDelayMs: 2000,
   },
 } satisfies AppConfig;
-
-/** Ten minutes. Past this the stream is so far behind the room that the two
- *  stop being the same event; it is also a lot of buffered video. */
-const MAX_REVIEW_MS = 600_000;
 
 export class ConfigError extends Error {}
 
@@ -237,6 +254,27 @@ function num(value: unknown, path: string, fallback: number): number {
     throw new ConfigError(`${path} must be a non-negative number`);
   }
   return value;
+}
+
+/** A string from a fixed set — anything else is a typo worth naming. */
+function oneOf<T extends string>(
+  value: unknown,
+  path: string,
+  fallback: T,
+  allowed: readonly T[],
+): T {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    throw new ConfigError(`${path} must be one of: ${allowed.join(', ')}`);
+  }
+  return value as T;
+}
+
+/** Like `str`, but an empty string is a legitimate answer — "no folder". */
+function text(value: unknown, path: string, fallback: string): string {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string') throw new ConfigError(`${path} must be a string`);
+  return value.trim();
 }
 
 function bool(value: unknown, path: string, fallback: boolean): boolean {
@@ -292,6 +330,7 @@ export function parseConfig(raw: unknown): AppConfig {
   const database = isRecord(raw['database']) ? raw['database'] : {};
   const server = isRecord(raw['server']) ? raw['server'] : {};
   const live = isRecord(raw['live']) ? raw['live'] : {};
+  const docs = isRecord(raw['googleDocs']) ? raw['googleDocs'] : {};
 
   const config: AppConfig = {
     soniox: {
@@ -302,6 +341,11 @@ export function parseConfig(raw: unknown): AppConfig {
       targetLanguage: str(soniox['targetLanguage'], 'soniox.targetLanguage', DEFAULTS.soniox.targetLanguage),
       contextTerms: strArray(soniox['contextTerms'], 'soniox.contextTerms', DEFAULTS.soniox.contextTerms),
       translationTerms: translationTerms(soniox['translationTerms'], 'soniox.translationTerms'),
+      languageHintsStrict: bool(
+        soniox['languageHintsStrict'],
+        'soniox.languageHintsStrict',
+        DEFAULTS.soniox.languageHintsStrict,
+      ),
       builtInGlossary: bool(
         soniox['builtInGlossary'],
         'soniox.builtInGlossary',
@@ -325,6 +369,25 @@ export function parseConfig(raw: unknown): AppConfig {
       dailyQuotaUnits: num(youtube['dailyQuotaUnits'], 'youtube.dailyQuotaUnits', DEFAULTS.youtube.dailyQuotaUnits),
       authPort: num(youtube['authPort'], 'youtube.authPort', DEFAULTS.youtube.authPort),
     },
+    googleDocs: {
+      clientIdEnv: str(docs['clientIdEnv'], 'googleDocs.clientIdEnv', DEFAULTS.googleDocs.clientIdEnv),
+      clientSecretEnv: str(
+        docs['clientSecretEnv'],
+        'googleDocs.clientSecretEnv',
+        DEFAULTS.googleDocs.clientSecretEnv,
+      ),
+      refreshTokenEnv: str(
+        docs['refreshTokenEnv'],
+        'googleDocs.refreshTokenEnv',
+        DEFAULTS.googleDocs.refreshTokenEnv,
+      ),
+      authPort: num(docs['authPort'], 'googleDocs.authPort', DEFAULTS.googleDocs.authPort),
+      fullDriveAccess: bool(
+        docs['fullDriveAccess'],
+        'googleDocs.fullDriveAccess',
+        DEFAULTS.googleDocs.fullDriveAccess,
+      ),
+    },
     search: {
       model: str(searchRaw['model'], 'search.model', DEFAULTS.search.model),
       dimensions: num(searchRaw['dimensions'], 'search.dimensions', DEFAULTS.search.dimensions),
@@ -333,7 +396,6 @@ export function parseConfig(raw: unknown): AppConfig {
       chunkOverlapMs: num(searchRaw['chunkOverlapMs'], 'search.chunkOverlapMs', DEFAULTS.search.chunkOverlapMs),
     },
     paths: {
-      media: str(paths['media'], 'paths.media', DEFAULTS.paths.media),
       recordings: str(paths['recordings'], 'paths.recordings', DEFAULTS.paths.recordings),
     },
     database: {
@@ -349,24 +411,36 @@ export function parseConfig(raw: unknown): AppConfig {
       ),
     },
     live: {
-      delayAssemblyMs: num(live['delayAssemblyMs'], 'live.delayAssemblyMs', DEFAULTS.live.delayAssemblyMs),
-      delayReviewMs: num(live['delayReviewMs'], 'live.delayReviewMs', DEFAULTS.live.delayReviewMs),
-      minDisplayMs: num(live['minDisplayMs'], 'live.minDisplayMs', DEFAULTS.live.minDisplayMs),
-      lateSkipMs: num(live['lateSkipMs'], 'live.lateSkipMs', DEFAULTS.live.lateSkipMs),
+      liveSrt: bool(live['liveSrt'], 'live.liveSrt', DEFAULTS.live.liveSrt),
+      googleDoc: bool(live['googleDoc'], 'live.googleDoc', DEFAULTS.live.googleDoc),
+      googleDocFolderId: text(
+        live['googleDocFolderId'],
+        'live.googleDocFolderId',
+        DEFAULTS.live.googleDocFolderId,
+      ),
+      googleDocFlushMs: num(
+        live['googleDocFlushMs'],
+        'live.googleDocFlushMs',
+        DEFAULTS.live.googleDocFlushMs,
+      ),
       youtubeCaptionsUrlEnv: str(
         live['youtubeCaptionsUrlEnv'],
         'live.youtubeCaptionsUrlEnv',
         DEFAULTS.live.youtubeCaptionsUrlEnv,
       ),
-      streamOffsetMs: num(live['streamOffsetMs'], 'live.streamOffsetMs', DEFAULTS.live.streamOffsetMs),
-      maxBufferMs: num(live['maxBufferMs'], 'live.maxBufferMs', DEFAULTS.live.maxBufferMs),
-      endpointSensitivity: signed(
-        live['endpointSensitivity'],
-        'live.endpointSensitivity',
-        DEFAULTS.live.endpointSensitivity,
-        -1,
-        1,
-      ),
+      // Absent unless the file names it, so the default config message does
+      // not carry one at all.
+      ...(live['endpointSensitivity'] === undefined
+        ? {}
+        : {
+            endpointSensitivity: signed(
+              live['endpointSensitivity'],
+              'live.endpointSensitivity',
+              0,
+              -1,
+              1,
+            ),
+          }),
       maxEndpointDelayMs: num(
         live['maxEndpointDelayMs'],
         'live.maxEndpointDelayMs',
@@ -383,12 +457,6 @@ export function parseConfig(raw: unknown): AppConfig {
   }
   if (config.soniox.sourceLanguages.length === 0) {
     throw new ConfigError('soniox.sourceLanguages must list at least one language');
-  }
-  if (config.live.delayReviewMs > MAX_REVIEW_MS) {
-    throw new ConfigError(
-      `live.delayReviewMs must be at most ${MAX_REVIEW_MS} (10 minutes) — a longer delay ` +
-        `puts the stream far enough behind the room to stop being the same event`,
-    );
   }
 
   return config;
@@ -470,6 +538,42 @@ export function loadConfig(path = 'config.json'): AppConfig {
     throw new ConfigError(`${full} is not valid JSON: ${(err as Error).message}`);
   }
   return parseConfig(raw);
+}
+
+export interface GoogleDocsCredentials {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}
+
+/**
+ * The Docs credential. Deliberately no fallback to the YouTube one — see
+ * `GoogleDocsConfig`.
+ */
+export function resolveGoogleDocsCredentials(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+  options: { requireRefreshToken?: boolean } = {},
+): GoogleDocsCredentials {
+  const read = (name: string, what: string): string => {
+    const value = env[name]?.trim();
+    if (!value) {
+      throw new ConfigError(
+        `${what} is not set. Put ${name} in .env — never in config.json. ` +
+          `Run \`npx tsx src/cli.ts doc --auth\` to mint the refresh token.`,
+      );
+    }
+    return value;
+  };
+
+  const clientId = read(config.googleDocs.clientIdEnv, 'the Google Docs client id');
+  const clientSecret = read(config.googleDocs.clientSecretEnv, 'the Google Docs client secret');
+  const refreshToken =
+    options.requireRefreshToken === false
+      ? (env[config.googleDocs.refreshTokenEnv]?.trim() ?? '')
+      : read(config.googleDocs.refreshTokenEnv, 'the Google Docs refresh token');
+
+  return { clientId, clientSecret, refreshToken };
 }
 
 export interface YoutubeCredentials {

@@ -177,9 +177,9 @@
     <div class="panel">
       <p class="note">
         <strong>Closing this page stops nothing.</strong> It is a signpost, not the
-        bridge. Captions, the queue and every overlay keep running for as long as
-        the terminal that started it is open — the page can be closed, the machine
-        it was opened on can be shut down, and the service carries on.
+        bridge. Captions and the caption screen keep running for as long as the
+        terminal that started it is open — the page can be closed, the machine it
+        was opened on can be shut down, and the service carries on.
       </p>
       <p class="note">
         To actually stop, press <strong>Ctrl&#8209;C</strong> in that terminal.
@@ -268,15 +268,6 @@
     },
     {
       path: '/app',
-      hash: '#review',
-      name: 'Reviewer',
-      what: 'Correct lines before they reach air.',
-      tally: function (d) {
-        return { text: d.operators === 1 ? '1 reviewer' : d.operators + ' reviewers', on: d.operators > 0 };
-      },
-    },
-    {
-      path: '/app',
       hash: '#sermons',
       name: 'Sermons',
       what: 'Recorded services: subtitles, corrections, re-export.',
@@ -301,12 +292,6 @@
         var missing = (d.checks || []).filter(function (c) { return c.state !== 'ok'; }).length;
         return missing ? { text: missing + ' unfinished' } : { text: 'all set' };
       },
-    },
-    {
-      path: '/operator',
-      name: 'Reviewer, on its own',
-      what: 'The queue alone, for a tablet with nothing else on screen.',
-      tally: function () { return null; },
     },
   ];
 
@@ -347,24 +332,20 @@
       host.appendChild(destinationCard(spec, spec.tally(data)));
     });
 
-    var overlays = data.overlays || {};
-    Object.keys(overlays).forEach(function (name) {
-      var connections = overlays[name];
-      host.appendChild(
-        destinationCard(
-          {
-            path: '/overlay',
-            query: 'output=' + encodeURIComponent(name),
-            name: 'Overlay — ' + name,
-            what: 'Point vMix, OBS or the projector browser at this.',
-          },
-          {
-            text: connections === 1 ? '1 screen connected' : connections + ' screens connected',
-            on: connections > 0,
-          },
-        ),
-      );
-    });
+    var connections = (data.overlay && data.overlay.connections) || 0;
+    host.appendChild(
+      destinationCard(
+        {
+          path: '/overlay',
+          name: 'The caption screen',
+          what: 'Point vMix, OBS or the projector browser at this.',
+        },
+        {
+          text: connections === 1 ? '1 screen connected' : connections + ' screens connected',
+          on: connections > 0,
+        },
+      ),
+    );
   }
 
   /**
@@ -485,7 +466,7 @@
     var since = '';
     if (session.startedAt) {
       since = duration(Date.now() - session.startedAt);
-      if (data.live && data.live.released) since += ' · ' + data.live.released + ' lines';
+      if (data.live && data.live.lines) since += ' · ' + data.live.lines + ' lines';
     } else if (data.startedAt) {
       // With nothing running, the useful fact is that the bridge itself is
       // alive — otherwise this pill is indistinguishable from a stale page.

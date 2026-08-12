@@ -74,10 +74,14 @@ export interface SettingDescriptor {
   path: string;
   label: string;
   help: string;
-  type: 'string' | 'number' | 'boolean' | 'string[]' | 'termPairs';
+  type: 'string' | 'number' | 'boolean' | 'string[]' | 'termPairs' | 'choice';
+  /** `choice` only: the allowed values, in the order they should be offered. */
+  choices?: readonly { value: string; label: string }[];
   group: SettingGroup;
   appliesTo: AppliesTo;
   unit?: string;
+  /** Booleans only: what ticking the box means, beside the checkbox. */
+  on?: string;
 }
 
 /** A credential. Lives in `.env`, never in config.json, never sent to a page. */
@@ -86,7 +90,7 @@ export interface SecretDescriptor {
   configPath: string;
   label: string;
   help: string;
-  group: 'soniox' | 'database' | 'youtube';
+  group: 'soniox' | 'database' | 'youtube' | 'google';
   /** What stops working without it. */
   blocks: Capability[];
   optional?: boolean;
@@ -146,77 +150,68 @@ export const SETTINGS: readonly SettingDescriptor[] = [
   },
 
   {
-    path: 'live.delayReviewMs',
-    label: 'Time the reviewer gets',
-    help:
-      'Up to ten minutes. The stream runs this far behind the room, and the delay has to ' +
-      'live after the encoder — not in vMix Video Delay.',
-    type: 'number',
-    unit: 'ms',
-    group: 'service',
-    appliesTo: 'next-session',
-  },
-  {
-    path: 'live.delayAssemblyMs',
-    label: 'Time Soniox gets',
-    help:
-      'How long to wait for a subtitle before showing it. A subtitle cannot exist until ' +
-      'the sentence has finished being spoken, so this needs to be about as long as your ' +
-      'longest sentence plus two seconds — measured at twelve on a real sermon, not four. ' +
-      'Too short and long lines are skipped for arriving late. The venue screens sit this ' +
-      'far behind the speaker, and the reviewer sees each line the moment it is ready.',
-    type: 'number',
-    unit: 'ms',
-    group: 'service',
-    appliesTo: 'next-session',
-  },
-  {
-    path: 'live.maxBufferMs',
-    label: 'Cut a line after',
-    help:
-      'The biggest lever on how soon a caption appears. A caption cannot exist until ' +
-      'the sentence it covers has finished being spoken, so long sentences are late ones. ' +
-      'Cutting sooner gets captions up faster, at the cost of splitting sentences.',
-    type: 'number',
-    unit: 'ms',
-    group: 'advanced',
-    appliesTo: 'next-session',
-  },
-  {
-    path: 'live.endpointSensitivity',
-    label: 'How soon Soniox calls a sentence finished',
-    help:
-      '-1 waits longest, 1 commits soonest, 0 is the default. Waiting longer gives it ' +
-      'the rest of the sentence before it decides what the words were — worth it when a ' +
-      'phrase is being misheard as a similar-sounding one, at the cost of captions ' +
-      'appearing later.',
-    type: 'number',
-    group: 'advanced',
-    appliesTo: 'next-session',
-  },
-  {
     path: 'live.maxEndpointDelayMs',
-    label: 'Longest it may wait to decide',
+    label: 'How long to wait before captioning',
     help:
-      'The ceiling on the setting above, so a speaker who never pauses cannot hold a ' +
-      'sentence open indefinitely.',
+      'The only wait there is. Soniox holds a run of speech until it decides the clause has ' +
+      'ended, then translates it and it goes straight to the screen — so this is how far ' +
+      'behind the speaker the captions sit. Lower it for shorter captions sooner, including ' +
+      'mid-sentence; raise it for longer, later ones. 2000 is what a working prototype uses ' +
+      'on air. Below about 1000 it cuts mid-thought often enough to read as fragments.',
     type: 'number',
     unit: 'ms',
     group: 'advanced',
     appliesTo: 'next-session',
   },
   {
-    path: 'live.streamOffsetMs',
-    label: 'Encoder to YouTube delay',
+    path: 'live.googleDoc',
+    label: 'Write the service to a Google Doc',
     help:
-      'What puts each caption on the right words in the stream. Confirm it on a private ' +
-      'test stream before a festival.',
-    type: 'number',
-    unit: 'ms',
+      'A new doc each time you press Start, filled in as the service runs: the Gujarati and ' +
+      'the English line by line, for somebody to read afterwards and write a summary from. ' +
+      'Needs the Google credential — run `npx tsx src/cli.ts doc --auth` once. If it is not ' +
+      'set up, or Google stops answering, the service carries on and the Captions tab says so.',
+    type: 'boolean',
+    on: 'Write a doc as it goes',
+    group: 'service',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.googleDocFolderId',
+    label: 'Drive folder for those docs',
+    help:
+      'Open the folder in Drive and copy the last part of the address — ' +
+      'drive.google.com/drive/folders/THIS_BIT. Leave it empty to put them in My Drive.',
+    type: 'string',
+    group: 'service',
+    appliesTo: 'next-session',
+  },
+  {
+    path: 'live.liveSrt',
+    label: 'Save subtitles from the live service',
+    help:
+      'Writes an .srt into the recordings folder as the service runs, holding exactly what ' +
+      'went out. Put it on the recording afterwards instead of transcribing the video a ' +
+      'second time and paying for the same words twice. Timestamps run from when capture ' +
+      'started, so they line up with a recording that started with it.',
+    type: 'boolean',
+    on: 'Write an .srt as it goes',
     group: 'service',
     appliesTo: 'next-session',
   },
 
+  {
+    path: 'soniox.languageHintsStrict',
+    label: 'Only listen for the languages named',
+    help:
+      'On, recognition is restricted to the languages named, which Soniox says gives the ' +
+      'best results and is what the working prototype does. Off, they are only hints and it ' +
+      'may recognise others.',
+    type: 'boolean',
+    on: 'Restrict to those languages',
+    group: 'advanced',
+    appliesTo: 'next-session',
+  },
   {
     path: 'soniox.contextTerms',
     label: 'Names and terms',
@@ -257,6 +252,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'makes it usable from the vMix PC and a tablet. Off, every page needs its token typed ' +
       'out by hand — only worth it on a network you do not control.',
     type: 'boolean',
+    on: 'Hand it out, so the short address works',
     group: 'setup',
     appliesTo: 'immediate',
   },
@@ -267,14 +263,6 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     type: 'number',
     group: 'setup',
     appliesTo: 'restart',
-  },
-  {
-    path: 'paths.media',
-    label: 'Where sermons are kept',
-    help: 'Videos to ingest are read from here.',
-    type: 'string',
-    group: 'setup',
-    appliesTo: 'immediate',
   },
 ];
 
@@ -301,6 +289,32 @@ export const SECRETS: readonly SecretDescriptor[] = [
       'the "POST to URL" method in YouTube\'s stream settings and it hands you this URL. ' +
       'It carries a cid identifying the stream, so treat it like a password.',
     group: 'youtube',
+    blocks: [],
+    optional: true,
+  },
+  {
+    configPath: 'googleDocs.clientIdEnv',
+    label: 'Google Docs client id',
+    help:
+      'For writing the service to a Google Doc. Can be the same OAuth client as YouTube ' +
+      'below — but the refresh token cannot be, because the scopes differ.',
+    group: 'google',
+    blocks: [],
+    optional: true,
+  },
+  {
+    configPath: 'googleDocs.clientSecretEnv',
+    label: 'Google Docs client secret',
+    help: 'The other half of the pair above.',
+    group: 'google',
+    blocks: [],
+    optional: true,
+  },
+  {
+    configPath: 'googleDocs.refreshTokenEnv',
+    label: 'Google Docs refresh token',
+    help: 'Minted once by `npx tsx src/cli.ts doc --auth`. Never the YouTube one.',
+    group: 'google',
     blocks: [],
     optional: true,
   },

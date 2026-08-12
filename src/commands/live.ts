@@ -4,10 +4,9 @@ import type { AppConfig } from '../config.js';
 import { resolveApiKey } from '../config.js';
 import type { CaptureFormat } from '../live/capture.js';
 import { listAudioDevices } from '../live/devices.js';
+import { BrowserAdapter } from '../live/adapters/browser.js';
 import { BridgeServer } from '../live/server.js';
-import { OverlayRegistry } from '../live/overlays.js';
 import { LiveSession } from '../live/session.js';
-import type { OutputName } from '../live/outputs.js';
 import { info } from '../util/log.js';
 
 export interface LiveArgs {
@@ -16,11 +15,8 @@ export interface LiveArgs {
   /** YouTube live caption ingestion URL, from the stream's CC settings. */
   youtubeCaptionsUrl?: string | undefined;
   /** Delay between this machine's encoder and YouTube receiving the video. */
-  streamOffsetMs?: number | undefined;
   /** Drive a vMix GT title as well as the browser overlays. */
   captionInput?: string | undefined;
-  /** Which outputs to serve. Defaults to venue + stream. */
-  outputs?: OutputName[];
   /** JSONL of every raw response plus operator actions. */
   recordPath?: string | undefined;
   /** Omit to generate one; §9 wants it rotated per event, never mid-service. */
@@ -33,7 +29,7 @@ export interface LiveArgs {
  * The live bridge. Capture → Soniox → lines → queue → outputs, with the
  * reviewer page attached as an advisory observer.
  *
- * Runs until interrupted. INVARIANT 10: nothing here waits on the reviewer.
+ * Runs until interrupted. nothing here waits on anything.
  *
  * The machinery lives in `LiveSession`, which the `serve` command starts and
  * stops from a browser. This command is the one-shot form: start immediately,
@@ -44,11 +40,8 @@ export interface LiveArgs {
 export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> {
   const apiKey = resolveApiKey(config);
   const token = args.token ?? randomBytes(8).toString('hex');
-  const names: OutputName[] = args.outputs ?? ['venue', 'stream'];
 
-  // Only the outputs this run was asked for, so the URLs printed below match
-  // what the operator actually configured.
-  const overlays = new OverlayRegistry(names);
+  const overlay = new BrowserAdapter('captions');
 
   // The two reference each other: the server routes operator actions into the
   // session, and the session publishes the reviewer's view back through the
@@ -56,7 +49,7 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
   const server: BridgeServer = new BridgeServer({
     host: config.server.host,
     port: config.server.port,
-    outputs: overlays.map,
+    overlay,
     token,
     listDevices: () => listAudioDevices(args.format),
     sessionStatus: () => {
@@ -70,7 +63,6 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
       if (action === 'stop') session.pauseCapture();
       else session.resumeCapture(device);
     },
-    onCommand: (command) => session.command(command),
   });
 
   const session: LiveSession = new LiveSession({
@@ -78,11 +70,11 @@ export async function runLive(args: LiveArgs, config: AppConfig): Promise<void> 
     apiKey,
     device: args.device,
     format: args.format,
-    outputs: names,
-    overlays,
-    sink: server,
+    overlay,
+    // The CLI path has no counters to feed; the queue's own logging is what
+    // an operator watching a terminal has.
+    sink: { notify: () => {} },
     youtubeCaptionsUrl: args.youtubeCaptionsUrl,
-    streamOffsetMs: args.streamOffsetMs,
     captionInput: args.captionInput,
     recordPath: args.recordPath,
     verbose: args.verbose ?? false,

@@ -2,6 +2,7 @@ import { Router, type RequestHandler } from 'express';
 
 import type { AppConfig, LoadedConfig } from '../config.js';
 import { resolveDatabaseUrl } from '../db/client.js';
+import { resolveGoogleDocsCredentials } from '../config.js';
 import { PrismaProvider } from '../db/provider.js';
 import { createArchiveRouter } from '../web/archive.js';
 import { createGlossaryRouter } from '../web/glossary.js';
@@ -11,10 +12,13 @@ import { SETTINGS, SETTING_GROUPS } from '../settings/schema.js';
 import { YoutubeLiveAdapter, checkIngestionUrl } from '../live/adapters/youtubeLive.js';
 import type { CaptureFormat } from '../live/capture.js';
 import { listAudioDevices } from '../live/devices.js';
-import { OverlayRegistry, OVERLAY_NAMES } from '../live/overlays.js';
 import { capabilitiesFrom, PreflightChecks } from '../live/preflight.js';
 import { QueueCounters } from '../live/counters.js';
 import { probeInput } from '../live/probe.js';
+import { GoogleAuth } from '../google/oauth.js';
+import { GoogleDocsClient } from '../google/docs.js';
+import { LiveDocWriter } from '../live/liveDoc.js';
+import { BrowserAdapter } from '../live/adapters/browser.js';
 import { BridgeServer } from '../live/server.js';
 import { LiveSessionManager, NotConfiguredError } from '../live/sessionManager.js';
 import { listAllServices } from './edit.js';
@@ -51,7 +55,10 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
   // Stable between restarts, so the tablet's bookmark and the vMix Browser
   // input survive one. See web/token.ts.
   const { token, created: tokenCreated } = await resolveToken(args.token);
-  const overlays = new OverlayRegistry(OVERLAY_NAMES);
+  // One screen, made here and never replaced: a socket is bound to this
+  // instance at upgrade time, so a session that swapped it would leave every
+  // vMix Browser input attached to an orphan.
+  const overlay = new BrowserAdapter('captions');
   const startedAt = Date.now();
 
   const database = new PrismaProvider(() =>
@@ -73,18 +80,46 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
 
   const manager = new LiveSessionManager({
     getConfig,
-    overlays,
+    overlay,
     defaults: {
       format: args.format,
       verbose: args.verbose ?? false,
-      // Every overlay the page offers a URL for, so none of them is a dead
-      // link. Outputs are cheap by design (INVARIANT 7) — it is sessions that
-      // cost, and there is still only one.
-      outputs: [...OVERLAY_NAMES],
     },
     // Read at start time, so a URL pasted into Settings is picked up by the
     // next session without restarting anything.
     getYoutubeCaptionsUrl: () => secrets.get('live.youtubeCaptionsUrlEnv'),
+
+    /**
+     * A doc per service, built here because this is where the credentials
+     * live. Also read at start time: turning it on, or pasting a folder id,
+     * takes effect on the next Start rather than needing a restart.
+     *
+     * Returns undefined when it is off or not set up, and says so once — a
+     * missing credential must never stop a service starting.
+     */
+    createDocWriter: ({ title, sessionEpoch }) => {
+      const config = getConfig();
+      if (!config.live.googleDoc) return undefined;
+
+      let credentials;
+      try {
+        credentials = resolveGoogleDocsCredentials(config);
+      } catch (err) {
+        warn(`no Google Doc this service: ${(err as Error).message}`);
+        return undefined;
+      }
+
+      const client = new GoogleDocsClient({
+        auth: new GoogleAuth({ ...credentials, reauthCommand: 'doc --auth' }),
+      });
+      return new LiveDocWriter({
+        client,
+        title,
+        sessionEpoch,
+        folderId: config.live.googleDocFolderId || undefined,
+        flushIntervalMs: config.live.googleDocFlushMs,
+      });
+    },
   });
 
   const counters = new QueueCounters();
@@ -120,8 +155,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
         checks,
         capabilities: capabilitiesFrom(checks),
         session: manager.status,
-        overlays: overlays.connections(),
-        operators: server.operatorCount,
+        overlay: { connections: overlay.connections },
       });
     })();
   });
@@ -201,8 +235,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
         startedAt,
         session: manager.status,
         live: counters.snapshot,
-        overlays: overlays.connections(),
-        operators: server.operatorCount,
+        overlay: { connections: overlay.connections },
         checks,
         capabilities: capabilitiesFrom(checks),
         archive,
@@ -296,28 +329,6 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
     res.json({ ok: true });
   });
 
-  /**
-   * The recording the current session is playing in, for the reviewer's player.
-   *
-   * Takes no path parameter on purpose. It serves whatever file the running
-   * session was started with and nothing else, so there is no traversal to
-   * defend against — and nothing at all to serve when a real microphone is
-   * being used. Unguarded like the overlay, because a video element cannot
-   * carry a token any more than a vMix Browser input can.
-   */
-  api.get('/api/media', (req, res) => {
-    const path = manager.current?.mediaPath;
-    if (!path) {
-      res.status(404).json({ error: 'no recording is playing' });
-      return;
-    }
-    // sendFile handles Range itself, which is what makes the player seekable.
-    res.sendFile(path, { acceptRanges: true }, (err) => {
-      if (err && !res.headersSent) res.status(404).end();
-    });
-    void req;
-  });
-
   api.get('/api/settings', guard, (_req, res) => {
     res.json({
       settings: SETTINGS,
@@ -403,7 +414,6 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
       const errors: string[] = [];
       const adapter = new YoutubeLiveAdapter({
         ingestionUrl: url,
-        sessionEpoch: Date.now(),
         onError: (err) => errors.push(err.message),
       });
       await adapter.show({
@@ -426,7 +436,7 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
   const server: BridgeServer = new BridgeServer({
     host: getConfig().server.host,
     port: getConfig().server.port,
-    outputs: overlays.map,
+    overlay,
     token,
     routers: [
       api,
@@ -462,16 +472,13 @@ export async function runServe(args: ServeArgs, loaded: LoadedConfig): Promise<v
         throw err;
       }
     },
-    onCommand: (command) => manager.command(command),
   });
 
   // Counts every queue event on its way to the reviewer, so the numbers cost
   // nothing and cannot drift from what actually happened.
   manager.attachSink({
-    publish: (view) => server.publish(view),
     notify: (event) => {
       counters.record(event);
-      server.notify(event);
     },
   });
 

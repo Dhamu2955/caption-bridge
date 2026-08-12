@@ -1,3 +1,11 @@
+> **Out of date, August 2026.** Most of this describes routing built around a
+> three-minute review window: two Video Delays, two composites, a queue holding
+> lines back. All of that is gone — captions now go to one overlay and to
+> YouTube the moment they exist, and the video is not delayed at all. What is
+> still true and still worth reading is everything about **getting audio in**:
+> which bus to tap, why the speaker's mic alone and never Master, and the
+> licence question about the projector feed.
+
 # vMix routing — audio in, captions out
 
 SPEC §4 phase 5 says the vMix arrangement for two composite stages "needs

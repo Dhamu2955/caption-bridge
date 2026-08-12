@@ -68,6 +68,13 @@ sermon-2026-08-16.gu.srt   ← generated anyway: YouTube, accessibility, checkin
 
 The `.srt` files still matter: they are what `publish` uploads to YouTube, what plays in VLC, and the archival artifact. They are simply not the projector path.
 
+> **Amended, August 2026.** The review window and the scheduler that served it
+> have been removed — see the README's "Where this differs from SPEC.md".
+> INVARIANT 4 survives that intact and in fact strengthened; INVARIANTS 7–10,
+> which describe per-output delays and a reviewer the queue owns the clock
+> against, describe machinery that no longer exists. They are kept here as the
+> record of why it was built that way.
+
 ### INVARIANT 4 — Pop-on captions, never roll-up
 
 **This came from watching a real deployment fail.** Another mandir ran live translation rendering partial results, and the text visibly rewrote itself mid-sentence. It was disorienting enough to be worse than no captions.

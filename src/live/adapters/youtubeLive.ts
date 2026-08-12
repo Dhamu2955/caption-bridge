@@ -9,28 +9,56 @@ import type { CaptionLine, OutputAdapter } from '../types.js';
  * timestamp saying where in the stream's timeline the text belongs.
  *
  * Why this output is worth having: closed captions are never burned into
- * pixels, so the whole two-composite arrangement INVARIANT 8 describes is
- * unnecessary here. A reviewer's drop simply means the POST never happens.
+ * pixels, so nothing has to be composited twice and nothing has to be un-burnt.
  *
- * THE TIMESTAMP IS THE PART TO GET RIGHT. It is not when the words were
- * spoken, it is when they appear in the stream YouTube is receiving — so it
- * carries `streamOffsetMs`, the delay sitting between the encoder and YouTube.
- * Calibrate it on a private test stream before a festival; the format and
- * sequence semantics are the one thing in this file not verifiable from the
- * codebase, which is exactly why the transport is injected.
+ * THE TIMESTAMP IS THE PART TO GET RIGHT, and it is the instant of the POST —
+ * not the instant the words were spoken. Those were the same thing only while
+ * a scheduler held captions back to match a delayed video, and with nothing
+ * held back the send time is where the stream has actually got to. It is
+ * self-correcting: no offset to calibrate, no video delay to keep in step.
+ *
+ * That is what a working prototype of this job does, over twelve thousand
+ * accepted POSTs, with no timing configuration at all. It also means captioning
+ * a *delayed* stream is no longer possible here — deliberately, since the delay
+ * it existed for is gone.
+ *
+ * The wire format and sequence semantics are the one thing in this file not
+ * verifiable from the codebase, which is why the transport is injected.
  */
 
 export interface YoutubeLiveAdapterOptions {
   name?: string;
   /** The ingestion URL from YouTube, including its cid parameter. */
   ingestionUrl: string;
-  /** Wall-clock time corresponding to audio position 0 (INVARIANT 9). */
-  sessionEpoch: number;
-  /** Delay between this machine's encoder and YouTube receiving the video. */
-  streamOffsetMs?: number;
+
+  /** Injected in tests so retries do not sleep. */
+  sleep?: (ms: number) => Promise<void>;
+  /** The wall clock, injected so `now` mode is testable without real time. */
+  now?: () => number;
   fetchImpl?: typeof fetch;
   onError?: (error: Error) => void;
 }
+
+/**
+ * YouTube's own retry policy: randomised backoff with the ceiling doubling.
+ * Four attempts, the first immediate.
+ *
+ * There was none of this before — one POST, and a transient failure took that
+ * caption off the broadcast silently. A working prototype of this job logged
+ * 275 failures against 12,473 accepted posts over a few services, so it is not
+ * a rare path.
+ */
+const RETRY_CEILINGS_MS = [0, 100, 200, 400] as const;
+
+/**
+ * Positioning, appended to the timestamp line.
+ *
+ * Both this and a bare timestamp are accepted — the prototype's early runs used
+ * a bare one and they succeeded too — but this is the variant with ten thousand
+ * accepted posts behind it, and the wire format is the one part of this file
+ * that cannot be checked from the code.
+ */
+const CUE_REGION = 'region:reg1#cue1';
 
 /** `2026-08-02T18:30:00.000` — UTC, no zone suffix, which is what the endpoint wants. */
 export function formatCaptionTimestamp(at: number): string {
@@ -87,8 +115,8 @@ export function checkIngestionUrl(raw: string): IngestionUrlCheck {
 export class YoutubeLiveAdapter implements OutputAdapter {
   readonly name: string;
   private readonly ingestionUrl: string;
-  private sessionEpoch: number;
-  private readonly streamOffsetMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly now: () => number;
   private readonly fetchImpl: typeof fetch;
   private readonly onError: ((error: Error) => void) | undefined;
   private sequence = 0;
@@ -98,21 +126,15 @@ export class YoutubeLiveAdapter implements OutputAdapter {
   constructor(options: YoutubeLiveAdapterOptions) {
     this.name = options.name ?? 'youtube';
     this.ingestionUrl = options.ingestionUrl;
-    this.sessionEpoch = options.sessionEpoch;
-
-    this.streamOffsetMs = options.streamOffsetMs ?? 0;
+    this.sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.now = options.now ?? (() => Date.now());
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.onError = options.onError;
   }
 
-  /** Match the queue's clock; see `CaptionQueue.rebase`. Before anything is sent. */
-  rebase(sessionEpoch: number): void {
-    this.sessionEpoch = sessionEpoch;
-  }
-
-  /** Exposed so a test can pin the arithmetic without going through fetch. */
-  timestampFor(line: CaptionLine): string {
-    return formatCaptionTimestamp(this.sessionEpoch + line.audioStartMs + this.streamOffsetMs);
+  /** Exposed so a test can pin it without going through fetch. */
+  timestampFor(now: number = this.now()): string {
+    return formatCaptionTimestamp(now);
   }
 
   private url(sequence: number): string {
@@ -121,29 +143,44 @@ export class YoutubeLiveAdapter implements OutputAdapter {
   }
 
   show(line: CaptionLine): Promise<void> {
-    // English only: the endpoint carries one track, and the Gujarati speakers
-    // in the audience are listening rather than reading.
-    const body = `${this.timestampFor(line)}\n${line.translation}\n`;
-
     this.queue = this.queue.then(async () => {
       // The sequence number is only spent by a POST YouTube actually accepted.
       // Incrementing before the request meant a failed one burned a number and
       // left a gap in the series the endpoint is counting on.
       const sequence = this.sequence + 1;
-      try {
-        const response = await this.fetchImpl(this.url(sequence), {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-          body,
-        });
-        if (!response.ok) {
-          throw new Error(`YouTube caption POST failed: ${response.status} ${response.statusText}`);
+      let lastError: Error | undefined;
+
+      for (let attempt = 0; attempt < RETRY_CEILINGS_MS.length; attempt++) {
+        const ceiling = RETRY_CEILINGS_MS[attempt]!;
+        if (ceiling > 0) await this.sleep(Math.random() * ceiling);
+
+        // Re-stamped per attempt, not once before the loop: a retry carrying
+        // the first attempt's timestamp would place the caption where the
+        // stream was before the backoff, which is the one thing to get right.
+        // English only: the endpoint carries one track, and the Gujarati
+        // speakers in the audience are listening rather than reading.
+        const body = `${this.timestampFor()} ${CUE_REGION}\n${line.translation}\n`;
+
+        try {
+          const response = await this.fetchImpl(this.url(sequence), {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+            body,
+          });
+          if (!response.ok) {
+            throw new Error(
+              `YouTube caption POST failed: ${response.status} ${response.statusText}`,
+            );
+          }
+          this.sequence = sequence;
+          return;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
         }
-        this.sequence = sequence;
-      } catch (err) {
-        // A caption that does not land must never take the broadcast with it.
-        this.onError?.(err instanceof Error ? err : new Error(String(err)));
       }
+
+      // A caption that does not land must never take the broadcast with it.
+      if (lastError) this.onError?.(lastError);
     });
     return this.queue;
   }

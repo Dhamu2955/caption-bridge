@@ -11,31 +11,26 @@ export interface CaptionLine {
   readonly id: string;
   readonly original: string;
   readonly translation: string;
-  /** Milliseconds from the session epoch, taken from the SPOKEN tokens.
-   *  INVARIANT 9 schedules against this, never against arrival time. */
+  /** Milliseconds from the session epoch, taken from the SPOKEN tokens —
+   *  never from when they arrived. The .srt and the Google Doc both use it. */
   readonly audioStartMs: number;
   readonly audioEndMs: number;
   readonly speaker: string | undefined;
 }
 
-export interface OutputConfig {
-  readonly name: string;
-  /** INVARIANT 7 — delay is per output. The reviewed path is delayA + delayB. */
-  readonly delayMs: number;
-  /** Whether an operator sits between assembly and air for this output. */
-  readonly reviewed: boolean;
-  /** INVARIANT 4 — no cue shorter than this; later lines queue rather than
-   *  cutting this one short. */
-  readonly minDisplayMs: number;
-  /** Past this much lateness a line is skipped: a desynced caption is worse
-   *  than no caption. */
-  readonly lateSkipMs: number;
-}
-
 /**
- * INVARIANT 4 rule 1: non-final tokens never reach an audience-facing surface.
- * There is deliberately no flag to turn this off — a config option would be an
- * invitation to set it wrong on the night.
+ * INVARIANT 4 rule 1: non-final tokens never reach a pop-on output.
+ *
+ * This is still the default for every session and the line builder discards
+ * non-final tokens whatever it is set to, so `venue`, `stream`, `overflow`, the
+ * reviewer and the YouTube captions cannot show one by any route.
+ *
+ * It said "there is deliberately no flag to turn this off, a config option
+ * would be an invitation to set it wrong on the night", and that reasoning
+ * still holds for those outputs. What changed is that there is now a surface
+ * whose entire purpose is rendering provisional text — the `raw` passthrough
+ * overlay — so the flag exists for that one consumer rather than as a global
+ * switch. Turning it on adds an output; it does not alter any existing one.
  */
 export const INCLUDE_NON_FINAL = false as const;
 
@@ -46,38 +41,16 @@ export interface OutputAdapter {
   close?(): void | Promise<void>;
 }
 
+/**
+ * What the live path did, for the counters on the Captions tab.
+ *
+ * Two cases, where there were seven. The other five — released, skipped,
+ * dropped, edited and their rejections — described a scheduler holding lines
+ * back and a reviewer acting on them, and neither exists any more. A line is
+ * built and it goes out; there is no third state to report.
+ */
 export type QueueEvent =
-  | {
-      type: 'released';
-      output: string;
-      line: CaptionLine;
-      scheduledAt: number;
-      releasedAt: number;
-    }
-  | { type: 'skipped'; output: string; line: CaptionLine; lateByMs: number }
-  | { type: 'dropped'; output: string; lineId: string; by: string }
-  | {
-      type: 'drop-rejected';
-      output: string;
-      lineId: string;
-      reason: 'already-released' | 'unknown-line';
-    }
-  | {
-      type: 'edited';
-      output: string;
-      lineId: string;
-      by: string;
-      /** The text being replaced, kept for the same reason the database keeps
-       *  previousTranslation: the machine baseline must stay recoverable. */
-      previousTranslation: string;
-      translation: string;
-    }
-  | {
-      type: 'edit-rejected';
-      output: string;
-      lineId: string;
-      reason: 'already-released' | 'unknown-line';
-    }
+  | { type: 'line'; line: CaptionLine }
   | { type: 'gap'; durationMs: number };
 
 export type QueueListener = (event: QueueEvent) => void;

@@ -10,14 +10,16 @@ import type { CaptionLine } from '../types.js';
  * rules: §4 says the token parsing is shared with every phase, and a second
  * copy would drift from the one a year of async ingest has tuned.
  *
- * INVARIANT 4 rule 1: only final tokens ever reach a line. Non-final tokens
- * are surfaced separately for operator preview and never enter the buffer.
+ * INVARIANT 4 rule 1: only final tokens ever reach a line. Non-final tokens are
+ * dropped here, on the floor, and this is the innermost of the four mechanisms
+ * that keep revisable text off a screen — see `INCLUDE_NON_FINAL` in types.ts.
+ * There used to be a `previewText()` beside this that returned the provisional
+ * tail for the reviewer's early view; it went with the reviewer, and it is not
+ * worth reinstating for anything. A method handing out text that Soniox will
+ * re-order is one call away from a projector.
  */
 
 export interface LineBuilderOptions extends BuildOptions {
-  /** Flush without waiting for an endpoint once the buffer spans this long,
-   *  so a speaker who never pauses still produces captions. */
-  maxBufferMs: number;
   /**
    * How long to keep holding speech whose translation has not arrived.
    *
@@ -33,7 +35,6 @@ export const DEFAULT_LINE_OPTIONS: LineBuilderOptions = {
   maxChars: 138,
   maxSegmentMs: 7000,
   minDisplayMs: 1500,
-  maxBufferMs: 8000,
   maxUntranslatedMs: 30_000,
 };
 
@@ -44,7 +45,6 @@ export class LineBuilder {
   private readonly options: LineBuilderOptions;
   private buffer: SonioxToken[] = [];
   private counter = 0;
-  private preview = '';
 
   constructor(options: Partial<LineBuilderOptions> = {}) {
     this.options = { ...DEFAULT_LINE_OPTIONS, ...options };
@@ -52,44 +52,46 @@ export class LineBuilder {
 
   /**
    * Feed one batch of tokens from the socket.
-   * @returns lines that are complete and ready to schedule.
+   * @returns lines that are complete and ready to go out.
    */
   push(tokens: SonioxToken[]): CaptionLine[] {
-    let sawEndpoint = false;
-    const nonFinal: string[] = [];
-
     for (const token of tokens) {
-      if (token.is_final !== true) {
-        // Preview only. Never buffered, never displayed.
-        if (typeof token.text === 'string') nonFinal.push(token.text);
-        continue;
-      }
-      if (token.text?.trim() === END_TOKEN) {
-        sawEndpoint = true;
-        continue;
-      }
+      // Provisional. Never buffered, never displayed, never returned.
+      if (token.is_final !== true) continue;
+      // The endpoint marker is not text and is not a trigger; it is stripped
+      // so it cannot reach a screen.
+      if (token.text?.trim() === END_TOKEN) continue;
       this.buffer.push(token);
     }
 
-    this.preview = nonFinal.join('').replace(/\s+/g, ' ').trim();
-
-    // Soniox delivers a run's translation before the endpoint that closes it,
-    // so an endpoint flush always has everything it needs.
-    if (sawEndpoint) return this.flush();
-
-    if (this.bufferSpanMs() >= this.options.maxBufferMs) return this.flushTranslated();
-    return [];
+    // Whatever is translated goes out NOW. Nothing waits for the endpoint.
+    //
+    // Waiting for `<end>` was pure latency. Soniox may take up to
+    // `max_endpoint_delay_ms` to decide a clause is finished, and a run whose
+    // translation had already arrived sat in this buffer for that whole time
+    // for no reason — the words were ready, and we were waiting for a marker
+    // that adds nothing. Worse, when the endpoint arrived BEFORE the
+    // translation the run was held to the flush after it, a clause later.
+    //
+    // This is the prototype's rule exactly: take the tokens already marked as
+    // translation, send them, keep the rest. Untranslated speech still never
+    // reaches a caption, so the source language cannot appear on the English
+    // screen — but the moment its English lands, it goes.
+    //
+    // Caption length is now Soniox's own translation granularity. If they come
+    // out shorter than you want, the lever is `max_endpoint_delay_ms`: raising
+    // it makes Soniox group longer clauses before finalising, at the cost of
+    // exactly that much more lag. It is the one real trade in this file.
+    return this.flushTranslated();
   }
 
   /**
    * Overflow flush: emit only speech whose translation has already arrived.
    *
-   * The buffer fills faster than Soniox translates, so a speaker who runs past
-   * `maxBufferMs` without an endpoint used to have their spoken tokens flushed
-   * on their own. `buildSegments` finds no translation to pair them with and
-   * falls back to the original — so the caption went out in Gujarati, and the
-   * English arrived moments later into an emptied buffer and was dropped on the
-   * floor. On a real sermon that was a third of the captions.
+   * `buildSegments` falls back to the original when it finds no translation to
+   * pair with, so flushing spoken tokens on their own puts the caption out in
+   * Gujarati — and the English then arrives into an emptied buffer and is
+   * dropped on the floor. On a real sermon that was a third of the captions.
    *
    * So the trailing untranslated run stays buffered and leaves with its
    * translation next time. Only `maxUntranslatedMs` overrides that, because
@@ -117,12 +119,11 @@ export class LineBuilder {
    * Gujarati sentence gets those words back marked `none`, not `original` —
    * they are already in the target language, so Soniox never emits a
    * translation run for them. Waiting for one meant a code-switched aside sat
-   * in the buffer until `maxUntranslatedMs`, and at 30s against a 15s assembly
-   * delay `lateSkipMs` then dropped it outright. English the speaker actually
-   * used, gone, with nothing to say why.
+   * in the buffer for the full `maxUntranslatedMs` — half a minute of English
+   * the speaker actually used, held back with nothing to say why.
    *
    * So `none` is its own translation and settles immediately. Only `original`
-   * with nothing translated after it holds the queue up.
+   * with nothing translated after it holds the buffer up.
    */
   private lastCompletePairEnd(): number {
     let lastTranslation = -1;
@@ -136,11 +137,6 @@ export class LineBuilder {
       if (this.buffer[i]!.translation_status === 'original') return i;
     }
     return this.buffer.length;
-  }
-
-  /** Rolling non-final text, for the reviewer's early preview only (§4). */
-  previewText(): string {
-    return this.preview;
   }
 
   private bufferSpanMs(): number {
@@ -161,16 +157,45 @@ export class LineBuilder {
     return this.emit(tokens);
   }
 
+  /**
+   * One flush, one caption. Never several.
+   *
+   * `buildSegments` is the async ingest's cue-splitter: given a run of tokens
+   * it returns as many segments as make good SRT cues, breaking on the pause
+   * threshold, the character cap and the duration cap. That is right for a
+   * subtitle file, where each cue gets its own moment on the timeline.
+   *
+   * It is wrong here, and quietly so. Live, every line it returns is delivered
+   * in the same synchronous loop — so a flush that split into four put four
+   * captions on the overlay inside one millisecond, and only the last was ever
+   * seen. Eighteen seconds of a sermon, three quarters of it never displayed.
+   * The old scheduler hid this by pacing releases `minDisplayMs` apart; there
+   * is no scheduler now, and there should not be one.
+   *
+   * So the segments are joined back into a single line. This is also exactly
+   * what the working prototype does — it posts the whole of an event's
+   * finalised text as one caption and never splits — and it is the reason a
+   * run-on speaker now produces one long caption rather than four flashed
+   * ones. `buildSegments` still does the work that matters: pairing spoken
+   * tokens with their translation, and normalising the English.
+   */
   private emit(tokens: SonioxToken[]): CaptionLine[] {
     if (tokens.length === 0) return [];
 
-    return buildSegments(tokens, this.options).map((segment) => ({
-      id: `line-${++this.counter}`,
-      original: segment.original,
-      translation: segment.translation,
-      audioStartMs: segment.startMs,
-      audioEndMs: segment.endMs,
-      speaker: segment.speaker,
-    }));
+    const segments = buildSegments(tokens, this.options);
+    if (segments.length === 0) return [];
+
+    const first = segments[0]!;
+    const last = segments[segments.length - 1]!;
+    return [
+      {
+        id: `line-${++this.counter}`,
+        original: segments.map((segment) => segment.original).join(' ').trim(),
+        translation: segments.map((segment) => segment.translation).join(' ').trim(),
+        audioStartMs: first.startMs,
+        audioEndMs: last.endMs,
+        speaker: first.speaker,
+      },
+    ];
   }
 }

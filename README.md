@@ -130,8 +130,8 @@ machine that is not the one running the bridge. It shows:
 
 - **Where to go** — every screen the bridge serves, each with the token already
   in the link and a **Copy link** button that hands you the whole thing
-  addressed to the LAN, plus what is currently attached to it: how many
-  reviewers, how many overlays connected, how many sermons in the archive
+  addressed to the LAN, plus what is attached: whether the caption screen is
+  connected, how many sermons are in the archive
 - **Open this from another machine** — the short address for each network this
   machine is on, so nobody has to run `ipconfig` under pressure
 - **Still to set up** — anything preflight is unhappy about
@@ -147,14 +147,14 @@ whichever tab you are on.
 
 | Tab | |
 |---|---|
-| **Captions** | What is still to set up, the sound input, start and stop, the level meter, the overlay URLs for vMix, and what has gone out |
-| **Reviewer** | The reviewer queue, for correcting lines from the vMix machine rather than a tablet |
+| **Captions** | What is still to set up, the sound input, start and stop, the level meter, the caption screen's URL for vMix, and what has gone out |
 | **Glossary** | The vocabulary: what the bridge already knows, and what you have taught it |
 | **Sermons** | Every service, its subtitles, corrections, and re-export |
 | **Settings** | Credentials, subtitle shape, live timing, names and terms |
 
-`/control`, `/operator` and `/overlay` still work at their own URLs and are
-unchanged, so a tablet or a saved vMix Browser input is unaffected.
+`/overlay` is the caption screen — one URL, the one you point vMix at. A stale
+`?output=venue` on the end is ignored rather than refused, so every Browser
+input and bookmark already saved around the mandir keeps working.
 
 ### Three ways to get sound in
 
@@ -509,174 +509,161 @@ will not be sitting at.
 npx tsx src/cli.ts devices     # prints the command to list your audio devices
 
 npx tsx src/cli.ts live --device "CABLE Output (VB-Audio Virtual Cable)" \
-  --outputs venue,stream --record ./service.jsonl
+  --record ./service.jsonl
 ```
 
-It prints a setup URL, a reviewer URL and one overlay URL per output, each with
-a token. Point vMix Browser inputs at the overlay URLs; open the reviewer page
-on a tablet.
+It prints the overlay URL with a token on it. That is the one you point a vMix
+Browser input at.
 
-**`/control`** — the setup page, for whoever is running the switcher. Pick the
-audio input from a dropdown instead of typing a device name exactly, start and
-stop, and watch a level meter that shows whether the cable is actually carrying
-sound. Inputs that look like a virtual cable are floated to the top and marked,
-because tapping the main mix instead of the speaker's own bus is the single
-biggest accuracy loss available.
+**`/overlay`** — the caption block that goes on screen. Transparent background
+so vMix can key it. English only by default; add `?lines=both` for bilingual.
 
-**`/operator`** — the reviewer page. A queue of the lines still waiting to go
-out, soonest first, Gujarati above English at reading size. Each has a bar that
-drains to show the time left, a "Don't show this", and a "Fix wording" for the
-occasional line worth correcting rather than dropping. Plus a clearly separated
-"Turn captions off".
+### Subtitles from a live service
 
-The queue **follows the newest line**, which is roughly what is being said in
-the room — the queue is soonest-deadline first, so the top is speech from three
-minutes ago that is about to go out, and the bottom is what Soniox has just
-finished. Scroll up to re-read something and it holds your place instead of
-dragging you along, with **↓ Back to live** in the header to return.
+On by default (`live.liveSrt`). A live service writes an `.srt` into the
+recordings folder as it runs, holding exactly what went out — so the recording
+can be captioned afterwards without transcribing the same words a second time.
+Timestamps run from when capture started.
 
-Sound is a deliberate press — browsers refuse to autoplay audio, and a tablet in
-the room would feed its own speaker back into the microphone being captioned.
-The control is in the header and also on the picture, where it fades in on
-hover.
+### The service, in a Google Doc
 
-When the bridge is being fed a **recording** rather than a microphone, the page
-also shows the video, with the caption on it. Tap the Gujarati of any queued
-line and the picture jumps to the moment it was spoken, so a doubtful
-translation is judged against what was actually said; "Back to live" returns to
-following the playhead. The mapping needs no calibration — audio position 0 is
-the session's start instant and the file plays at its own speed, so a line at
-`audioStartMs` is at `audioStartMs` in the file.
-
-There is no equivalent for a live service yet: that needs a video feed off the
-vMix machine. See [docs/vmix-routing.md](docs/vmix-routing.md).
-
-The page also carries the **silent-feed badge**. After twelve seconds without
-speech it says how long it has been quiet, and after thirty it turns red. That
-is the failure worth catching mid-service: captions do not error when the sound
-stops reaching them, they simply stop, and a long pause looks identical to a
-pulled cable on a level meter nobody is watching.
-
-### Captions on the YouTube stream
-
-```sh
-npx tsx src/cli.ts live --device "…" --outputs venue,stream \
-  --youtube-captions "<ingestion url from YouTube>" --stream-offset 180000
-```
-
-Enable closed captions with the **POST to URL** method in the stream's settings
-and YouTube gives you the ingestion URL. Every reviewed line is posted there as
-a real closed caption — toggleable by the viewer, and never burned into the
-picture, which is why this path needs no second composite in vMix.
-
-You can leave the flag off and put the URL in `YOUTUBE_INGESTION_URL` instead,
-or paste it into **Settings → Keys and passwords** in the app. It carries a
-`cid` identifying your stream, so treat it like a password.
-
-This is the *only* thing live YouTube captions need. The `YOUTUBE_CLIENT_ID`
-/ `_SECRET` / `_REFRESH_TOKEN` trio is a separate job — attaching caption tracks
-to recordings after the event — and is not involved here.
-
-`--stream-offset` is the delay between your encoder and YouTube receiving the
-video; it is what puts each caption on the right words. **Confirm it on a
-private test stream before a festival.**
-
-### The two delays
-
-There are two, and they add up — they are never collapsed into one.
-
-| | | What it buys |
-|---|---|---|
-| **A** `live.delayAssemblyMs` | 15s | Time for Soniox to hear a whole sentence and translate it. Below this, captions are scheduled for an instant already past and get dropped |
-| **B** `live.delayReviewMs` | 3min | Time for a human to read the Gujarati, judge the English, and type a correction |
-
-Every destination waits **A**. Only the reviewed one — the broadcast — waits
-**A + B** as well:
+Off by default (`live.googleDoc`). Turned on, every finalised line is written to
+a **new Google Doc each time you press Start**, as the service runs:
 
 ```
-speech ──▶ A ──▶ venue, overflow, reviewer's monitor
-              └▶ B ──▶ the stream, YouTube captions
+11:42:34  (0:12:34)
+આ દર્શન-શ્રવણનો મહિમા છે.
+This is the glory of seeing and hearing.
+
+11:42:41  (0:12:41)
+ભક્તિ એ માર્ગ છે.
+Devotion is the path.
 ```
 
-That gap is the whole point: a reviewer's correction lands while the line is
-still inside **B**, so it changes what goes out rather than trying to un-say it.
+Both timestamps, because they answer different questions: the clock places a
+passage against the service somebody sat through, the offset finds it in the
+recording — the same number the `.srt` uses. The link appears on the Captions
+tab as soon as the doc exists, which is before anyone has spoken.
 
-**Why A is 15 seconds.** Measured across all 594 cues of a real sermon: the
-median caption is ready 7s after its first word, 90% within 12s, the worst at
-21s. A caption cannot exist until the sentence it covers has finished being
-spoken, so this is a floor set by speech, not by the software. Set it lower and
-lines go missing; the symptom is someone talking with nothing on screen.
+**Setting it up**, once:
 
-**Why B is minutes.** At the original 25 seconds a reviewer could realistically
-only drop a line. The cost is that the stream runs that far behind the room, and
-that a delay this long can no longer live in vMix's Video Delay, which buffers
-uncompressed frames in RAM: it has to move after the encoder, to OBS's stream
-delay or a disk relay. See [docs/vmix-routing.md](docs/vmix-routing.md).
-Tunable up to ten minutes.
+1. [console.cloud.google.com](https://console.cloud.google.com) → a project (the
+   YouTube one is fine) → **APIs & Services → Library** → enable **both**:
+   - **Google Drive API** — creates the document
+   - **Google Docs API** — writes into it
 
-The venue screens are unaffected — they stay `delayAssemblyMs` behind the
-speaker (15 seconds by default), because a congregation in the room cannot
-watch captions three minutes late.
+   Enabling only Drive gets you a document that exists and stays empty. It is
+   the first thing that goes wrong; the Captions tab names the missing one and
+   links straight to it.
+2. **Credentials → Create credentials → OAuth client ID → Desktop app.** Copy
+   the id and secret into `.env` as `GOOGLE_DOCS_CLIENT_ID` and
+   `GOOGLE_DOCS_CLIENT_SECRET`.
+3. **OAuth consent screen → Production.** In Testing, Google expires the refresh
+   token after seven days — exactly the length of festival week.
+4. `npx tsx src/cli.ts doc --auth`, approve in the browser, paste the printed
+   `GOOGLE_DOCS_REFRESH_TOKEN` into `.env`.
+5. Settings → **Write the service to a Google Doc**.
 
-**The reviewer is told how long they have.** The queue header states the window
-in words, and a line that goes to air while it is being corrected says so rather
-than the editor simply closing. A reviewer never holds a line back — INVARIANT
-10 — so the deadline arriving mid-correction is normal, and only confusing when
-it is silent.
+**About the folder.** By default the app asks only for access to files it
+creates itself, and the docs land in My Drive. That is the least permission that
+works, and it is enough — move or share them afterwards like any other file.
 
-### The half of the delay that is Soniox's
+Putting them straight into a folder you picked needs access to your whole
+Drive, because Google's narrow permission cannot reach a folder the app did not
+create. If you want that: set `googleDocs.fullDriveAccess` to `true` in
+`config.json`, run `doc --auth` **again** (scopes are fixed when the token is
+minted), then paste the folder's id into Settings — the last part of its address
+in Drive. Get it wrong and the Captions tab tells you which of the two to fix.
 
-Nothing can be translated until Soniox decides a clause has finished, so two of
-its settings sit underneath **A**:
+**A separate credential from YouTube's, deliberately.** The client id and secret
+may be the same strings pasted twice; the refresh token cannot be, because the
+scopes differ.
+
+**It cannot take a service down.** Lines are batched every five seconds, so an
+idle stretch costs nothing. A hiccup retries with the words still buffered. A
+permanent failure stops the doc for the rest of the service and says so on the
+Captions tab — the captions, the screen and the `.srt` carry on.
+
+### How long a sentence takes to appear
+
+A caption cannot exist until the sentence it covers has finished being spoken
+and Soniox has translated it. There is no queue and no delay between a line
+existing and it being on screen, so that is the whole of the latency.
+
+**Soniox decides where a sentence ends, and it should be left to.** Two settings
+can interfere, and both default to what the working prototype uses:
 
 | | Default | |
 |---|---|---|
-| `live.endpointSensitivity` | −0.25 | −1 patient, 1 eager |
-| `live.maxEndpointDelayMs` | 2500 | Hard ceiling on that wait, so a speaker who does not pause cannot hold a segment open indefinitely |
+| `live.maxEndpointDelayMs` | 2000 | A **ceiling** on how long Soniox may wait before calling a clause finished — a backstop for a speaker who never pauses. Not a target. Lower it and you force a cut mid-thought |
+| `live.endpointSensitivity` | **not set** | −1 patient to 1 eager. Absent from `config.json` and from the settings form on purpose. Setting it overrides Soniox's own judgement, and eager values are how captions start arriving three words at a time |
 
-Both are editable in **Settings → Subtitle shape and timing**, and both are
-worth tuning against your own speaker. What follows is one attempt, kept because
-the shape of the trade is more useful than the numbers.
+If sentences are forming too fast, check those two first — in that order. The
+symptom of both is the same: fragments where clauses should be.
 
-**The probe.** The speaker says *આ દર્શન-શ્રવણ* ("this seeing-and-hearing").
-Move the word boundary and the same phonemes are *આદર્શ* — "ideal". At −0.25
-Soniox closes the clause mid-compound and commits to the wrong one: *"and also
-the online ideal"*. The same audio transcribed offline, with the whole sentence
-available, gets it right — so this is a recognition problem, not a translation
-one, and no glossary term fixes it: the boundary falls inside the compound, so
-the first half is recognised without the second either way.
+`live.maxBufferMs` (8000) is our own backstop, not a chunker: it forces a flush
+if Soniox has not called an endpoint in eight seconds. With the ceiling above at
+two seconds it should never fire.
 
-| Setting | The phrase | Everything else |
-|---|---|---|
-| **−0.25 / 2500** | ✗ "the online ideal" | prompt, about a second |
-| −0.5 / 3500 | ✓ correct | compounds intact, slowest line 11.0s |
-| −0.75 / 5000 | ✓ correct | clauses outran `maxBufferMs`, so our own cut split "Pancham Varasdar" across two captions; slowest line **17.1s** |
+**Nothing waits for the endpoint.** A caption goes out the moment its English
+arrives — typically a couple of hundred milliseconds after the clause finishes.
+Waiting for Soniox's endpoint marker used to add another 1.5–2 seconds for
+nothing: the words were already there, and the marker only said what we could
+already see. Speech whose English has *not* arrived is held rather than shown,
+because the segment builder otherwise falls back to the source and puts raw
+Gujarati on the English screen.
 
-−0.5 looks like the answer on paper and is **not** what ships. Watching it run
-is the part the table misses: the captions felt sticky, and the sentence it was
-supposed to fix still lost the word "online" in translation once the parse was
-right. A correct parse of a phrase whose key word is then dropped does not buy a
-second of lag on every line.
+**Caption length is Soniox's translation granularity** — whatever English it
+hands over in one go becomes one caption. That is short, and deliberately so:
+waiting for more is waiting, and waiting is lag.
 
-Two things to keep from it. The ceiling is not comfort, it is
-`delayAssemblyMs` — a line that takes longer than the assembly delay to become
-ready is not a late caption, it is no caption, and `lateSkipMs` drops it. And
-the two settings move together: more patience needs a longer `maxBufferMs` or
-our own cut starts landing mid-phrase.
-
-**`/overlay?output=venue`** — the caption block that goes on screen.
-Transparent background so vMix can key it. English only by default; add
-`&lines=both` for bilingual.
-
-See it without running anything live:
+**The screen keeps the previous line.** A new caption arrives underneath the
+last one, which dims and stays. Two consecutive captions from a real service:
 
 ```
-http://127.0.0.1:3000/operator?demo=1
+From 6 to 11—at 11 o'clock, brothers, Bapa to everyone     ← dimmed
+brothers, gives sheero, chickpeas, and lentils.            ← current
 ```
 
-**The reviewer is advisory.** Captions never wait for them, closing the page
-stalls nothing, and a "don't show this" that arrives after a line has already
-gone out is rejected rather than applied retroactively.
+They read as the sentence they are, instead of one flashing past and being
+replaced by the other. This is not roll-up: both lines are complete, neither is
+ever edited, and nothing changes under the reader — a new line arrives, the old
+one moves up. `?history=0` on the overlay URL goes back to one at a time.
+
+### The one place to tune it
+
+**Settings → This service → "How long to wait before captioning"**
+(`live.maxEndpointDelayMs`, 2000). It is the only wait in the pipeline. Soniox
+holds a run of speech until it decides the clause has ended, translates it, and
+the caption goes straight to the screen — so this number *is* how far behind the
+speaker the captions sit.
+
+| Set it to | You get |
+|---|---|
+| 800–1000 | Captions mid-sentence, a second sooner. Fragments, often mid-thought |
+| **2000** | What the working prototype runs on air. Clause-sized, ~1–2s behind |
+| 3000–4000 | Fuller sentences, that much further behind |
+
+There is no client-side buffer any more. Anything Soniox has translated is on
+screen within a frame of arriving, so nothing else can be shortened.
+
+**To go finer than this you would need provisional tokens**, and those are
+revised as the speaker continues — the text would re-order itself on screen.
+That is the one thing this pipeline will not do; see
+[INVARIANT 4](SPEC.md).
+
+`live.endpointSensitivity` is a second, finer control on the same decision:
+−1 patient to 1 eager, absent by default, and `config.json`-only because eager
+values are the fastest way to fragment a service. Add it by hand if you want to
+experiment.
+
+**One flush is one caption.** However long the run, a flush produces exactly
+one line — the same thing the prototype does when it posts an event's whole
+finalised text as a single caption. It used to split a long run into several
+readable cues, which is right for an `.srt` file and wrong on a screen: with no
+scheduler pacing them, all of them were delivered in the same millisecond and
+only the last was ever seen. A run-on speaker now gives you one long caption
+rather than four flashed ones.
 
 ---
 
@@ -747,25 +734,24 @@ and passwords** in the app, or `cp .env.example .env` and put it there.
 Same two places. `.env.example` already contains the
 `postgresql://...5433/...` line, so copying the file is usually enough.
 
-**Someone is speaking and no caption appears**
-`live.delayAssemblyMs` is too low. A caption cannot exist until the sentence it
-covers has finished being spoken, so anything under about 12 seconds routinely
-schedules lines for an instant already past, and they are dropped. See
-[The two delays](#the-two-delays).
+**Someone is speaking and no caption appears for a few seconds**
+Expected. A caption cannot exist until the sentence it covers has finished being
+spoken, and then Soniox has to translate it — measured on a real sermon, the
+median line is ready 7 seconds after its first word. Lowering **Cut a line
+after** (`maxBufferMs`) is the only real lever, and it buys speed by splitting
+sentences.
 
 **Captions stopped and nothing says why**
 Look at **Sound coming in** on the Captions tab. After 12 seconds without speech
 it says how long it has been quiet; after 30 it turns red and the log repeats a
-warning every minute. The reviewer gets the same badge. A long pause and a
-pulled cable look identical on a level meter nobody is watching, which is why
+warning every minute. A long pause and a pulled cable look identical on a level meter nobody is watching, which is why
 the duration is stated rather than left to be inferred.
 
-**The first line or two of a service never reaches the venue screens**
-Expected, and only affects the unreviewed outputs. Soniox's first result arrives
-around 19s in, by which point a line covering the opening seconds is already
-past its `delayAssemblyMs` deadline. The stream and YouTube outputs wait `A + B`
-so they carry it. Start captions a few seconds before the speaker does and there
-is nothing to lose.
+**The Google Doc stopped part-way through a service**
+Look at the Captions tab: it says so, with the reason. A revoked token, a
+deleted doc or a folder the credential cannot reach all stop it for the rest of
+the service by design, rather than retrying a wall for ninety minutes. The
+`.srt` in `recordings/` has everything either way.
 
 **The device is in the list, captions start, and nothing is transcribed**
 Press **Test this input** on the Captions tab. The usual answer is a capture
@@ -827,12 +813,14 @@ src/
     vocabulary.ts          the Swaminarayan glossary and register instructions
     context.ts             merges built-in and local terms; used by both paths
     normalize.ts           corrects the English the glossary did not manage to
-  youtube/               Data API client and the one-off OAuth flow
+  google/                shared OAuth, and the Docs/Drive client
+  youtube/               Data API client for caption tracks
   segments/build.ts      tokens → subtitles. The core; shared by every phase
   srt/format.ts          subtitles → .srt text
   db/                    Postgres access
   search/                chunking, embeddings, vector search
-  live/                  real-time bridge: capture, websocket, queue, adapters
+  live/                  real-time bridge: capture, websocket, line building,
+                         and the four sinks (screen, YouTube, .srt, Google Doc)
   settings/              reads and writes .env and config.json, atomically
   web/                   HTTP routes the app pages call, and the URL token
   util/                  logging, network addresses, opening a browser
@@ -840,13 +828,11 @@ src/
 public/
   home.html              the homepage: where to go, and how to get here
   app.html               the app — one tab per job
-  operator.html          reviewer page: video, queue, transcript
-  control.html           the older standalone setup page
-  overlay.html           on-air caption block
+  overlay.html           on-air caption block — the one screen
   capture-worklet.js     browser audio capture, on the audio thread
 prisma/schema.prisma     database schema
 docs/                    architecture and vMix routing
-test/                    420 tests
+test/                    428 tests
 ```
 
 `src/segments/build.ts` is the piece to understand first — everything else
@@ -882,28 +868,6 @@ are meaningless. Reading them at face value would drag every subtitle to
 `00:00:00`. Timing always comes from the spoken tokens; the translation
 inherits it.
 
-### A reviewer's decisions used not to reach YouTube
-
-Fixed, and worth recording because it changes what the live path actually did.
-
-The closed-caption output is registered under its own name (`youtube`) while
-carrying the `stream` output's schedule. Reviewer drops and edits were scoped to
-`'stream'` alone, and `CaptionQueue` skips any output whose name does not match —
-so **"Don't show this" removed a line from the overlay but still posted it to
-YouTube**, and "Fix wording" corrected the overlay while YouTube received the
-machine translation. The comment claiming otherwise was written before the
-output was given a separate name.
-
-`drop` and `editLine` now take a list of output names rather than one.
-`test/live.youtube.test.ts` covers it: register both outputs, drop a line,
-assert no POST happens.
-
-Two smaller things fixed alongside it. A failed POST used to consume a sequence
-number, leaving a gap in a series the endpoint counts on — the number is now
-only spent by a request YouTube accepted. And the ingestion URL is checked when
-it is set rather than at the first caption, so a truncated paste is caught
-before a service instead of during one.
-
 ### Where this differs from SPEC.md
 
 **Three lines per subtitle, not two (§4).** At two lines, only 62% of subtitles
@@ -917,6 +881,22 @@ point of §4 is that no correction ever needs backfilling, which a non-null
 column achieves — but stamping `local` on 594 machine-generated lines would
 claim a person wrote them. `editedAt IS NULL` is the precise test for "never
 touched by a human".
+
+**There is no reviewer, and no delay (§4, §7–§10).** The spec is built around a
+review window: captions held back so a human can correct a line before it airs,
+with a per-output scheduler to hold them. Both are gone. A line goes to the
+screen and to YouTube the moment Soniox has finalised and translated it, and a
+caption already sent cannot be changed by anything.
+
+What that costs: nothing can be corrected before air, and a *delayed* stream can
+no longer be captioned in sync — the YouTube timestamp is now always the instant
+of the POST, which is self-correcting only because nothing is held back.
+
+INVARIANT 4 itself is stronger than it was, not weaker. Pop-on everywhere, no
+exceptions, and four independent mechanisms now enforce it: the builder discards
+non-final tokens, `include_nonfinal` is false on the wire, there is no surface
+that renders provisional text, and with the reviewer gone there is no code path
+that can revise a line at all.
 
 **Subtitle boundaries don't use endpoint detection (§4).** That feature only
 exists in Soniox's real-time API; an async transcript is a flat stream with no

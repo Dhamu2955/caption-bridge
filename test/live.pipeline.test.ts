@@ -4,7 +4,6 @@ import { LineBuilder } from '../src/live/pipeline/lineBuilder.js';
 import { SonioxRealtimeClient } from '../src/live/soniox/client.js';
 import { buildCaptureArgs, rmsLevel } from '../src/live/capture.js';
 import { VmixAdapter, extractTextField } from '../src/live/adapters/vmix.js';
-import { outputConfigs } from '../src/live/outputs.js';
 import { parseConfig } from '../src/config.js';
 import type { SonioxToken } from '../src/soniox/types.js';
 
@@ -54,10 +53,13 @@ describe('LineBuilder', () => {
     expect(lines).toEqual([]);
   });
 
-  it('exposes non-final text as preview only, never as a line', () => {
+  it('drops non-final text entirely — it is never buffered or returned', () => {
+    // The innermost of the four things keeping revisable text off a screen.
+    // There is deliberately no way to read it back out of the builder.
     const builder = new LineBuilder();
-    builder.push([{ text: 'half a thought', start_ms: 0, end_ms: 400, is_final: false }]);
-    expect(builder.previewText()).toBe('half a thought');
+    expect(
+      builder.push([{ text: 'half a thought', start_ms: 0, end_ms: 400, is_final: false }]),
+    ).toEqual([]);
     expect(builder.flush()).toEqual([]);
   });
 
@@ -103,18 +105,19 @@ describe('LineBuilder', () => {
       expect(english).not.toMatch(/[઀-૿]/);
     });
 
-    it('does not lose the English when an overflow lands mid-run', () => {
+    it('sends a pair the moment it completes, and holds what is unfinished', () => {
       const builder = new LineBuilder();
-      // A completed pair, then more speech still awaiting translation.
-      builder.push([final('એક', 0, 4000), translated('One.')]);
-      const lines = builder.push([final(' બે', 4000, 12_000)]);
 
-      // The finished pair goes out...
-      expect(lines).toHaveLength(1);
-      expect(lines[0]?.translation).toBe('One.');
+      // The pair completes on this push, so it leaves on this push. Waiting
+      // for the endpoint here was pure lag — the words were already ready.
+      const first = builder.push([final('એક', 0, 4000), translated('One.')]);
+      expect(first).toHaveLength(1);
+      expect(first[0]?.translation).toBe('One.');
 
-      // ...and the unfinished speech is still held, not discarded.
-      const rest = builder.push([translated('Two.'), { text: '<end>', is_final: true }]);
+      // Speech with no English yet is held, not shown and not discarded.
+      expect(builder.push([final(' બે', 4000, 12_000)])).toEqual([]);
+
+      const rest = builder.push([translated('Two.')]);
       expect(rest).toHaveLength(1);
       expect(rest[0]?.translation).toBe('Two.');
     });
@@ -156,11 +159,13 @@ describe('LineBuilder', () => {
     expect(lines[0]?.audioStartMs).toBe(40_000);
   });
 
-  it('flushes without an endpoint once the buffer spans maxBufferMs', () => {
-    const builder = new LineBuilder({ maxBufferMs: 3000 });
-    expect(builder.push([final('એક', 0, 1000), translated('One.')])).toEqual([]);
-    const lines = builder.push([final(' બે', 1000, 3500), translated(' Two.')]);
-    expect(lines.length).toBeGreaterThan(0);
+  it('needs no endpoint at all — a completed pair goes straight out', () => {
+    // maxBufferMs is now only the backstop for speech whose translation never
+    // arrives; it is not what makes captions appear.
+    const builder = new LineBuilder();
+    const lines = builder.push([final('એક', 0, 1000), translated('One.')]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.translation).toBe('One.');
   });
 
   it('gives every line a distinct id', () => {
@@ -361,33 +366,6 @@ describe('vMix adapter', () => {
   });
 });
 
-describe('output table (INVARIANT 7)', () => {
-  const config = parseConfig({
-    live: { delayAssemblyMs: 4000, delayReviewMs: 25000, minDisplayMs: 1500, lateSkipMs: 2000 },
-  });
-  const outputs = outputConfigs(config);
-
-  it('gives the reviewed path delayA + delayB, never a single global constant', () => {
-    expect(outputs.stream.delayMs).toBe(29_000);
-    expect(outputs.stream.reviewed).toBe(true);
-  });
-
-  it('gives every single-composite output delay A only', () => {
-    expect(outputs.reviewer.delayMs).toBe(4000);
-    expect(outputs.venue.delayMs).toBe(4000);
-    expect(outputs.overflow.delayMs).toBe(4000);
-  });
-
-  it('leaves the stub undelayed for development', () => {
-    expect(outputs.stub.delayMs).toBe(0);
-  });
-
-  it('applies the 1500ms floor to every output', () => {
-    for (const output of Object.values(outputs)) {
-      expect(output.minDisplayMs).toBe(1500);
-    }
-  });
-});
 
 describe('English the speaker slips into a Gujarati sentence', () => {
   const options = {
@@ -395,8 +373,7 @@ describe('English the speaker slips into a Gujarati sentence', () => {
     maxChars: 120,
     maxSegmentMs: 20_000,
     minDisplayMs: 1500,
-    maxBufferMs: 8000,
-  };
+    };
 
   it('goes out on an overflow flush rather than waiting for a translation', () => {
     // Nothing is coming for it, so waiting meant it sat until
@@ -438,33 +415,153 @@ describe('English the speaker slips into a Gujarati sentence', () => {
   });
 });
 
-describe('review window length', () => {
-  it('defaults to three minutes, so correcting a line is realistic', () => {
-    // At 25 seconds a reviewer can only drop; reading the Gujarati, judging
-    // the English and typing a fix does not fit.
-    //
-    // Asserted as A + B rather than as one number: the sum moved when the
-    // assembly delay was corrected to 15s, and the claim being made here is
-    // about the review window, not about what the two happen to add up to.
-    const config = parseConfig({});
-    expect(config.live.delayReviewMs).toBe(180_000);
-    expect(outputConfigs(config).stream.delayMs).toBe(
-      config.live.delayAssemblyMs + config.live.delayReviewMs,
-    );
+
+describe('the Soniox config message matches the working prototype', () => {
+  /**
+   * `../soniox_en` has run this job on air for weeks. Where our wire message
+   * differed from its, ours was wrong — most of all in sending
+   * `endpoint_sensitivity`, which overrides Soniox's judgement about where a
+   * sentence ends and, pushed eager, delivers captions three words at a time.
+   */
+  const client = () =>
+    new SonioxRealtimeClient({
+      apiKey: 'sk-test',
+      model: 'stt-rt-v5',
+      sampleRate: 16000,
+      languageHints: ['gu', 'en'],
+      languageHintsStrict: true,
+      targetLanguage: 'en',
+      maxEndpointDelayMs: 2000,
+    });
+
+  it('does not send endpoint_sensitivity unless asked to', () => {
+    expect(client().buildConfigMessage()).not.toHaveProperty('endpoint_sensitivity');
   });
 
-  it('carries a longer window straight through to the reviewed output', () => {
-    const config = parseConfig({ live: { delayAssemblyMs: 4000, delayReviewMs: 600_000 } });
-    expect(outputConfigs(config).stream.delayMs).toBe(604_000);
+  it('sends it when the config names one, so the escape hatch still works', () => {
+    const tuned = new SonioxRealtimeClient({
+      apiKey: 'sk-test',
+      model: 'stt-rt-v5',
+      sampleRate: 16000,
+      languageHints: ['gu'],
+      targetLanguage: 'en',
+      endpointSensitivity: -0.5,
+    });
+    expect(tuned.buildConfigMessage()['endpoint_sensitivity']).toBe(-0.5);
   });
 
-  it('leaves unreviewed outputs on assembly delay however long review gets', () => {
-    // The venue screen cannot be ten minutes behind the room.
-    const config = parseConfig({ live: { delayAssemblyMs: 4000, delayReviewMs: 600_000 } });
-    expect(outputConfigs(config).venue.delayMs).toBe(4000);
+  it('does not send diarization or language identification', () => {
+    // The prototype sends neither. Diarization matters twice over: it also
+    // makes buildSegments split a sentence wherever the speaker id flickers.
+    const message = client().buildConfigMessage();
+    expect(message).not.toHaveProperty('enable_speaker_diarization');
+    expect(message).not.toHaveProperty('enable_language_identification');
   });
 
-  it('refuses a window past ten minutes', () => {
-    expect(() => parseConfig({ live: { delayReviewMs: 600_001 } })).toThrow(/10 minutes/);
+  it('restricts to the languages named, as the prototype does', () => {
+    expect(client().buildConfigMessage()['language_hints_strict']).toBe(true);
+  });
+
+  it('still refuses provisional tokens — the one deliberate difference', () => {
+    // The prototype leaves this unset and receives them for its console view.
+    // We never render provisional text, so not receiving it is strictly safer
+    // and cannot affect where sentences end.
+    expect(client().buildConfigMessage()['include_nonfinal']).toBe(false);
+  });
+});
+
+describe('one flush is one caption', () => {
+  const token = (text: string, s: number, e: number, status: 'original' | 'translation') =>
+    ({ text, start_ms: s, end_ms: e, is_final: true, speaker: '1', translation_status: status }) as SonioxToken;
+
+  /**
+   * The regression this closes: `buildSegments` is the async ingest's cue
+   * splitter, and live it was returning several lines from one flush. All of
+   * them were delivered in the same synchronous loop, the overlay hard-replaced
+   * on each, and only the last was ever seen — eighteen seconds of a sermon
+   * with three quarters of it never displayed.
+   *
+   * The working prototype posts the whole of an event's finalised text as one
+   * caption and never splits. So does this now.
+   */
+  it('never returns more than one line, however long the run', () => {
+    const builder = new LineBuilder({
+      pauseMs: 4000,
+      maxChars: 138,
+      maxSegmentMs: 20_000,
+      minDisplayMs: 1500,
+      });
+
+    const spoken: SonioxToken[] = [];
+    const translated: SonioxToken[] = [];
+    for (let i = 0; i < 12; i++) {
+      spoken.push(token(` વાક્ય ${i}.`, i * 1500, i * 1500 + 1400, 'original'));
+      translated.push(token(` This is sentence ${i} of a long unbroken passage.`, 0, 0, 'translation'));
+    }
+
+    const lines = builder.push([...spoken, ...translated, token('<end>', 18_000, 18_000, 'original')]);
+    expect(lines).toHaveLength(1);
+    // And it carries the whole run, start to finish — nothing dropped.
+    expect(lines[0]!.audioStartMs).toBe(0);
+    expect(lines[0]!.audioEndMs).toBe(17_900);
+    expect(lines[0]!.translation).toContain('sentence 0');
+    expect(lines[0]!.translation).toContain('sentence 11');
+  });
+
+  it('still pairs the Gujarati with its English', () => {
+    const builder = new LineBuilder({ minDisplayMs: 0 });
+    const lines = builder.push([
+      token(' ભક્તિ એ માર્ગ છે.', 0, 2000, 'original'),
+      token(' Devotion is the path.', 0, 0, 'translation'),
+      token('<end>', 2000, 2000, 'original'),
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.original).toContain('ભક્તિ');
+    expect(lines[0]!.translation).toBe('Devotion is the path.');
+  });
+});
+
+describe('the English screen never shows Gujarati', () => {
+  const spoken = (text: string, s: number, e: number) =>
+    ({ text, start_ms: s, end_ms: e, is_final: true, speaker: '1', translation_status: 'original' }) as SonioxToken;
+  const english = (text: string) =>
+    ({ text, start_ms: 0, end_ms: 0, is_final: true, speaker: '1', translation_status: 'translation' }) as SonioxToken;
+  const endpoint = (at: number) =>
+    ({ text: '<end>', start_ms: at, end_ms: at, is_final: true }) as SonioxToken;
+
+  /**
+   * From three recorded services. An endpoint arrived before Soniox had sent
+   * the translation, `buildSegments` fell back to the original, and the raw
+   * Gujarati went out as a caption — then the English arrived and went out as a
+   * second one. "સિંહાસન ઉપર." at 28.5s, "On the singasan, it starts" at 33.9s:
+   * the same words twice, in two languages.
+   */
+  it('holds an untranslated run at an endpoint rather than showing the source', () => {
+    const builder = new LineBuilder({ minDisplayMs: 0, maxUntranslatedMs: 30_000 });
+
+    const held = builder.push([spoken(' સિંહાસન ઉપર.', 28_560, 30_060), endpoint(30_060)]);
+    expect(held).toEqual([]);
+
+    // The translation lands a few seconds later; both leave together, once.
+    const out = builder.push([english(' On the singasan, it starts, brothers.'), endpoint(35_400)]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.translation).toBe('On the singasan, it starts, brothers.');
+    expect(out[0]!.translation).not.toMatch(/[઀-૿]/);
+    // The Gujarati is still carried, for the .srt and the Google Doc.
+    expect(out[0]!.original).toContain('સિંહાસન');
+  });
+
+  it('still emits what IS translated, keeping only the unpaired tail', () => {
+    const builder = new LineBuilder({ minDisplayMs: 0, maxUntranslatedMs: 30_000 });
+    const out = builder.push([
+      spoken(' ભક્તિ એ માર્ગ છે.', 0, 2000),
+      english(' Devotion is the path.'),
+      spoken(' આજે આપણે વાત કરીશું.', 2100, 4000),
+      endpoint(4000),
+    ]);
+
+    expect(out).toHaveLength(1);
+    expect(out[0]!.translation).toBe('Devotion is the path.');
+    expect(out[0]!.translation).not.toMatch(/[઀-૿]/);
   });
 });

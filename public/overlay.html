@@ -82,6 +82,36 @@
     white-space: pre-line;
   }
 
+  /*
+    The line before this one, kept on screen underneath it.
+
+    Captions go out the instant their English arrives, which is the right
+    trade for lag and leaves them short — Soniox hands over a clause at a
+    time, and on a projector each one replacing the last reads as a flash.
+    Holding the previous line lets a short caption be read as part of a
+    sentence instead of a blink.
+
+    This is NOT roll-up. Both lines are complete and neither is ever edited:
+    a new one arrives, the old one moves up, nothing rewrites. What
+    INVARIANT 4 forbids is text changing under the reader, and nothing here
+    does. Dimmed, so it reads as context rather than competing with the line
+    that is current.
+  */
+  #prev {
+    font-family: var(--english);
+    font-size: 3.4vw;
+    font-weight: 600;
+    line-height: 1.32;
+    margin: 0 0 0.2em;
+    white-space: pre-line;
+    opacity: 0.45;
+    display: none;
+  }
+  #block.has-prev #prev { display: block; }
+  /* One caption at a time when both languages are on: four lines of text on a
+     projector is a wall, and the Gujarati is already the second line. */
+  #block.show-both #prev { display: none; }
+
   /* A short fade stops a hard cut from reading as a flicker on camera. It is
      deliberately faster than the eye tracks a word, so nothing is ever read
      mid-transition — that would be roll-up behaviour by the back door. */
@@ -98,12 +128,19 @@
     #gu { font-size: 5.2vw; }
     #en { font-size: 5.6vw; }
   }
+
+  /* The passthrough feed reads as running text rather than a caption block:
+     it is continuous, it is long, and centring it makes every revision jump
+     the whole paragraph sideways. */
+  body[data-output="raw"] #block { text-align: left; }
+  body[data-output="raw"] #en { font-size: 4.2vh; line-height: 1.35; }
 </style>
 </head>
 <body>
   <div id="stage">
     <div id="block">
       <p id="gu" lang="gu"></p>
+      <p id="prev" lang="en"></p>
       <p id="en" lang="en"></p>
     </div>
   </div>
@@ -121,14 +158,24 @@
 
   var block = document.getElementById('block');
   var guEl = document.getElementById('gu');
+  var prevEl = document.getElementById('prev');
   var enEl = document.getElementById('en');
+  // ?history=0 for one caption at a time, as it used to be.
+  var keepPrevious = params.get('history') !== '0';
 
   if (showBoth) block.classList.add('show-both');
+  document.body.setAttribute('data-output', output);
 
   // A displayed line is immutable (INVARIANT 4 rule 2). There is deliberately
-  // no update path here: show() replaces the whole block or does nothing.
+  // no update path here: show() moves the current line up and puts a new one
+  // beneath it. Neither is ever edited in place.
   function show(line) {
     if (!line || !line.translation) return;
+
+    if (keepPrevious && enEl.textContent) {
+      prevEl.textContent = enEl.textContent;
+      block.classList.add('has-prev');
+    }
     guEl.textContent = line.original || '';
     enEl.textContent = line.translation;
     block.classList.remove('is-shown');
@@ -137,9 +184,29 @@
     block.classList.add('is-shown');
   }
 
+  /**
+   * Continuous passthrough (?output=raw). Replaces the text in place as Soniox
+   * revises it, which is exactly what show() refuses to do.
+   *
+   * Kept as a separate function rather than folded into show() on purpose: the
+   * immutability rule above is the one this page exists to enforce, and a
+   * single render path that sometimes mutates would erode it. A `raw` message
+   * only ever arrives on the raw output, which nothing else is pointed at.
+   */
+  function raw(text) {
+    if (typeof text !== 'string') return;
+    guEl.textContent = '';
+    enEl.textContent = text;
+    // No fade and no reflow: the text is changing continuously, and replaying
+    // an animation on every revision would strobe.
+    block.classList.add('is-shown');
+  }
+
   function clear() {
     block.classList.remove('is-shown');
+    block.classList.remove('has-prev');
     guEl.textContent = '';
+    prevEl.textContent = '';
     enEl.textContent = '';
   }
 
@@ -159,6 +226,7 @@
       var message;
       try { message = JSON.parse(event.data); } catch (err) { return; }
       if (message.type === 'show') show(message.line);
+      else if (message.type === 'raw') raw(message.text);
       else if (message.type === 'clear') clear();
     };
 

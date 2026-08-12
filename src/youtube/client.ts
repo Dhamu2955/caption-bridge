@@ -4,8 +4,8 @@ import {
   QUOTA_REASONS,
   type CaptionListResponse,
   type CaptionTrack,
-  type TokenResponse,
 } from './types.js';
+import { GoogleAuth, googleRequest } from '../google/oauth.js';
 
 /**
  * YouTube Data API v3 — caption tracks only.
@@ -57,119 +57,50 @@ export interface YoutubeClientOptions {
   boundary?: string;
 }
 
-const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+/** The one scope captions need: reading and writing tracks on your own channel. */
+export const YOUTUBE_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
+
 const DEFAULT_BOUNDARY = 'caption-bridge-boundary-8f3a1c';
-/** Re-mint this far before the token actually dies, so a slow upload cannot straddle expiry. */
-const TOKEN_SKEW_MS = 60_000;
 
 export class YoutubeClient {
-  private readonly clientId: string;
-  private readonly clientSecret: string;
-  private readonly refreshToken: string;
+  private readonly auth: GoogleAuth;
   private readonly baseUrl: string;
   private readonly uploadUrl: string;
-  private readonly tokenUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: (ms: number) => Promise<void>;
-  private readonly now: () => number;
   private readonly maxRetries: number;
   private readonly boundary: string;
 
-  private accessToken: string | undefined;
-  private accessTokenExpiresAt = 0;
-
   constructor(options: YoutubeClientOptions) {
-    this.clientId = options.clientId;
-    this.clientSecret = options.clientSecret;
-    this.refreshToken = options.refreshToken;
+    this.auth = new GoogleAuth({
+      clientId: options.clientId,
+      clientSecret: options.clientSecret,
+      refreshToken: options.refreshToken,
+      ...(options.tokenUrl ? { tokenUrl: options.tokenUrl } : {}),
+      reauthCommand: 'publish --auth',
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      ...(options.now ? { now: options.now } : {}),
+      makeError: (message, status, reason) => new YoutubeError(message, status, reason),
+    });
     this.baseUrl = (options.baseUrl ?? 'https://www.googleapis.com/youtube/v3').replace(/\/+$/, '');
     this.uploadUrl = (options.uploadUrl ?? 'https://www.googleapis.com/upload/youtube/v3').replace(
       /\/+$/,
       '',
     );
-    this.tokenUrl = options.tokenUrl ?? 'https://oauth2.googleapis.com/token';
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.sleep = options.sleep ?? ((ms) => delay(ms));
-    this.now = options.now ?? (() => Date.now());
     this.maxRetries = options.maxRetries ?? 4;
     this.boundary = options.boundary ?? DEFAULT_BOUNDARY;
   }
 
-  /** Cached until a minute before expiry, so a batch of uploads mints one token. */
-  private async bearer(force = false): Promise<string> {
-    if (!force && this.accessToken && this.now() < this.accessTokenExpiresAt - TOKEN_SKEW_MS) {
-      return this.accessToken;
-    }
-
-    const body = new URLSearchParams({
-      client_id: this.clientId,
-      client_secret: this.clientSecret,
-      refresh_token: this.refreshToken,
-      grant_type: 'refresh_token',
+  private request(url: string, init: RequestInit = {}): Promise<Response> {
+    return googleRequest(url, init, {
+      auth: this.auth,
+      fetchImpl: this.fetchImpl,
+      sleep: this.sleep,
+      maxRetries: this.maxRetries,
+      makeError: (message, status, reason) => new YoutubeError(message, status, reason),
     });
-
-    const response = await this.fetchImpl(this.tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    });
-
-    if (!response.ok) {
-      const detail = await readErrorBody(response);
-      throw new YoutubeError(
-        `refreshing the access token failed: ${response.status} ${response.statusText}${detail}. ` +
-          `If this says invalid_grant the refresh token has expired — set the OAuth consent screen ` +
-          `to Production and re-run \`publish --auth\`.`,
-        response.status,
-      );
-    }
-
-    const token = (await response.json()) as TokenResponse;
-    this.accessToken = token.access_token;
-    this.accessTokenExpiresAt = this.now() + (token.expires_in ?? 3600) * 1000;
-    return this.accessToken;
-  }
-
-  private async request(url: string, init: RequestInit = {}): Promise<Response> {
-    let lastError: YoutubeError | undefined;
-    let forceRefresh = false;
-    let refreshedOnce = false;
-
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      if (attempt > 0) await this.sleep(Math.min(1000 * 2 ** (attempt - 1), 15_000));
-
-      const headers = new Headers(init.headers);
-      headers.set('Authorization', `Bearer ${await this.bearer(forceRefresh)}`);
-      forceRefresh = false;
-
-      let response: Response;
-      try {
-        response = await this.fetchImpl(url, { ...init, headers });
-      } catch (err) {
-        lastError = new YoutubeError(`network error calling ${url}: ${(err as Error).message}`);
-        continue;
-      }
-
-      if (response.ok) return response;
-
-      const { detail, reason } = await readApiError(response);
-      lastError = new YoutubeError(
-        `${init.method ?? 'GET'} ${url} failed: ${response.status} ${response.statusText}${detail}`,
-        response.status,
-        reason,
-      );
-
-      // A token can be revoked mid-run. Re-mint ONCE and try again rather than
-      // failing a backlog run on an hour boundary. A second 401 is a real
-      // credentials problem and falls through to the throw below.
-      if (response.status === 401 && !refreshedOnce) {
-        refreshedOnce = true;
-        forceRefresh = true;
-        continue;
-      }
-      if (!RETRYABLE.has(response.status)) throw lastError;
-    }
-    throw lastError ?? new YoutubeError(`request to ${url} failed`);
   }
 
   private async json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -238,36 +169,5 @@ export class YoutubeClient {
   async deleteCaption(trackId: string): Promise<void> {
     const url = `${this.baseUrl}/captions?id=${encodeURIComponent(trackId)}`;
     await this.request(url, { method: 'DELETE' });
-  }
-}
-
-async function readErrorBody(response: Response): Promise<string> {
-  try {
-    const text = await response.text();
-    return text ? ` — ${text.slice(0, 500)}` : '';
-  } catch {
-    return '';
-  }
-}
-
-/** Google nests the useful part: error.errors[0].reason is what identifies a quota wall. */
-async function readApiError(response: Response): Promise<{ detail: string; reason?: string }> {
-  let text: string;
-  try {
-    text = await response.text();
-  } catch {
-    return { detail: '' };
-  }
-  if (!text) return { detail: '' };
-
-  const detail = ` — ${text.slice(0, 500)}`;
-  try {
-    const parsed = JSON.parse(text) as {
-      error?: { errors?: { reason?: string }[]; status?: string };
-    };
-    const reason = parsed.error?.errors?.[0]?.reason ?? parsed.error?.status;
-    return reason ? { detail, reason } : { detail };
-  } catch {
-    return { detail };
   }
 }
