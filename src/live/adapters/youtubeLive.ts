@@ -22,6 +22,19 @@ import type { CaptionLine, OutputAdapter } from '../types.js';
  * a *delayed* stream is no longer possible here — deliberately, since the delay
  * it existed for is gone.
  *
+ * WHICH IS WHY NOTHING HERE WAITS FOR ANYTHING ELSE. These POSTs used to be
+ * serialised, each caption waiting for the last one's round trip before it was
+ * even sent. Measured on the prototype's own log of 12,994 posts from the
+ * mandir's network, a round trip is a median of 715ms — so every caption behind
+ * another was stamped that much later and YouTube placed it that much further
+ * into the stream. The delay was not late delivery; it was written into the cue.
+ * Worse on the 2.1% that fail: four attempts with backoff is over two seconds,
+ * and every caption queued behind one inherited all of it.
+ *
+ * So a caption is stamped and sent the moment it exists, and the sequence
+ * number — handed out here, in order, synchronously — is what tells YouTube how
+ * to order them. This is the prototype's design, thread per post and all.
+ *
  * The wire format and sequence semantics are the one thing in this file not
  * verifiable from the codebase, which is why the transport is injected.
  */
@@ -33,6 +46,14 @@ export interface YoutubeLiveAdapterOptions {
 
   /** Injected in tests so retries do not sleep. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * How long one attempt may take before it is abandoned.
+   *
+   * There was no timeout at all, and with the POSTs serialised a single
+   * connection that never answered would have held up every caption for the
+   * rest of the service. The prototype passes `timeout=5` for the same reason.
+   */
+  timeoutMs?: number;
   /** The wall clock, injected so `now` mode is testable without real time. */
   now?: () => number;
   fetchImpl?: typeof fetch;
@@ -49,6 +70,15 @@ export interface YoutubeLiveAdapterOptions {
  * a rare path.
  */
 const RETRY_CEILINGS_MS = [0, 100, 200, 400] as const;
+
+/**
+ * Five seconds, the prototype's `timeout=5`.
+ *
+ * Generous against the measured round trip — median 715ms, p99 889ms, slowest
+ * of 10,764 successes 4.2s — so it only fires on a connection that has actually
+ * stopped answering rather than on a slow night.
+ */
+const DEFAULT_TIMEOUT_MS = 5000;
 
 /**
  * Positioning, appended to the timestamp line.
@@ -119,9 +149,9 @@ export class YoutubeLiveAdapter implements OutputAdapter {
   private readonly now: () => number;
   private readonly fetchImpl: typeof fetch;
   private readonly onError: ((error: Error) => void) | undefined;
+  private readonly timeoutMs: number;
+  /** Handed out in `show`, in order. Never reused, and gaps are tolerated. */
   private sequence = 0;
-  /** Serialised: sequence numbers are only meaningful in order. */
-  private queue: Promise<void> = Promise.resolve();
 
   constructor(options: YoutubeLiveAdapterOptions) {
     this.name = options.name ?? 'youtube';
@@ -130,6 +160,7 @@ export class YoutubeLiveAdapter implements OutputAdapter {
     this.now = options.now ?? (() => Date.now());
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.onError = options.onError;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
   /** Exposed so a test can pin it without going through fetch. */
@@ -142,47 +173,83 @@ export class YoutubeLiveAdapter implements OutputAdapter {
     return `${this.ingestionUrl}${separator}seq=${sequence}`;
   }
 
+  /**
+   * Send one caption. Returns as soon as it has been handed to the network,
+   * and nothing later waits on it.
+   *
+   * The number is taken here rather than after a successful POST, which is the
+   * price of not waiting: a caption dispatched before its predecessor's outcome
+   * is known cannot be told what number that one ended up using. So a caption
+   * that fails all four attempts leaves a GAP in the series.
+   *
+   * That is the better failure of the two. The alternative, which this used to
+   * do, was to hand the failed caption's number to the NEXT caption — and if
+   * the POST had in fact landed and only the response was lost, YouTube would
+   * hold two different lines claiming the same position. A gap is a caption
+   * missing; a reused number is a caption overwritten by the wrong words. The
+   * prototype has run this way for 12,994 posts, 275 of which failed.
+   */
   show(line: CaptionLine): Promise<void> {
-    this.queue = this.queue.then(async () => {
-      // The sequence number is only spent by a POST YouTube actually accepted.
-      // Incrementing before the request meant a failed one burned a number and
-      // left a gap in the series the endpoint is counting on.
-      const sequence = this.sequence + 1;
-      let lastError: Error | undefined;
+    const sequence = ++this.sequence;
+    return this.send(sequence, line.translation);
+  }
 
-      for (let attempt = 0; attempt < RETRY_CEILINGS_MS.length; attempt++) {
-        const ceiling = RETRY_CEILINGS_MS[attempt]!;
-        if (ceiling > 0) await this.sleep(Math.random() * ceiling);
+  private async send(sequence: number, text: string): Promise<void> {
+    let lastError: Error | undefined;
 
-        // Re-stamped per attempt, not once before the loop: a retry carrying
-        // the first attempt's timestamp would place the caption where the
-        // stream was before the backoff, which is the one thing to get right.
-        // English only: the endpoint carries one track, and the Gujarati
-        // speakers in the audience are listening rather than reading.
-        const body = `${this.timestampFor()} ${CUE_REGION}\n${line.translation}\n`;
+    for (let attempt = 0; attempt < RETRY_CEILINGS_MS.length; attempt++) {
+      const ceiling = RETRY_CEILINGS_MS[attempt]!;
+      if (ceiling > 0) await this.sleep(Math.random() * ceiling);
 
-        try {
-          const response = await this.fetchImpl(this.url(sequence), {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-            body,
-          });
-          if (!response.ok) {
-            throw new Error(
-              `YouTube caption POST failed: ${response.status} ${response.statusText}`,
-            );
-          }
-          this.sequence = sequence;
-          return;
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
+      // Re-stamped per attempt, not once before the loop: a retry carrying
+      // the first attempt's timestamp would place the caption where the
+      // stream was before the backoff, which is the one thing to get right.
+      // English only: the endpoint carries one track, and the Gujarati
+      // speakers in the audience are listening rather than reading.
+      const body = `${this.timestampFor()} ${CUE_REGION}\n${text}\n`;
+
+      try {
+        const response = await this.post(this.url(sequence), body);
+        if (!response.ok) {
+          throw new Error(
+            `YouTube caption POST failed: ${response.status} ${response.statusText}`,
+          );
         }
+        return;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
       }
+    }
 
-      // A caption that does not land must never take the broadcast with it.
-      if (lastError) this.onError?.(lastError);
+    // A caption that does not land must never take the broadcast with it.
+    if (lastError) this.onError?.(lastError);
+  }
+
+  /**
+   * One attempt, bounded.
+   *
+   * Both the abort signal and the timer: the signal is what actually releases
+   * the socket, and the timer is what guarantees this settles even if the
+   * transport ignores the signal.
+   */
+  private post(url: string, body: string): Promise<Response> {
+    const controller = new AbortController();
+    return new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error(`YouTube caption POST timed out after ${this.timeoutMs}ms`));
+      }, this.timeoutMs);
+      timer.unref?.();
+
+      this.fetchImpl(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        body,
+        signal: controller.signal,
+      })
+        .then(resolve, reject)
+        .finally(() => clearTimeout(timer));
     });
-    return this.queue;
   }
 
   /**

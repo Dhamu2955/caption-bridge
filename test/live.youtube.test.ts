@@ -100,9 +100,7 @@ describe('YouTube live captions', () => {
     expect(posts[0]?.url).toBe('http://upload.test/cc?seq=1');
   });
 
-  it('does not burn a sequence number on a failed post', async () => {
-    // The endpoint counts on an unbroken series. Spending a number on a POST
-    // YouTube never accepted leaves a gap it cannot account for.
+  it('keeps one number per caption, and every retry of it', async () => {
     const { posts, fetchImpl } = harness([new Error('ECONNRESET')]);
     const adapter = new YoutubeLiveAdapter({
       ingestionUrl: 'http://upload.test/cc?cid=abc',
@@ -114,11 +112,91 @@ describe('YouTube live captions', () => {
     await adapter.show(line('a', 0));
     await adapter.show(line('b', 3000));
 
-    // First attempt failed, the retry reused the same number, and only the
-    // line after it moved on.
+    // The retry is the same caption, so it keeps the same number; the caption
+    // after it gets the next one.
     expect(posts[0]?.url).toContain('&seq=1');
     expect(posts[1]?.url).toContain('&seq=1');
     expect(posts[2]?.url).toContain('&seq=2');
+  });
+
+  it('leaves a gap rather than giving a failed caption\'s number to the next one', async () => {
+    // The price of not waiting: a caption dispatched before the one before it
+    // has been answered cannot know what number that one ended up using. A gap
+    // is a caption missing. Reusing the number, which is what this did while
+    // the posts were serialised, risks two different lines claiming the same
+    // position — a caption overwritten by the wrong words.
+    const { posts, fetchImpl } = harness([
+      new Error('ECONNRESET'),
+      new Error('ECONNRESET'),
+      new Error('ECONNRESET'),
+      new Error('ECONNRESET'),
+    ]);
+    const adapter = new YoutubeLiveAdapter({
+      ingestionUrl: 'http://upload.test/cc?cid=abc',
+      fetchImpl,
+      sleep: async () => {},
+      onError: () => {},
+    });
+
+    await adapter.show(line('a', 0));
+    await adapter.show(line('b', 3000));
+
+    expect(posts.filter((p) => p.url.includes('&seq=1'))).toHaveLength(4);
+    expect(posts[4]?.url).toContain('&seq=2');
+  });
+
+  it('does not make a caption wait for the one before it', async () => {
+    // The whole point. Measured on the prototype's log of 12,994 posts from the
+    // mandir's network, a round trip is a median of 715ms — so a caption queued
+    // behind another was STAMPED 715ms later, and YouTube placed it that much
+    // further into the stream. Serialised, the second post here could not even
+    // begin until the first one answered.
+    const posts: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const fetchImpl = (async (url: string) => {
+      posts.push(String(url));
+      if (posts.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return new Response('', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const adapter = new YoutubeLiveAdapter({
+      ingestionUrl: 'http://upload.test/cc?cid=abc',
+      fetchImpl,
+    });
+
+    const first = adapter.show(line('a', 0));
+    const second = adapter.show(line('b', 3000));
+
+    // The second caption is on the wire while the first is still hanging.
+    await expect(second).resolves.toBeUndefined();
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toContain('&seq=2');
+
+    releaseFirst?.();
+    await first;
+  });
+
+  it('gives up on a post that never answers', async () => {
+    // There was no timeout at all. Serialised, one connection that never
+    // answered would have held up every caption for the rest of the service.
+    const errors: Error[] = [];
+    const fetchImpl = (() => new Promise(() => {})) as unknown as typeof fetch;
+    const adapter = new YoutubeLiveAdapter({
+      ingestionUrl: 'http://upload.test/cc?cid=abc',
+      fetchImpl,
+      sleep: async () => {},
+      timeoutMs: 20,
+      onError: (err) => errors.push(err),
+    });
+
+    await adapter.show(line('a', 0));
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain('timed out');
   });
 
   it('retries a transient failure rather than losing the caption', async () => {

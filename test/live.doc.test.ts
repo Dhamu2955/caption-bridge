@@ -1,17 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { GoogleDocsClient, GoogleDocsError } from '../src/google/docs.js';
-import { LiveDocWriter, formatEntry } from '../src/live/liveDoc.js';
+import { LiveDocWriter, formatEntry, joinClauses } from '../src/live/liveDoc.js';
 import type { CaptionLine } from '../src/live/types.js';
 
 const EPOCH = Date.parse('2026-08-16T09:30:00.000Z');
 
-const line = (translation: string, startMs = 0, original = 'ભક્તિ એ માર્ગ છે.'): CaptionLine => ({
+const line = (
+  translation: string,
+  startMs = 0,
+  original = 'ભક્તિ એ માર્ગ છે.',
+  durationMs = 2000,
+): CaptionLine => ({
   id: `l-${startMs}`,
   original,
   translation,
   audioStartMs: startMs,
-  audioEndMs: startMs + 2000,
+  audioEndMs: startMs + durationMs,
   speaker: '1',
 });
 
@@ -41,19 +46,140 @@ function writer(client: GoogleDocsClient, over: Record<string, unknown> = {}) {
   });
 }
 
+/**
+ * A paragraph reaches the buffer when it ENDS, so the machinery tests below —
+ * which are about flushing and failing, not about where paragraphs break — say
+ * so with a gap after every line. One line each, as it used to be.
+ */
+const PER_LINE = { paragraph: { gapMs: 1 } };
+
 describe('the entry layout', () => {
-  it('is time of day, position, Gujarati, English, blank', () => {
-    const text = formatEntry(line('This is the glory.', 754_000, 'આ મહિમા છે.'), EPOCH);
-    const [clock, gujarati, english, blank] = text.split('\n');
+  it('is time of day, position, Gujarati, blank, English', () => {
+    const text = formatEntry(
+      { audioStartMs: 754_000, original: 'આ મહિમા છે.', translation: 'This is the glory.' },
+      EPOCH,
+    );
+    const [clock, gujarati, blank, english] = text.split('\n');
 
     expect(clock).toMatch(/^\d{2}:\d{2}:\d{2}  \(0:12:34\)$/);
     expect(gujarati).toBe('આ મહિમા છે.');
-    expect(english).toBe('This is the glory.');
+    // The two languages read as separate blocks of prose, not as a pair of
+    // lines — which is the whole point of joining the clauses up.
     expect(blank).toBe('');
+    expect(english).toBe('This is the glory.');
+  });
+
+  it('leaves no stray blank when a paragraph has only one language', () => {
+    // An untranslated run past maxUntranslatedMs, or an English aside Soniox
+    // never translated because it was already English.
+    const text = formatEntry({ audioStartMs: 0, original: 'ફક્ત ગુજરાતી.', translation: '' }, EPOCH);
+    expect(text.split('\n').slice(1)).toEqual(['ફક્ત ગુજરાતી.', '', '']);
   });
 
   it('counts the offset past an hour', () => {
-    expect(formatEntry(line('x', 3_723_000), EPOCH)).toContain('(1:02:03)');
+    expect(
+      formatEntry({ audioStartMs: 3_723_000, original: 'x', translation: 'y' }, EPOCH),
+    ).toContain('(1:02:03)');
+  });
+});
+
+describe('joining clauses back into sentences', () => {
+  it('puts a space between them', () => {
+    expect(joinClauses(['And then he said', 'that this life', 'is an opportunity.'])).toBe(
+      'And then he said that this life is an opportunity.',
+    );
+  });
+
+  it('does not put one before punctuation', () => {
+    // Soniox hands back the comma of a subclause as a run of its own often
+    // enough that joining naively left "the temple , and the hall" throughout.
+    expect(joinClauses(['the temple', ', and the hall'])).toBe('the temple, and the hall');
+  });
+});
+
+describe('where paragraphs break', () => {
+  const flushed = async (lines: CaptionLine[], over: Record<string, unknown> = {}) => {
+    const { client, appends } = fakeClient();
+    const doc = writer(client, over);
+    await vi.waitFor(() => expect(doc.state).toBe('writing'));
+    for (const line of lines) doc.add(line);
+    await doc.close();
+    return appends.join('');
+  };
+
+  /** Entries are `HH:MM:SS  (offset)` headed, so counting stamps counts them. */
+  const stamps = (text: string) => text.match(/^\d{2}:\d{2}:\d{2}  \(/gm) ?? [];
+
+  it('joins the clauses of one thought into a paragraph with one timestamp', async () => {
+    // The whole reason this file changed: three clauses of Soniox translation
+    // were three timestamps and nine lines of document.
+    const text = await flushed([
+      line('And then he said', 0, 'અને પછી તેમણે કહ્યું'),
+      line('that this life', 2000, 'કે આ જીવન'),
+      line('is an opportunity.', 4000, 'એક તક છે.'),
+    ]);
+
+    expect(stamps(text)).toHaveLength(1);
+    expect(text).toContain('And then he said that this life is an opportunity.');
+    expect(text).toContain('અને પછી તેમણે કહ્યું કે આ જીવન એક તક છે.');
+  });
+
+  it('starts a new paragraph where the speaker paused', async () => {
+    const text = await flushed([
+      line('Before the pause.', 0),
+      // Two seconds of silence: past gapMs, and where a reader would break too.
+      line('After it.', 4000),
+    ]);
+
+    expect(stamps(text)).toHaveLength(2);
+  });
+
+  it('breaks a speaker who never pauses, at a full stop', async () => {
+    // maxSpanMs is a ceiling, not a target — but it runs on to the end of the
+    // sentence rather than cutting mid-clause the instant it is passed.
+    const lines = Array.from({ length: 24 }, (_, i) =>
+      line(i % 4 === 3 ? `clause ${i}.` : `clause ${i}`, i * 2000),
+    );
+    const text = await flushed(lines);
+
+    expect(stamps(text).length).toBeGreaterThan(1);
+    for (const paragraph of text.split('\n\n')) {
+      if (paragraph.includes('clause')) expect(paragraph.trimEnd().endsWith('.')).toBe(true);
+    }
+  });
+
+  it('gives up on the full stop at twice the ceiling', async () => {
+    // A speaker Soniox never punctuates must still not produce one endless
+    // paragraph — the ceiling is soft, not absent. Two minutes of it, broken at
+    // the hard limit of twice the twenty-second one.
+    const lines = Array.from({ length: 60 }, (_, i) => line(`no full stop here ${i}`, i * 2000));
+    const text = await flushed(lines);
+
+    expect(stamps(text)).toHaveLength(3);
+  });
+
+  it('timestamps a paragraph where it STARTED, not where it ended', async () => {
+    const text = await flushed([
+      line('The start of the thought', 754_000),
+      line('and the end of it.', 756_000),
+    ]);
+
+    expect(text).toContain('(0:12:34)');
+  });
+
+  it('writes nothing until a paragraph has ended', async () => {
+    // The trade for readable paragraphs: up to maxSpanMs of speech is held
+    // outside the buffer. The .srt has it, and the ceiling bounds the loss.
+    const { client, appends } = fakeClient();
+    const doc = writer(client);
+    await vi.waitFor(() => expect(doc.state).toBe('writing'));
+
+    doc.add(line('Still being said'));
+    await doc.flush();
+    expect(appends).toEqual([]);
+
+    await doc.close();
+    expect(appends[0]).toContain('Still being said');
   });
 });
 
@@ -70,11 +196,11 @@ describe('writing as the service runs', () => {
     // The reason for batching: a per-line write would scale with how fast the
     // speaker talks, and a sermon is ninety minutes of talking.
     const { client, appends } = fakeClient();
-    const doc = writer(client);
+    const doc = writer(client, PER_LINE);
     await vi.waitFor(() => expect(doc.state).toBe('writing'));
 
-    for (let i = 0; i < 10; i++) doc.add(line(`Line ${i}.`, i * 2000));
-    await doc.flush();
+    for (let i = 0; i < 10; i++) doc.add(line(`Line ${i}.`, i * 3000));
+    await doc.close();
 
     expect(appends).toHaveLength(1);
     expect(appends[0]).toContain('Line 0.');
@@ -96,7 +222,7 @@ describe('writing as the service runs', () => {
 
     doc.add(line('Spoken during creation.'));
     await vi.waitFor(() => expect(doc.state).toBe('writing'));
-    await doc.flush();
+    await doc.close();
 
     expect(appends[0]).toContain('Spoken during creation.');
   });
@@ -105,10 +231,11 @@ describe('writing as the service runs', () => {
 describe('when Google stops answering', () => {
   it('keeps the words and retries with them', async () => {
     const { client, appends } = fakeClient([new Error('ECONNRESET')]);
-    const doc = writer(client);
+    const doc = writer(client, PER_LINE);
     await vi.waitFor(() => expect(doc.state).toBe('writing'));
 
     doc.add(line('Must not be lost.'));
+    doc.add(line('The next thing said.', 3000));
     await doc.flush();
     expect(doc.state).toBe('writing');
 
@@ -122,17 +249,18 @@ describe('when Google stops answering', () => {
     // 403 for the rest of a ninety-minute service helps nobody.
     const errors: Error[] = [];
     const { client, appends } = fakeClient([new GoogleDocsError('no', 403, 'forbidden')]);
-    const doc = writer(client, { onError: (err: Error) => errors.push(err) });
+    const doc = writer(client, { onError: (err: Error) => errors.push(err), ...PER_LINE });
     await vi.waitFor(() => expect(doc.state).toBe('writing'));
 
     doc.add(line('First.'));
+    doc.add(line('Second.', 3000));
     await doc.flush();
 
     expect(doc.state).toBe('failed');
     expect(errors).toHaveLength(1);
 
     // And every later line is a cheap no-op rather than more failures.
-    doc.add(line('Second.'));
+    doc.add(line('Third.', 6000));
     await doc.flush();
     expect(appends).toHaveLength(1);
   });
@@ -141,10 +269,11 @@ describe('when Google stops answering', () => {
     const { client } = fakeClient([
       new Error('down'), new Error('down'), new Error('down'),
     ]);
-    const doc = writer(client, { maxFailures: 3 });
+    const doc = writer(client, { maxFailures: 3, ...PER_LINE });
     await vi.waitFor(() => expect(doc.state).toBe('writing'));
 
     doc.add(line('x'));
+    doc.add(line('y', 3000));
     await doc.flush();
     await doc.flush();
     await doc.flush();
@@ -168,10 +297,10 @@ describe('when Google stops answering', () => {
   it('drops the oldest lines rather than growing without limit', async () => {
     // Ten minutes of dead network. Memory is bounded and the .srt has it all.
     const { client } = fakeClient();
-    const doc = writer(client, { maxPendingChars: 200 });
+    const doc = writer(client, { maxPendingChars: 200, ...PER_LINE });
     await vi.waitFor(() => expect(doc.state).toBe('writing'));
 
-    for (let i = 0; i < 50; i++) doc.add(line(`Line ${i}.`, i * 2000));
+    for (let i = 0; i < 50; i++) doc.add(line(`Line ${i}.`, i * 3000));
     expect(doc.pending).toBeLessThanOrEqual(300);
   });
 });

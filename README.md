@@ -527,23 +527,43 @@ Timestamps run from when capture started.
 
 ### The service, in a Google Doc
 
-Off by default (`live.googleDoc`). Turned on, every finalised line is written to
-a **new Google Doc each time you press Start**, as the service runs:
+Off by default (`live.googleDoc`). Turned on, the service is written to a **new
+Google Doc each time you press Start**, as it happens, in paragraphs:
 
 ```
 11:42:34  (0:12:34)
-આ દર્શન-શ્રવણનો મહિમા છે.
-This is the glory of seeing and hearing.
+આ દર્શન-શ્રવણનો મહિમા છે. સ્વામી બાપાએ આ ભૂમિને પસંદ કરી બંને
+નદીના મધ્યમાં અને અક્ષરધામ તુલ્ય મંદિર બનાવી.
 
-11:42:41  (0:12:41)
+This is the glory of seeing and hearing. Swami Bapa chose this
+land, in the middle of both rivers, and built a temple equal to
+Akshardham.
+
+11:43:07  (0:13:07)
 ભક્તિ એ માર્ગ છે.
+
 Devotion is the path.
 ```
 
+Paragraphs, not one entry per caption. A caption is whatever Soniox finished
+translating — a few words — and stamping each one gave a document four lines
+long per clause: about ten thousand lines for a seventy-minute sermon, complete
+and unreadable. The clauses are joined back up here, where the reader is, and
+the screens keep their short lines. A paragraph ends where the speaker paused
+for a second and a half, or after about 250 characters or twenty seconds if they
+did not — running on to the end of the sentence rather than cutting mid-clause.
+The same sermon comes out at around 250 paragraphs.
+
 Both timestamps, because they answer different questions: the clock places a
 passage against the service somebody sat through, the offset finds it in the
-recording — the same number the `.srt` uses. The link appears on the Captions
-tab as soon as the doc exists, which is before anyone has spoken.
+recording — the same number the `.srt` uses. Each marks where its paragraph
+*started*. The link appears on the Captions tab as soon as the doc exists, which
+is before anyone has spoken.
+
+One trade worth knowing: a paragraph is only sent once it has ended, so the
+document trails the room by up to twenty seconds, and a machine that dies
+mid-sentence loses the paragraph being spoken. The `.srt` beside it has every
+line either way.
 
 **Setting it up**, once:
 
