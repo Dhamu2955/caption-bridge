@@ -1,0 +1,1330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>caption-bridge, explained simply</title>
+<style>
+  :root {
+    --paper: #FBF8F2;
+    --ink: #292018;
+    --muted: #7C6F5F;
+    --line: #E6DECF;
+    --accent: #B26F06;
+    --accent-bright: #E39412;
+    --peacock: #2B5D72;
+    --peacock-ink: #24505F;
+    --panel: #F4EEE2;
+    --panel-2: #EFE7D7;
+    --code-bg: #F1EADB;
+    --screen: #0D0A06;
+    --screen-text: #FFFFFF;
+    --good: #3E6B44;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #171208;
+      --ink: #EDE4D3;
+      --muted: #A3947E;
+      --line: #383021;
+      --accent: #EFA02A;
+      --accent-bright: #EFA02A;
+      --peacock: #8FBCCD;
+      --peacock-ink: #9EC7D6;
+      --panel: #211B0F;
+      --panel-2: #281F11;
+      --code-bg: #241D10;
+      --good: #8FBC95;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #FBF8F2;
+    --ink: #292018;
+    --muted: #7C6F5F;
+    --line: #E6DECF;
+    --accent: #B26F06;
+    --accent-bright: #E39412;
+    --peacock: #2B5D72;
+    --peacock-ink: #24505F;
+    --panel: #F4EEE2;
+    --panel-2: #EFE7D7;
+    --code-bg: #F1EADB;
+    --good: #3E6B44;
+  }
+  :root[data-theme="dark"] {
+    --paper: #171208;
+    --ink: #EDE4D3;
+    --muted: #A3947E;
+    --line: #383021;
+    --accent: #EFA02A;
+    --accent-bright: #EFA02A;
+    --peacock: #8FBCCD;
+    --peacock-ink: #9EC7D6;
+    --panel: #211B0F;
+    --panel-2: #281F11;
+    --code-bg: #241D10;
+    --good: #8FBC95;
+  }
+
+  html { background: var(--paper); }
+  body {
+    margin: 0;
+    overflow-x: hidden;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .doc {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 3.5rem 1.4rem 5rem;
+  }
+  .doc > section { margin-top: 4.5rem; }
+
+  .prose { max-width: 70ch; }
+  p { margin: 0 0 1em; }
+  .prose > p:last-child { margin-bottom: 0; }
+
+  h1, h2, h3 { text-wrap: balance; margin: 0; }
+  h1 {
+    font-size: clamp(2.3rem, 5.5vw, 3.4rem);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: 1.75rem;
+    line-height: 1.2;
+    font-weight: 600;
+    margin-bottom: 0.9rem;
+  }
+  h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 2rem 0 0.5rem;
+  }
+
+  .eyebrow {
+    font-family: "Avenir Next", Avenir, "Segoe UI", "Helvetica Neue", sans-serif;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    margin: 0 0 0.7rem;
+  }
+  section > .eyebrow::before {
+    content: "";
+    display: inline-block;
+    width: 1.6rem;
+    height: 1px;
+    background: var(--accent);
+    vertical-align: middle;
+    margin-right: 0.6rem;
+  }
+
+  .lede {
+    font-size: 1.18rem;
+    line-height: 1.55;
+    max-width: 62ch;
+    color: var(--ink);
+  }
+
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  code, .mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.86em;
+  }
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  /* ---------- hero caption screen ---------- */
+  .screen {
+    background: var(--screen);
+    border-radius: 10px;
+    padding: 2.2rem 2.4rem 2rem;
+    margin: 2.4rem 0 0.6rem;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 18px 40px -28px rgba(0,0,0,0.55);
+  }
+  .screen .slate {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.68rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.38);
+    margin-bottom: 1.4rem;
+  }
+  .screen .slate b { color: var(--accent-bright); font-weight: 600; }
+  .screen .gu {
+    font-size: 1.05rem;
+    color: rgba(255,255,255,0.55);
+    margin: 0 0 0.9rem;
+  }
+  .screen .cap {
+    font-family: "Avenir Next", Avenir, "Segoe UI", "Helvetica Neue", sans-serif;
+    font-size: clamp(1.1rem, 2.6vw, 1.5rem);
+    line-height: 1.4;
+    font-weight: 500;
+    margin: 0;
+    color: var(--screen-text);
+  }
+  .screen .cap.dim { color: rgba(255,255,255,0.42); }
+  .screen .cap.cur { animation: rise 0.6s ease-out both; }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .screen .cap.cur { animation: none; }
+  }
+  .screencap {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.8rem;
+    color: var(--muted);
+    max-width: 70ch;
+  }
+
+  /* ---------- toc ---------- */
+  .toc {
+    margin-top: 2.6rem;
+    border-top: 1px solid var(--line);
+    padding-top: 1.4rem;
+  }
+  .toc ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    columns: 2;
+    column-gap: 3rem;
+  }
+  @media (max-width: 620px) { .toc ul { columns: 1; } }
+  .toc li { margin: 0.3rem 0; break-inside: avoid; }
+  .toc a {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.9rem;
+    text-decoration: none;
+    color: var(--ink);
+  }
+  .toc a:hover { color: var(--accent); }
+
+  /* ---------- eli5 asides ---------- */
+  .eli5 {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    margin: 1.4rem 0;
+    max-width: 66ch;
+  }
+  .eli5 .tag {
+    display: inline-block;
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--paper);
+    background: var(--accent);
+    border-radius: 99px;
+    padding: 0.2em 0.75em;
+    margin-bottom: 0.55rem;
+  }
+  .eli5 p { margin: 0; font-size: 0.98rem; }
+  .eli5 p + p { margin-top: 0.5em; }
+
+  /* ---------- flow diagrams ---------- */
+  .flowwrap { overflow-x: auto; margin: 1.6rem 0; padding-bottom: 0.4rem; }
+  .flowwrap.plate {
+    margin: 2rem calc(50% - 50vw);
+    padding: 1.6rem max(1.4rem, calc(50vw - 560px)) 1.9rem;
+    background: var(--panel);
+    border-block: 1px solid var(--line);
+  }
+  .plate .lanelabel { margin: 0 0 1.1rem; }
+  .plate .fnode { background: var(--paper); }
+  .flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    min-width: max-content;
+  }
+  .fnode {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.85rem 1.15rem;
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.97rem;
+    line-height: 1.45;
+    max-width: 16.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .fnode b { font-weight: 600; display: block; }
+  .fnode small { color: var(--muted); font-size: 0.81rem; display: block; }
+  .fnode.hub {
+    background: var(--peacock);
+    border-color: var(--peacock);
+    color: #F4F9FB;
+  }
+  .fnode.hub small { color: rgba(244,249,251,0.72); }
+  @media (prefers-color-scheme: dark) {
+    .fnode.hub { background: #1E4552; border-color: #2B5D72; }
+  }
+  :root[data-theme="dark"] .fnode.hub { background: #1E4552; border-color: #2B5D72; }
+  :root[data-theme="light"] .fnode.hub { background: var(--peacock); border-color: var(--peacock); }
+  .fnode.store {
+    border-style: double;
+    border-width: 3px;
+    border-color: var(--accent);
+    background: var(--panel-2);
+  }
+  .farr {
+    align-self: center;
+    padding: 0 0.85rem;
+    color: var(--muted);
+    font-family: "Avenir Next", Avenir, sans-serif;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+  }
+  .fan {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    justify-content: center;
+  }
+  .fan .fnode { max-width: 19rem; }
+  .lanelabel {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--peacock-ink);
+    margin: 1.8rem 0 0.2rem;
+  }
+
+  /* ---------- token chips ---------- */
+  .tokens {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 1rem 0;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.9rem;
+  }
+  .tk {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.15em 0.55em;
+    white-space: pre;
+  }
+  .tk .sp {
+    background: var(--accent-bright);
+    opacity: 0.55;
+    border-radius: 2px;
+  }
+  .tokens .eq { color: var(--muted); padding: 0 0.3rem; font-family: "Avenir Next", Avenir, sans-serif; }
+  .tokens .word { font-weight: 600; }
+
+  /* ---------- pass / step lists ---------- */
+  .steps { list-style: none; margin: 1.6rem 0 0; padding: 0; counter-reset: step; }
+  .steps > li {
+    counter-increment: step;
+    position: relative;
+    padding: 0 0 1.7rem 3.4rem;
+    max-width: 72ch;
+  }
+  .steps > li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0.05rem;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    font-family: Palatino, Georgia, serif;
+    font-size: 1.05rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .steps > li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: 1.05rem;
+    top: 2.5rem;
+    bottom: 0.3rem;
+    width: 1px;
+    background: var(--line);
+  }
+  .steps b.t { display: block; font-size: 1.06rem; margin-bottom: 0.2rem; }
+  .steps p { margin: 0 0 0.5em; font-size: 0.98rem; }
+  .steps p:last-child { margin-bottom: 0; }
+
+  /* ---------- tables ---------- */
+  .tablewrap { overflow-x: auto; margin: 1.4rem 0; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.88rem;
+  }
+  th {
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    padding: 0.5rem 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--ink);
+  }
+  td {
+    padding: 0.55rem 1rem 0.55rem 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  td.num, .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- rules (invariants) ---------- */
+  .rules { list-style: none; margin: 1.4rem 0 0; padding: 0; max-width: 72ch; }
+  .rules li {
+    border-left: 3px solid var(--accent);
+    padding: 0.15rem 0 0.15rem 1.1rem;
+    margin: 1.1rem 0;
+  }
+  .rules b { display: block; }
+  .rules span { color: var(--muted); font-size: 0.94rem; }
+
+  /* ---------- misc ---------- */
+  .kicker {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    color: var(--muted);
+    font-size: 0.86rem;
+  }
+  .twojobs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.6rem 0;
+  }
+  @media (max-width: 640px) { .twojobs { grid-template-columns: 1fr; } }
+  .job {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.1rem 1.3rem;
+    background: var(--panel);
+  }
+  .job h3 { margin: 0 0 0.3rem; font-size: 1.05rem; }
+  .job .freq {
+    font-family: "Avenir Next", Avenir, sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--peacock-ink);
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+  .job p { font-size: 0.94rem; margin: 0; }
+
+  /* ---------- stat strip ---------- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 2.2rem 0 0;
+  }
+  .stat { background: var(--paper); padding: 1.1rem 1.2rem 1rem; }
+  .stat b {
+    display: block;
+    font-family: Palatino, "Palatino Linotype", Georgia, serif;
+    font-size: 1.85rem;
+    font-weight: 600;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    margin-bottom: 0.25rem;
+  }
+  .stat span {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* ---------- latency ruler ---------- */
+  .tl-bar {
+    display: flex;
+    min-width: 660px;
+    height: 4.4rem;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  }
+  .tl-seg {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 0.9rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
+  }
+  .tl-seg b { font-weight: 600; }
+  .tl-seg small { opacity: 0.78; font-size: 0.71rem; }
+  .tl-speak  { flex: 50 1 0; background: var(--panel-2); }
+  .tl-wait   { flex: 20 1 0; min-width: 10rem; background: color-mix(in srgb, var(--accent-bright) 26%, var(--paper)); }
+  .tl-xlate  { flex: 5 1 0;  min-width: 7rem; background: color-mix(in srgb, var(--peacock) 26%, var(--paper)); }
+  .tl-screen { flex: 7 1 0;  min-width: 7.5rem; background: var(--screen); color: #FFF; }
+  .tl-screen small { opacity: 0.6; }
+  .tl-note {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin: 0.6rem 0 0;
+  }
+
+  /* ---------- channel meter ---------- */
+  .meter {
+    display: grid;
+    grid-template-columns: auto minmax(10rem, 1fr) auto;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    margin: 1.5rem 0 0.5rem;
+    max-width: 36rem;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.86rem;
+  }
+  .meter .track {
+    height: 0.95rem;
+    border-radius: 5px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .meter .fill {
+    height: 100%;
+    border-radius: 4px 0 0 4px;
+    background: linear-gradient(90deg, var(--good), var(--accent-bright));
+  }
+  .meter .val { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .meter .dots { grid-column: 1 / -1; color: var(--muted); padding-left: 0.1rem; }
+  .verdict {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.85rem;
+    color: var(--good);
+    font-weight: 600;
+    margin: 0 0 1.2rem;
+  }
+
+  /* ---------- srt anatomy ---------- */
+  .srtgrid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 1.6rem;
+    align-items: start;
+    margin: 1.7rem 0 0.5rem;
+  }
+  @media (max-width: 700px) { .srtgrid { grid-template-columns: 1fr; } }
+  .srtcue {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.2rem 1.4rem;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.95rem;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  .srtcue .n { color: var(--accent); font-weight: 700; }
+  .srtcue .tc { color: var(--peacock-ink); white-space: nowrap; }
+  .anns { display: flex; flex-direction: column; gap: 0.75rem; }
+  .ann {
+    border-left: 3px solid var(--peacock);
+    padding: 0.1rem 0 0.1rem 0.9rem;
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.83rem;
+    color: var(--muted);
+  }
+  .ann b { display: block; font-size: 0.95rem; color: var(--ink); font-weight: 600; }
+
+  /* ---------- quota bar ---------- */
+  .quota { margin: 1.6rem 0 0.4rem; max-width: 42rem; font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; }
+  .quota-title { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.5rem; }
+  .quota-bar { display: flex; gap: 3px; height: 2.1rem; }
+  .quota-bar i { flex: 800 1 0; background: var(--peacock); border-radius: 4px; }
+  .quota-bar i.spare { flex: 400 1 0; background: var(--panel-2); border: 1px dashed var(--line); }
+  @media (prefers-color-scheme: dark) { .quota-bar i { background: #35718A; } }
+  :root[data-theme="dark"] .quota-bar i { background: #35718A; }
+  :root[data-theme="light"] .quota-bar i { background: var(--peacock); }
+  :root[data-theme="dark"] .quota-bar i.spare, :root[data-theme="light"] .quota-bar i.spare { background: var(--panel-2); }
+  .quota-cap { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.78rem; color: var(--muted); margin-top: 0.45rem; }
+
+  /* ---------- google doc mock ---------- */
+  .docmock {
+    background: #FFFFFF;
+    color: #202124;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 14px 30px -22px rgba(0,0,0,0.45);
+    padding: 1.5rem 1.7rem 1.3rem;
+    max-width: 34rem;
+    margin: 1.7rem 0 0.4rem;
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+  .docmock .ts {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.78rem;
+    color: #5F6368;
+    margin: 0 0 0.45rem;
+  }
+  .docmock .ts b { color: #1A73E8; font-weight: 600; }
+  .docmock p { margin: 0 0 0.85em; }
+  .docmock p:last-child { margin-bottom: 0; }
+  .docchips { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.9rem 0 0; }
+  .chip {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.73rem;
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    padding: 0.28em 0.85em;
+    color: var(--muted);
+  }
+  .chip b { color: var(--accent); font-weight: 700; }
+
+  footer.colophon {
+    margin-top: 5rem;
+    border-top: 1px solid var(--line);
+    padding-top: 1.5rem;
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+    font-size: 0.82rem;
+    color: var(--muted);
+    max-width: 70ch;
+  }
+  footer.colophon p { margin: 0 0 0.5em; }
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <header>
+    <p class="eyebrow">caption-bridge · a plain-words tour of the code</p>
+    <h1>Gujarati in the room.<br>English on the screen.</h1>
+    <p class="lede" style="margin-top:1.2rem">
+      A mandir plays recorded sermons most Sundays and broadcasts its own festival week
+      once a year. Many people watching read English more easily than they follow spoken
+      Gujarati. <strong>caption-bridge</strong> listens to the sermon and puts English
+      words on the screen — either later in the week, or live while the swami is still speaking.
+    </p>
+
+    <div class="screen" role="img" aria-label="A projector caption screen showing a Gujarati line and two English caption lines, the older one dimmed">
+      <p class="slate"><b>ON AIR</b> &nbsp;·&nbsp; /overlay &nbsp;·&nbsp; the one URL vMix points at</p>
+      <p class="gu">ભક્તિ એ માર્ગ છે.</p>
+      <p class="cap dim">This is the glory of seeing and hearing.</p>
+      <p class="cap cur">Devotion is the path.</p>
+    </div>
+    <p class="screencap">
+      This block of words is the entire product. The previous line stays and dims; the new
+      line arrives underneath. Nothing on screen is ever edited after it appears. Everything
+      below exists to make this block show the right words at the right moment.
+    </p>
+
+    <nav class="toc" aria-label="Contents">
+      <ul>
+        <li><a href="#jobs">Two jobs, one machine</a></li>
+        <li><a href="#weekly">The weekly job, start to finish</a></li>
+        <li><a href="#factory">The word factory</a></li>
+        <li><a href="#notebook">The database is the boss</a></li>
+        <li><a href="#live">Captions while it happens</a></li>
+        <li><a href="#sinks">Four places the live words go</a></li>
+        <li><a href="#app">The little website</a></li>
+        <li><a href="#glossary">Teaching it temple words</a></li>
+        <li><a href="#search">Finding a moment again</a></li>
+        <li><a href="#rules">Rules the code never breaks</a></li>
+        <li><a href="#map">Map of the code</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <section id="jobs">
+    <p class="eyebrow">The big picture</p>
+    <h2>Two jobs, one machine</h2>
+    <div class="prose">
+      <p>
+        Everything the project does is one of two jobs, and they share almost all of
+        their parts: the same transcription service (<a href="https://soniox.com">Soniox</a>),
+        the same glossary of temple vocabulary, and the same rules about what a readable
+        subtitle looks like.
+      </p>
+    </div>
+
+    <div class="twojobs">
+      <div class="job">
+        <span class="freq">~45 Sundays a year</span>
+        <h3>The weekly job</h3>
+        <p>A recorded sermon file goes in; subtitle files come out. Run once, checked in VLC,
+        played on the projector or uploaded to YouTube. The workhorse.</p>
+      </div>
+      <div class="job">
+        <span class="freq">7 days, once a year</span>
+        <h3>The festival broadcast</h3>
+        <p>The mandir's own live stream. Sound is captured as the swami speaks and captions
+        go to the screen, YouTube, a subtitle file, and a Google Doc — in seconds.</p>
+      </div>
+    </div>
+
+    <div class="flowwrap plate">
+      <p class="lanelabel">Weekly path — ~45 Sundays a year</p>
+      <div class="flow">
+        <div class="fnode"><b>Video file</b><small>trimmed to just the sermon</small></div>
+        <div class="farr">→</div>
+        <div class="fnode"><b>ffmpeg</b><small>pulls the sound out</small></div>
+        <div class="farr">→</div>
+        <div class="fnode hub"><b>Soniox</b><small>listens + translates, sends back word-pieces</small></div>
+        <div class="farr">→</div>
+        <div class="fnode"><b>Word factory</b><small>pieces become subtitles</small></div>
+        <div class="farr">→</div>
+        <div class="fnode store"><b>Postgres</b><small>the master notebook</small></div>
+        <div class="farr">→</div>
+        <div class="fan">
+          <div class="fnode"><b>.srt files</b><small>VLC picks them up beside the video</small></div>
+          <div class="fnode"><b>YouTube tracks</b><small><code>publish</code>, both languages</small></div>
+          <div class="fnode"><b>Projector</b><small><code>play</code> drives vMix live from the notebook</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flowwrap plate">
+      <p class="lanelabel">Live path — festival week, as it happens</p>
+      <div class="flow">
+        <div class="fnode"><b>Microphone</b><small>or the browser, or a recording</small></div>
+        <div class="farr">→</div>
+        <div class="fnode"><b>Capture</b><small>raw audio, 16&#8202;kHz mono</small></div>
+        <div class="farr">→</div>
+        <div class="fnode hub"><b>Soniox live wire</b><small>a websocket; words stream back as they're finished</small></div>
+        <div class="farr">→</div>
+        <div class="fnode"><b>Line builder</b><small>finished words become caption lines</small></div>
+        <div class="farr">→</div>
+        <div class="fan">
+          <div class="fnode"><b>The screen</b><small><code>/overlay</code> in a vMix Browser input</small></div>
+          <div class="fnode"><b>YouTube live captions</b><small>POSTed to the ingestion URL</small></div>
+          <div class="fnode"><b>A live .srt</b><small>written as the service runs</small></div>
+          <div class="fnode"><b>A Google Doc</b><small>the service as readable paragraphs</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats" aria-label="Numbers that matter">
+      <div class="stat"><b>$15</b><span>a year to run</span></div>
+      <div class="stat"><b>7 s</b><span>median live line, first word to screen</span></div>
+      <div class="stat"><b>202 + 86</b><span>glossary terms built in</span></div>
+      <div class="stat"><b>800</b><span>quota units per video on YouTube</span></div>
+      <div class="stat"><b>~400</b><span>tests, free — no API calls</span></div>
+      <div class="stat"><b>120 MB</b><span>search model, runs locally</span></div>
+    </div>
+
+    <aside class="eli5">
+      <span class="tag">Like you're five</span>
+      <p>It's a robot friend who listens to the sermon in Gujarati and writes what it hears,
+      in English, on the TV. On Sundays it does its homework after school; during festival
+      week it has to shout the answers out in class, live.</p>
+    </aside>
+  </section>
+
+  <section id="weekly">
+    <p class="eyebrow">Job one</p>
+    <h2>The weekly job, start to finish</h2>
+    <div class="prose">
+      <p>
+        One command does the whole thing:
+        <code>ingest ./sermon-2026-08-16.mp4 --speaker "Swami Ji" --date 2026-08-16</code>.
+        A 90-minute sermon takes a few minutes. Here is what actually happens inside.
+      </p>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <b class="t">Trim the video first</b>
+        <p>Every timestamp is counted from second zero of the file you hand over. Trim the
+        file to just the sermon and no offset arithmetic ever exists anywhere. The video
+        itself is <em>never modified</em> — subtitles live beside it as separate files.</p>
+      </li>
+      <li>
+        <b class="t">Pull the sound out</b>
+        <p><code>src/audio/extract.ts</code> asks ffmpeg to lift just the audio track.
+        Soniox doesn't want the pictures.</p>
+      </li>
+      <li>
+        <b class="t">Send it to Soniox</b>
+        <p>A cloud service that listens to Gujarati, writes down what was said, and translates
+        it to English — steered by the glossary (<a href="#glossary">below</a>). It sends back
+        thousands of tiny word-pieces called <em>tokens</em>, each spoken piece stamped with
+        the exact millisecond it was said.</p>
+        <p>The full answer is saved beside the video as <code>.soniox.json</code> — like
+        keeping the receipt. Run <code>ingest</code> again and it reuses the receipt:
+        free, instant, and byte-identical. <code>--force</code> is the only way to pay twice.</p>
+      </li>
+      <li>
+        <b class="t">Build the subtitles</b>
+        <p>The word factory (<code>src/segments/build.ts</code>) glues pieces into words and
+        words into subtitle-sized chunks with start and end times. The whole next section
+        is about this file — it is the heart of the project.</p>
+      </li>
+      <li>
+        <b class="t">Write it all in the notebook</b>
+        <p>Every subtitle goes into Postgres: the Gujarati, the English, the timing, the
+        speaker. This copy is the boss copy — everything else is regenerated from it.</p>
+      </li>
+      <li>
+        <b class="t">Hand out copies</b>
+        <p>Two <code>.srt</code> files (English and Gujarati) appear beside the video — VLC
+        finds them automatically. <code>publish</code> puts both on YouTube as caption
+        tracks. <code>play</code> drives the projector overlay in sync with vMix playback,
+        reading straight from the notebook.</p>
+      </li>
+    </ol>
+
+    <aside class="eli5">
+      <span class="tag">Like you're five</span>
+      <p>You give the robot a film. It covers its eyes and just listens, writes everything
+      down in its big notebook, then prints out little cards of words that pop up at the
+      right moments. And it keeps the receipt, so if you ask again it doesn't do the
+      work twice — it photocopies its notebook.</p>
+    </aside>
+  </section>
+
+  <section id="factory">
+    <p class="eyebrow">The heart · <span class="mono">src/segments/build.ts</span></p>
+    <h2>The word factory</h2>
+    <div class="prose">
+      <p>
+        Soniox doesn't send back sentences. It sends back <em>pieces of words</em>, and two
+        strange facts about them shape the whole file. Both were invisible on small tests
+        and only showed up on a real 69-minute sermon.
+      </p>
+      <p><strong>Fact one: tokens are puzzle pieces, and a leading space is the only clue.</strong>
+      A piece that starts with a space begins a new word; a piece that doesn't is the
+      middle of one. Join them with nothing in between:</p>
+    </div>
+
+    <div class="tokens" aria-label="Gujarati tokens joining into one word">
+      <span class="tk">અ</span><span class="tk">ક્ષ</span><span class="tk">ર</span>
+      <span class="eq">snaps into</span>
+      <span class="word">અક્ષર</span>
+      <span class="eq">— one word</span>
+    </div>
+    <div class="tokens" aria-label="English tokens joining into two words">
+      <span class="tk">The</span><span class="tk"><span class="sp">&nbsp;</span>l</span><span class="tk">ord</span>
+      <span class="eq">snaps into</span>
+      <span class="word">The lord</span>
+      <span class="eq">— the marked space starts word two</span>
+    </div>
+
+    <div class="prose">
+      <p>Soniox even sends a bare <code>" "</code> as its own token. It looks empty, but it is
+      a word boundary — throw it away and two words get welded together.</p>
+      <p><strong>Fact two: translated pieces have broken clocks.</strong> Every English token
+      arrives stamped <code>start_ms: 0</code>. Believe it and every subtitle drags itself to
+      the very start of the video. So timing always comes from the spoken Gujarati pieces,
+      and the English borrows it.</p>
+      <p>With those two facts respected, the factory runs five passes. The same pieces in
+      always produce byte-identical subtitles out — no randomness anywhere.</p>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <b class="t">Sort and pair</b>
+        <p>Split the stream into Gujarati runs and English runs, then pair each spoken run
+        with the translation that follows it. Run-to-run, never piece-to-piece — the two
+        streams have different lengths and their pieces don't correspond.</p>
+      </li>
+      <li>
+        <b class="t">Split the giants</b>
+        <p>A long unbroken passage becomes one huge block. Too big for a screen, it is cut
+        at the friendliest point available: a sentence end, else the longest pause, else the
+        middle — and never, ever in the middle of a word.</p>
+      </li>
+      <li>
+        <b class="t">Group into subtitles</b>
+        <p>Blocks stick together until a sentence ends or the speaker goes quiet for
+        4&#8202;seconds. A subtitle never spans two speakers, never exceeds ~138 characters,
+        never stays up longer than 20&#8202;seconds.</p>
+      </li>
+      <li>
+        <b class="t">No blinking allowed</b>
+        <p>Anything that would flash up for under 1.5&#8202;seconds is merged into its
+        neighbour. This rule outranks the size rules — a merged subtitle may run a little
+        long, but nothing unreadable ever ships.</p>
+      </li>
+      <li>
+        <b class="t">No overlaps</b>
+        <p>Two subtitles must never be on screen at once. Overlapping ones get clamped, or
+        merged if clamping would make one blink.</p>
+      </li>
+    </ol>
+
+    <div class="prose">
+      <p>Last of all, the glossary clean-up pass runs over the finished English — because
+      gluing two subtitles together can form a phrase neither of them contained, and
+      "Swami" + "Bapa" is exactly one of the phrases it fixes.</p>
+
+      <h3>The shape of a finished subtitle</h3>
+      <p>Every rule above exists so that what comes out looks like this:</p>
+    </div>
+
+    <div class="srtgrid">
+      <div class="srtcue" aria-label="An example SRT cue with its rules annotated">
+        <span class="n">42</span><br>
+        <span class="tc">00:14:07,120 --&gt; 00:14:11,890</span><br>
+        Devotion is the path, and the path<br>
+        asks for the whole heart —<br>
+        not a corner of it.
+      </div>
+      <div class="anns">
+        <div class="ann"><b>At most 3 lines of 46 characters</b>
+          the third line bought full sentences: 83% of cues now end on a full stop, up from 62% at two lines</div>
+        <div class="ann"><b>On screen 1.5–20 seconds</b>
+          under 1.5 s is merged away, never flashed; over 20 s is split at a pause</div>
+        <div class="ann"><b>Never cut mid-word</b>
+          a cue boundary only ever lands where a token starts with a space</div>
+        <div class="ann"><b>Numbered from 1</b>
+          the same number VLC shows — and the one <code>edit --cue 42</code> takes</div>
+      </div>
+    </div>
+
+    <aside class="eli5">
+      <span class="tag">Like you're five</span>
+      <p>The words arrive as LEGO bricks, not toys. The factory snaps bricks into words,
+      words into little signs, throws no brick away (even the invisible ones), makes sure
+      no sign flashes too fast to read, and never lets two signs fight over the screen.</p>
+    </aside>
+  </section>
+
+  <section id="notebook">
+    <p class="eyebrow">Source of truth</p>
+    <h2>The database is the boss</h2>
+    <div class="prose">
+      <p>
+        The <code>.srt</code> files are photocopies. Postgres is the original. Fix a bad
+        translation in the database and every future copy — the files, YouTube, the
+        projector — comes out corrected. Hand-edit an <code>.srt</code> instead and the next
+        export silently overwrites your work.
+      </p>
+      <p>Fixing a line takes four commands:</p>
+    </div>
+
+<pre><code>list                                          # find the service
+show ./sermon.mp4 --from 40 --limit 5         # read around the problem
+edit ./sermon.mp4 --cue 42 --text "The corrected line."
+export ./sermon.mp4                           # regenerate the .srt files</code></pre>
+
+    <div class="prose">
+      <p>
+        Every edit records <strong>who changed it, when, and what it said before</strong> —
+        nothing is ever lost. And re-ingesting a sermon that carries corrections is
+        <em>refused</em> unless you pass <code>--replace-edited</code>, because otherwise a
+        routine weekly re-run would quietly destroy someone's evening of careful fixes.
+      </p>
+      <p>
+        YouTube publishing is polite about the boss copy too. The notebook remembers the
+        video id and the track ids, so a re-publish after a correction <em>updates</em> the
+        existing track instead of adding a second "English". It also remembers a fingerprint
+        of what was uploaded — publish again with nothing changed and it makes no request
+        at all.
+      </p>
+    </div>
+
+    <div class="quota" aria-label="One day of YouTube quota: 10,000 units, twelve videos at 800 units each, 400 spare">
+      <p class="quota-title">One day of YouTube quota — 10,000 units</p>
+      <div class="quota-bar">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="spare"></i>
+      </div>
+      <div class="quota-cap">
+        <span>each block = one video, both languages (800 units; a correction re-publish is 900)</span>
+        <span class="num">≈ 12 videos/day</span>
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        So a year's backlog (~45 sermons) is about a four-day run. <code>publish --all</code>
+        spends 90% of the day's allowance, stops cleanly, and picks up tomorrow by itself —
+        it keeps no state file, because the notebook already records what is on YouTube.
+      </p>
+    </div>
+
+    <aside class="eli5">
+      <span class="tag">Like you're five</span>
+      <p>There is one big notebook and lots of photocopies. You never draw on a photocopy —
+      you fix the notebook and print fresh copies. The notebook writes in pencil-proof ink:
+      it remembers every fix, who made it, and what the page said before. And YouTube gives
+      the robot pocket money every day; when it runs out, it just comes back tomorrow.</p>
+    </aside>
+  </section>
+
+  <section id="live">
+    <p class="eyebrow">Job two</p>
+    <h2>Captions while it happens</h2>
+    <div class="prose">
+      <p>
+        Festival week. Start is pressed on the Captions tab (or <code>live --device ...</code>
+        in a terminal — the app calls the same code). Sound flows to Soniox over a
+        websocket, and finished, translated lines flow back and go straight out. There is
+        no queue, no reviewer, no scheduler: <strong>the moment a line's English exists, it
+        is on screen.</strong>
+      </p>
+
+      <h3>Three ways to get sound in</h3>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <tr><th>Input</th><th>How</th><th>When</th></tr>
+        <tr><td><b>An audio device</b></td><td>ffmpeg captures a named device</td><td>A real service — the only one that works when the page is open on another machine</td></tr>
+        <tr><td><b>This browser</b></td><td>the page streams its own mic to the bridge</td><td>No ffmpeg, no device names typed exactly right</td></tr>
+        <tr><td><b>A recording</b></td><td>played in at recorded speed</td><td>Rehearsal without a microphone</td></tr>
+      </table>
+    </div>
+
+    <div class="prose">
+      <h3>Why a caption takes a few seconds</h3>
+      <p>
+        A caption cannot exist until the sentence it covers has <em>finished being spoken</em>,
+        and then Soniox has to translate it. That wait is nearly all of the delay — measured
+        on a real sermon, the median line is ready 7&#8202;seconds after its first word, about
+        1–2&#8202;seconds after its last.
+      </p>
+      <p>
+        There is exactly one knob: <strong>Settings → "How long to wait before captioning"</strong>
+        (<code>live.maxEndpointDelayMs</code>, 2000&#8202;ms). It is a ceiling on how long Soniox
+        may wait before declaring a clause finished. Lower it and captions arrive sooner but
+        as fragments, chopped mid-thought. Everything else is already instant, so there is
+        nothing else to shorten.
+      </p>
+
+      <h3>Seven seconds, on a ruler</h3>
+    </div>
+
+    <div class="flowwrap">
+      <div class="tl-bar" role="img" aria-label="Timeline of one live caption: about five seconds of the sentence being spoken, up to two seconds while Soniox decides the clause has ended, about a fifth of a second to translate, then on screen the same frame">
+        <div class="tl-seg tl-speak"><b>The sentence is being spoken</b><small>~5 s — nothing can exist yet</small></div>
+        <div class="tl-seg tl-wait"><b>Soniox decides it ended</b><small>≤2 s — the one knob</small></div>
+        <div class="tl-seg tl-xlate"><b>Translated</b><small>~0.2 s</small></div>
+        <div class="tl-seg tl-screen"><b>On screen</b><small>same frame</small></div>
+      </div>
+    </div>
+    <p class="tl-note">Nothing waits for anything else: no queue, no buffer, no scheduler.
+    The wait <em>is</em> the sentence finishing — which is why the only lever trades speed
+    for fragments.</p>
+
+    <div class="prose">
+      <p>
+        And the screen keeps the previous line, dimmed, above the new one — two short
+        captions read as the sentence they are, instead of one flashing past and being
+        replaced. Neither line is ever edited; a new line arrives, the old one moves up.
+      </p>
+    </div>
+
+    <aside class="eli5">
+      <span class="tag">Like you're five</span>
+      <p>The robot is an interpreter, and interpreters can't interrupt. It has to wait for
+      the swami to finish the sentence before it can say it in English — the wait <em>is</em>
+      the sentence being finished. It will never mumble a guess and then take it back:
+      once words are on the screen, they stay exactly as they are.</p>
+    </aside>
+  </section>
+
+  <section id="sinks">
+    <p class="eyebrow">Fan-out</p>
+    <h2>Four places the live words go</h2>
+    <div class="prose">
+      <p>Every finished line goes to up to four listeners at once, each with a different job:</p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <tr><th>Sink</th><th>What it is</th><th>Worth knowing</th></tr>
+        <tr>
+          <td><b>The screen</b></td>
+          <td><code>/overlay</code> — transparent page vMix keys over the video</td>
+          <td>One URL for everything; <code>?lines=both</code> adds Gujarati above English</td>
+        </tr>
+        <tr>
+          <td><b>YouTube live</b></td>
+          <td>lines POSTed to the stream's caption ingestion URL</td>
+          <td>Sent the instant they exist — nothing is held back</td>
+        </tr>
+        <tr>
+          <td><b>A live .srt</b></td>
+          <td>subtitle file written into <code>recordings/</code> as the service runs</td>
+          <td>The recording can be captioned afterwards without paying to transcribe twice</td>
+        </tr>
+        <tr>
+          <td><b>A Google Doc</b></td>
+          <td>a fresh doc per service, written as it happens</td>
+          <td>Off by default; the readable record for anyone following along</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        The Doc deserves a word, because it deliberately does <em>not</em> mirror the screen.
+        The screen speaks in short lines; the Doc writes in paragraphs — one entry per caption
+        gave a seventy-minute sermon ten thousand unreadable lines. A paragraph ends when the
+        speaker pauses for a second and a half, or after about 250 characters or twenty
+        seconds, always running on to the end of the sentence. Each paragraph carries two
+        timestamps, because they answer different questions:
+      </p>
+    </div>
+
+    <div class="docmock" aria-label="A mock of the Google Doc: a paragraph with a wall-clock timestamp and a recording offset, Gujarati above English">
+      <p class="ts"><b>11:43:07</b>&nbsp;&nbsp;(0:13:07)</p>
+      <p lang="gu">ભક્તિ એ માર્ગ છે. સ્વામી બાપાએ આ ભૂમિને પસંદ કરી બંને નદીના મધ્યમાં અને અક્ષરધામ તુલ્ય મંદિર બનાવી.</p>
+      <p>Devotion is the path. Swami Bapa chose this land, in the middle of both rivers,
+      and built a temple equal to Akshardham.</p>
+      <div class="docchips">
+        <span class="chip"><b>11:43:07</b> — the wall clock: find it in the service you sat through</span>
+        <span class="chip"><b>0:13:07</b> — the offset: find it in the recording; same number the .srt uses</span>
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        And it cannot take a service down. Lines are batched every five seconds, a hiccup
+        retries with the words still buffered, and a permanent failure stops the Doc for the
+        rest of the service and says so on the Captions tab — while the screen, YouTube and
+        the <code>.srt</code> carry on.
+      </p>
+    </div>
+
+    <aside class="eli5">
+      <span class="tag">Like you're five</span>
+      <p>Four friends listen to the robot. One holds up the sign. One phones YouTube.
+      One writes a subtitle file for the recording. And one keeps a diary in nice
+      paragraphs — and if the diary-writer's pen breaks, the other three don't even look up.</p>
+    </aside>
+  </section>
+
+  <section id="app">
+    <p class="eyebrow">The operator's view</p>
+    <h2>The little website</h2>
+    <div class="prose">
+      <p>
+        <code>npm run dev</code> starts a small web app on the LAN and prints one address per
+        network. It starts on a machine with <em>nothing</em> configured — no API key, no
+        database — and lists what's missing with one thing to do about each, instead of
+        refusing to run. Closing the page stops nothing: the bridge lives in the terminal,
+        and only <code>Ctrl+C</code> ends it.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <tr><th>Page</th><th>Job</th></tr>
+        <tr><td><b>Homepage</b> <span class="mono">/</span></td><td>A signpost: every screen with the token already in the link, the addresses other machines can use, what's still to set up. Deliberately read-only.</td></tr>
+        <tr><td><b>Captions</b></td><td>The sound input, Start and Stop, the level meter, the overlay URL for vMix, what has gone out</td></tr>
+        <tr><td><b>Glossary</b></td><td>What the bridge already knows, and what you've taught it</td></tr>
+        <tr><td><b>Sermons</b></td><td>Every service, its subtitles, corrections, re-export</td></tr>
+        <tr><td><b>Settings</b></td><td>Credentials, subtitle shape, live timing, names and terms</td></tr>
+      </table>
+    </div>
+
+    <div class="prose">
+      <h3>Being on the network is the login</h3>
+      <p>
+        Every page carries a <code>?token=</code> because a vMix Browser input cannot type a
+        password. The homepage hands that token to any browser asking from a private address —
+        that's what makes the short URL work. So the mandir LAN is the boundary: anyone in
+        the building can open the app; nobody outside can. Which is exactly why the port must
+        <strong>never be forwarded to the internet</strong>.
+      </p>
+
+      <h3>The sixteen-doorbell problem</h3>
+      <p>
+        A capture card is one device with many inputs — a Blackmagic card presents sixteen,
+        and the speaker is on one of them. Mixing all sixteen together averages one voice
+        with fifteen silent channels: 24&#8202;dB down, a meter that barely moves, and a
+        transcription of nothing — with no error anywhere, because nothing is technically
+        wrong. <strong>Test this input</strong> listens for four seconds, shows the level on
+        every channel separately, and picks the live one for you:
+      </p>
+    </div>
+
+    <div class="meter" role="img" aria-label="Per-channel level test: input 1 shows sound at minus 27.3 decibels, every other input is silent">
+      <span>Input 1</span><span class="track"><span class="fill" style="display:block;width:54%"></span></span><span class="val">−27.3 dB</span>
+      <span>Input 2</span><span class="track"></span><span class="val">silent</span>
+      <span>Input 3</span><span class="track"></span><span class="val">silent</span>
+      <span class="dots">⋮&nbsp;&nbsp;inputs 4–16 — all silent</span>
+    </div>
+    <p class="verdict">Sound on input 1 only, out of 16 → chosen for you. Sixteen silent
+    channels means the device is fine and nothing is reaching it.</p>
+
+    <aside class="eli5">
+      <span class="tag">Like you're five</span>
+      <p>Being inside the house is the ticket — anyone in the house can use the remote,
+      and the front door stays locked to the street. And the mixing desk is one doorbell
+      with sixteen buttons: press all sixteen at once and one tiny ring gets drowned out by
+      fifteen silences. The app presses each button and tells you which one actually rings.</p>
+    </aside>
+  </section>
+
+  <section id="glossary">
+    <p class="eyebrow">Vocabulary</p>
+    <h2>Teaching it temple words</h2>
+    <div class="prose">
+      <p>
+        A generic transcriber makes a mess of Swaminarayan vocabulary. So the bridge ships
+        with a glossary — <span class="num">202</span> translation terms,
+        <span class="num">86</span> listening terms, and a block of instructions setting the
+        register: this is a sermon, not a podcast; grace and blessings, never a literal
+        reading that lands somewhere awkward on a public broadcast. It was ported, with
+        thanks, from the Aashirwad Captions bridge run by the American mandirs.
+      </p>
+      <p>
+        A glossary is a <em>soft</em> bias — Soniox paraphrases through it often enough that a
+        second pass exists. <code>src/soniox/normalize.ts</code> corrects the English
+        afterwards: Jai becomes Jay, lineage titles stay as names instead of turning into
+        "the life-breath of our life", and દ્વિભુજ is rendered two-armed rather than
+        <em>bipedal</em>.
+      </p>
+      <p>
+        Curation happens on the Glossary tab. Your terms override the built-ins; an
+        overridden built-in shows what it replaced and can be restored; nothing is ever
+        deleted. Changes apply the next time captions start — Soniox can't be re-taught
+        mid-session.
+      </p>
+    </div>
+
+    <aside class="eli5">
+      <span class="tag">Like you're five</span>
+      <p>You give the robot a list of your family's names and your special words so it
+      doesn't guess. It still gets one wrong sometimes, so a proofreader with a red pen
+      fixes the same known mistakes every time, the moment before the words go out.</p>
+    </aside>
+  </section>
+
+  <section id="search">
+    <p class="eyebrow">Memory</p>
+    <h2>Finding a moment again</h2>
+    <div class="prose">
+      <p>
+        <code>search "what does devotion require"</code> finds passages by <em>meaning</em>,
+        not keywords, across every ingested sermon — and both languages are indexed, so an
+        English question can find a Gujarati passage. Results link like
+        <code>sermon.mp4#t=1727</code>: click and the video jumps to that second.
+      </p>
+      <p>
+        The understanding model runs on your machine — a one-off ~120&#8202;MB download, no
+        API key, nothing sent anywhere. Sermons are indexed as 1–3 minute passages rather
+        than single subtitles, because one subtitle is too small a thought to search for.
+      </p>
+    </div>
+
+    <aside class="eli5">
+      <span class="tag">Like you're five</span>
+      <p>Ask "where did he talk about being kind?" and it flips through every notebook and
+      opens the video at the right page — even if he never said the word "kind", and even
+      if you asked in the other language.</p>
+    </aside>
+  </section>
+
+  <section id="rules">
+    <p class="eyebrow">Invariants</p>
+    <h2>Rules the code never breaks</h2>
+    <div class="prose">
+      <p>A few promises hold everywhere, because breaking them is expensive or cruel to
+      undo. The full list, with reasoning, lives in <code>SPEC.md</code>.</p>
+    </div>
+    <ul class="rules">
+      <li><b>The video file is never touched.</b>
+        <span>Subtitles are separate files beside it. A correction never re-encodes anything.</span></li>
+      <li><b>Words shown are never changed.</b>
+        <span>No provisional text, no re-ordering under the reader's eyes. Four separate mechanisms enforce it, from the wire protocol up.</span></li>
+      <li><b>Nothing flashes.</b>
+        <span>No subtitle lives shorter than 1.5 seconds. This rule outranks every size limit.</span></li>
+      <li><b>Human corrections are never silently destroyed.</b>
+        <span>Re-ingesting an edited sermon is refused; every edit keeps who, when, and the words before.</span></li>
+      <li><b>Secrets never go in <code>config.json</code>.</b>
+        <span>That file is committed to git. Keys live in <code>.env</code>, which never is.</span></li>
+      <li><b>The database is the only source of truth.</b>
+        <span>Files, YouTube tracks, the projector — all regenerated copies, all disposable.</span></li>
+    </ul>
+  </section>
+
+  <section id="map">
+    <p class="eyebrow">Orientation</p>
+    <h2>Map of the code</h2>
+    <div class="prose">
+      <p>Where to look for each thing. <code>src/segments/build.ts</code> is the piece to
+      read first — everything else feeds it or consumes what it produces.</p>
+    </div>
+
+<pre><code>src/
+  cli.ts               every command starts here
+  segments/build.ts    the word factory — read this one first
+  soniox/              the async client, the glossary, the red-pen pass
+  live/                the live path: capture, websocket, line builder,
+                       and the four sinks (screen, YouTube, .srt, Doc)
+  google/              OAuth plus the Docs/Drive client
+  youtube/             caption tracks on the Data API
+  db/                  the master notebook (Postgres via Prisma)
+  search/              chunking, local embeddings, vector search
+  settings/            reads and writes .env and config.json, atomically
+  web/                 the HTTP routes the app's pages call
+  commands/            one file per CLI command
+public/
+  home.html            the signpost
+  app.html             the app — one tab per job
+  overlay.html         the caption screen itself
+prisma/schema.prisma   the notebook's shape
+test/                  ~400 tests, no API calls, free to run</code></pre>
+  </section>
+
+  <footer class="colophon">
+    <p>Running cost is roughly $15 a year, plus a one-off $100–150 to backfill an archive.
+    The test suite spends nothing: no API calls, and database tests politely skip
+    themselves when Postgres isn't running.</p>
+    <p>Written from the code on <span class="num">13 August 2026</span>, at commit
+    <span class="mono">dde09f2</span>. The precise version of everything here is
+    <span class="mono">README.md</span> and <span class="mono">SPEC.md</span> in the repo.</p>
+  </footer>
+
+</div>
+</body>
+</html>
